@@ -68,6 +68,13 @@ export class GoogleSheetClient {
   private isFirestoreHydrated: boolean = false;
   private lastTestedAt: string | null = null;
   private unsubscribeFirestore: Unsubscribe | null = null;
+  private initFirestorePromise: Promise<void> | null = null;
+  private inFlightSheetFetches = new Map<
+    string,
+    Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string }>
+  >();
+  private clientSheetCache = new Map<string, { data: any[]; fetchedAt: number }>();
+  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 90_000;
 
   private constructor() {
     this.initFromFirestore();
@@ -143,6 +150,8 @@ export class GoogleSheetClient {
 
     if (prevSpreadsheetId !== this.spreadsheetId) {
       GoogleDriveSheetService.getInstance().clearSheetIdCache(prevSpreadsheetId);
+      this.clientSheetCache.clear();
+      this.inFlightSheetFetches.clear();
     }
 
     this.isFirestoreHydrated = true;
@@ -171,27 +180,39 @@ export class GoogleSheetClient {
   }
 
   /**
-   * Hydrate & subscribe in real-time to Firestore /config/workspace
+   * Hydrate & subscribe in real-time to Firestore /config/workspace (deduplicated)
    */
   public async initFromFirestore(): Promise<void> {
-    try {
-      const { config } = await WorkspaceConfigStore.fetchConfigFromServer();
-      this.applyConfig(config);
-    } catch (e) {
-      console.warn('[GoogleSheetClient] Firestore initial config fetch failed:', e);
-      this.isFirestoreHydrated = true;
-      this.notifyChange();
+    if (this.initFirestorePromise) {
+      return this.initFirestorePromise;
     }
 
-    if (!this.unsubscribeFirestore) {
-      this.unsubscribeFirestore = WorkspaceConfigStore.subscribeToConfig(
-        (config) => {
-          this.applyConfig(config);
-        },
-        (err) => {
-          console.warn('[GoogleSheetClient] Firestore snapshot warning:', err?.message);
-        }
-      );
+    this.initFirestorePromise = (async () => {
+      try {
+        const { config } = await WorkspaceConfigStore.fetchConfigFromServer();
+        this.applyConfig(config);
+      } catch (e) {
+        console.warn('[GoogleSheetClient] Firestore initial config fetch failed:', e);
+        this.isFirestoreHydrated = true;
+        this.notifyChange();
+      }
+
+      if (!this.unsubscribeFirestore) {
+        this.unsubscribeFirestore = WorkspaceConfigStore.subscribeToConfig(
+          (config) => {
+            this.applyConfig(config);
+          },
+          (err) => {
+            console.warn('[GoogleSheetClient] Firestore snapshot warning:', err?.message);
+          }
+        );
+      }
+    })();
+
+    try {
+      await this.initFirestorePromise;
+    } finally {
+      this.initFirestorePromise = null;
     }
   }
 
@@ -775,8 +796,21 @@ export class GoogleSheetClient {
     };
   }
 
+  public invalidateClientSheetCache(sheetName?: string): void {
+    if (!sheetName) {
+      this.clientSheetCache.clear();
+      return;
+    }
+    this.clientSheetCache.delete(`${this.spreadsheetId}::${sheetName}`);
+    if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
+      this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa_XI`);
+      this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa`);
+    }
+  }
+
   /**
    * 100% SSOT Fetch directly from Google Spreadsheet via Server Proxy / Cloud GAS Web App
+   * Uses in-flight request deduplication and short client cache to keep navigation snappy.
    */
   public async fetchSheetData(
     sheetName: string,
@@ -798,8 +832,6 @@ export class GoogleSheetClient {
       };
     }
 
-    const normalizer = GoogleDriveSheetService.getInstance();
-
     if (!this.gasDeployUrl) {
       return {
         data: [],
@@ -808,65 +840,95 @@ export class GoogleSheetClient {
       };
     }
 
-    // 1. Server-side GAS Proxy (cached & CORS-free)
-    const bearerToken = await this.resolveAuthBearerToken();
-    if (bearerToken) {
+    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
+    if (!forceFresh) {
+      const cached = this.clientSheetCache.get(cacheKey);
+      if (cached && Date.now() - cached.fetchedAt < GoogleSheetClient.CLIENT_SHEET_CACHE_TTL_MS) {
+        return { data: cached.data, fromSpreadsheet: true };
+      }
+      const existingFlight = this.inFlightSheetFetches.get(cacheKey);
+      if (existingFlight) {
+        return existingFlight;
+      }
+    } else {
+      this.invalidateClientSheetCache(sheetName);
+    }
+
+    const runFetch = (async () => {
+      const normalizer = GoogleDriveSheetService.getInstance();
+
+      // 1. Server-side GAS Proxy (cached & CORS-free)
+      const bearerToken = await this.resolveAuthBearerToken();
+      if (bearerToken) {
+        try {
+          const { ok, status, data: json } = await safeFetchJson(
+            `/api/admin/sheet?sheet=${encodeURIComponent(sheetName)}&fresh=${forceFresh ? '1' : '0'}`,
+            {
+              method: 'GET',
+              timeoutMs: 16_000,
+              headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${bearerToken}`,
+              },
+            }
+          );
+          if (ok && json?.success && Array.isArray(json.data)) {
+            const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
+            this.clientSheetCache.set(cacheKey, { data: normalized, fetchedAt: Date.now() });
+            return {
+              data: normalized,
+              fromSpreadsheet: true,
+            };
+          }
+          if (json?.message && status !== 401 && status !== 403) {
+            throw new Error(json.message);
+          }
+        } catch (proxyErr: any) {
+          if (
+            !(proxyErr instanceof HtmlResponseError) &&
+            !String(proxyErr?.message || '').includes('Failed to fetch')
+          ) {
+            throw proxyErr;
+          }
+        }
+      }
+
+      // 2. Direct Cloud GAS Web App fallback (static SPA preview host)
+      const validation = validateGasDeployUrl(this.gasDeployUrl);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'URL Web App GAS tidak valid.');
+      }
+      const gasUrl = validation.normalizedUrl;
+      const sep = gasUrl.includes('?') ? '&' : '?';
       try {
         const { ok, status, data: json } = await safeFetchJson(
-          `/api/admin/sheet?sheet=${encodeURIComponent(sheetName)}&fresh=${forceFresh ? '1' : '0'}`,
-          {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              Authorization: `Bearer ${bearerToken}`,
-            },
-          }
+          `${gasUrl}${sep}sheet=${encodeURIComponent(sheetName)}&year=${encodeURIComponent(
+            this.activeYear
+          )}&spreadsheetId=${encodeURIComponent(this.spreadsheetId)}`,
+          { method: 'GET', redirect: 'follow', timeoutMs: 18_000 }
         );
-        if (ok && json?.success && Array.isArray(json.data)) {
+        if (!ok) {
+          throw new Error(`GAS Web App gagal membaca sheet [${sheetName}] (${status})`);
+        }
+        if ((json.status === 'success' || json.success) && Array.isArray(json.data)) {
+          const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
+          this.clientSheetCache.set(cacheKey, { data: normalized, fetchedAt: Date.now() });
           return {
-            data: normalizer.normalizeExternalRows(sheetName, json.data),
+            data: normalized,
             fromSpreadsheet: true,
           };
         }
-        if (json?.message && status !== 401 && status !== 403) {
-          throw new Error(json.message);
-        }
-      } catch (proxyErr: any) {
-        if (
-          !(proxyErr instanceof HtmlResponseError) &&
-          !String(proxyErr?.message || '').includes('Failed to fetch')
-        ) {
-          throw proxyErr;
-        }
+        throw new Error(json.error || `Format respon GAS untuk [${sheetName}] tidak valid.`);
+      } catch (err: any) {
+        throw new Error(formatGasNetworkError(err, gasUrl));
       }
-    }
+    })();
 
-    // 2. Direct Cloud GAS Web App fallback (static SPA preview host)
-    const validation = validateGasDeployUrl(this.gasDeployUrl);
-    if (!validation.valid) {
-      throw new Error(validation.error || 'URL Web App GAS tidak valid.');
-    }
-    const gasUrl = validation.normalizedUrl;
-    const sep = gasUrl.includes('?') ? '&' : '?';
+    this.inFlightSheetFetches.set(cacheKey, runFetch);
     try {
-      const { ok, status, data: json } = await safeFetchJson(
-        `${gasUrl}${sep}sheet=${encodeURIComponent(sheetName)}&year=${encodeURIComponent(
-          this.activeYear
-        )}&spreadsheetId=${encodeURIComponent(this.spreadsheetId)}`,
-        { method: 'GET', redirect: 'follow' }
-      );
-      if (!ok) {
-        throw new Error(`GAS Web App gagal membaca sheet [${sheetName}] (${status})`);
-      }
-      if ((json.status === 'success' || json.success) && Array.isArray(json.data)) {
-        return {
-          data: normalizer.normalizeExternalRows(sheetName, json.data),
-          fromSpreadsheet: true,
-        };
-      }
-      throw new Error(json.error || `Format respon GAS untuk [${sheetName}] tidak valid.`);
-    } catch (err: any) {
-      throw new Error(formatGasNetworkError(err, gasUrl));
+      return await runFetch;
+    } finally {
+      this.inFlightSheetFetches.delete(cacheKey);
     }
   }
 
@@ -875,11 +937,14 @@ export class GoogleSheetClient {
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT' | 'SYNC_ALL',
     payload: any
   ): Promise<void> {
+    this.invalidateClientSheetCache(sheetName);
+
     const bearerToken = await this.resolveAuthBearerToken();
     if (bearerToken) {
       try {
         const { ok, status, data: json } = await safeFetchJson('/api/admin/sheet', {
           method: 'POST',
+          timeoutMs: 20_000,
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${bearerToken}`,
@@ -919,6 +984,7 @@ export class GoogleSheetClient {
     try {
       const { ok, status, data: json } = await safeFetchJson(gasUrl, {
         method: 'POST',
+        timeoutMs: 22_000,
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         redirect: 'follow',
         body: JSON.stringify({
@@ -935,7 +1001,7 @@ export class GoogleSheetClient {
       if (!ok || json?.error) {
         throw new Error(json?.error || `GAS Web App mengembalikan status ${status}`);
       }
-      fetch('/api/cache/invalidate', { method: 'POST' }).catch(() => {});
+      fetch(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, { method: 'POST' }).catch(() => {});
     } catch (err: any) {
       throw new Error(formatGasNetworkError(err, gasUrl));
     }
@@ -947,85 +1013,110 @@ export class GoogleSheetClient {
   public async commitToSpreadsheet(
     sheetName: string,
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT',
-    payload: any
+    payload: any,
+    options?: { silentToast?: boolean }
   ): Promise<{ success: boolean; fromLiveSheet: boolean; error?: string }> {
+    const silent = Boolean(options?.silentToast);
+
     if (!this.spreadsheetId) {
       const msg = 'ID Google Spreadsheet belum diatur. Atur Spreadsheet terlebih dahulu.';
-      ToastManager.getInstance().show('Spreadsheet Belum Diatur', 'error', msg);
+      if (!silent) ToastManager.getInstance().show('Spreadsheet Belum Diatur', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
     if (!this.isOnline) {
       const msg = 'Tidak ada koneksi internet untuk menulis ke Google Spreadsheet.';
-      ToastManager.getInstance().show('Koneksi Offline', 'error', msg);
+      if (!silent) ToastManager.getInstance().show('Koneksi Offline', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
     if (!this.gasDeployUrl) {
       const msg = 'URL Web App Google Apps Script (/exec) belum dikonfigurasi.';
-      ToastManager.getInstance().show('URL GAS Belum Diatur', 'error', msg);
+      if (!silent) ToastManager.getInstance().show('URL GAS Belum Diatur', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
-    const toastId = ToastManager.getInstance().show(
-      'Menyimpan ke Google Spreadsheet...',
-      'pending',
-      `Menulis ${action} ke lembar kerja [${sheetName}] (TA ${this.activeYear})`,
-      sheetName
-    );
+    const toastId = !silent
+      ? ToastManager.getInstance().show(
+          'Menyimpan ke Google Spreadsheet...',
+          'pending',
+          `Menulis ${action} ke lembar kerja [${sheetName}] (TA ${this.activeYear})`,
+          sheetName
+        )
+      : null;
 
     try {
       await this.postViaServerOrDirectGas(sheetName, action, payload);
-      ToastManager.getInstance().update(
-        toastId,
-        'Tersimpan di Google Spreadsheet!',
-        'success',
-        `Data berhasil ditulis ke Google Spreadsheet [${sheetName}] via Cloud GAS.`
-      );
+      if (toastId) {
+        ToastManager.getInstance().update(
+          toastId,
+          'Tersimpan di Google Spreadsheet!',
+          'success',
+          `Data berhasil ditulis ke Google Spreadsheet [${sheetName}] via Cloud GAS.`
+        );
+      }
       return { success: true, fromLiveSheet: true };
     } catch (err: any) {
       const errMsg = err?.message || 'Gagal menghubungi Web App GAS';
-      ToastManager.getInstance().update(toastId, 'Gagal Menyimpan ke Spreadsheet', 'error', errMsg);
+      if (toastId) {
+        ToastManager.getInstance().update(toastId, 'Gagal Menyimpan ke Spreadsheet', 'error', errMsg);
+      }
       return { success: false, fromLiveSheet: false, error: errMsg };
     }
   }
 
-  public async syncSheet(sheetName: string, rows: any[]): Promise<{ success: boolean; message: string }> {
-    return this.syncSheetFull(sheetName, rows);
+  public async syncSheet(
+    sheetName: string,
+    rows: any[],
+    options?: { silentToast?: boolean }
+  ): Promise<{ success: boolean; message: string }> {
+    return this.syncSheetFull(sheetName, rows, options);
   }
 
-  public async syncSheetFull(sheetName: string, rows: any[]): Promise<{ success: boolean; message: string }> {
+  public async syncSheetFull(
+    sheetName: string,
+    rows: any[],
+    options?: { silentToast?: boolean }
+  ): Promise<{ success: boolean; message: string }> {
+    const silent = Boolean(options?.silentToast);
+
     if (!this.spreadsheetId) {
       const msg = 'ID Google Spreadsheet belum dikonfigurasi.';
-      ToastManager.getInstance().show('Spreadsheet Belum Diatur', 'error', msg);
+      if (!silent) ToastManager.getInstance().show('Spreadsheet Belum Diatur', 'error', msg);
       return { success: false, message: msg };
     }
 
     if (!this.gasDeployUrl || !this.isOnline) {
       const msg = 'Pastikan koneksi internet aktif dan URL Web App GAS (/exec) sudah terpasang.';
-      ToastManager.getInstance().show('Koneksi GAS Belum Siap', 'error', msg);
+      if (!silent) ToastManager.getInstance().show('Koneksi GAS Belum Siap', 'error', msg);
       return { success: false, message: msg };
     }
 
-    const toastId = ToastManager.getInstance().show(
-      'Menyinkronkan ke Google Spreadsheet...',
-      'pending',
-      `Menyegarkan data lembar kerja [${sheetName}] (TA ${this.activeYear})`,
-      sheetName
-    );
+    const toastId = !silent
+      ? ToastManager.getInstance().show(
+          'Menyinkronkan ke Google Spreadsheet...',
+          'pending',
+          `Menyegarkan data lembar kerja [${sheetName}] (TA ${this.activeYear})`,
+          sheetName
+        )
+      : null;
 
     try {
       await this.postViaServerOrDirectGas(sheetName, 'SYNC_ALL', rows);
       const now = new Date().toLocaleTimeString('id-ID');
-      ToastManager.getInstance().update(
-        toastId,
-        'Sinkronisasi Spreadsheet Berhasil',
-        'success',
-        `${rows.length} baris tersimpan via Cloud GAS (${now}).`
-      );
+      if (toastId) {
+        ToastManager.getInstance().update(
+          toastId,
+          'Sinkronisasi Spreadsheet Berhasil',
+          'success',
+          `${rows.length} baris tersimpan via Cloud GAS (${now}).`
+        );
+      }
       return { success: true, message: 'Berhasil tersinkronisasi' };
     } catch (err: any) {
-      ToastManager.getInstance().update(toastId, 'Gagal Sinkronisasi GAS', 'error', err?.message || 'Error');
+      if (toastId) {
+        ToastManager.getInstance().update(toastId, 'Gagal Sinkronisasi GAS', 'error', err?.message || 'Error');
+      }
       return { success: false, message: err?.message || 'Error' };
     }
   }

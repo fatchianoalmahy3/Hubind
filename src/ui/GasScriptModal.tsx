@@ -40,18 +40,18 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
   yearFolder.addFile(ssFile);
   DriveApp.getRootFolder().removeFile(ssFile);
 
-  // Struktur 10 Sheet Baku Relasional (Header Kosong Siap Isi Data Resmi Sekolah)
+  // Struktur 11 Sheet Baku Relasional (Header Kosong Siap Isi Data Resmi Sekolah)
   const sheetsConfig = [
     { name: 'Master_Siswa_XI', headers: ['ID', 'NIS', 'NIK', 'Nama_Lengkap', 'Jenis_Kelamin', 'ID_Jurusan', 'Kelas', 'No_HP_Siswa', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_PKL'] },
     { name: 'Master_Jurusan', headers: ['ID', 'Kode', 'Nama_Jurusan', 'Nama_Kakomli', 'NIP_Kakomli', 'Kontak_WA', 'Kuota_Siswa', 'Total_Terdaftar'] },
     { name: 'Master_Kelas_Walas', headers: ['ID', 'Nama_Kelas', 'Jurusan', 'Tingkat', 'Wali_Kelas', 'Kontak_Walas', 'Jumlah_Siswa'] },
-    { name: 'Master_DUDI', headers: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_PIC', 'Kontak_PIC', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'] },
+    { name: 'Master_DUDI', headers: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'] },
     { name: 'Master_Guru_Pendamping', headers: ['ID', 'NIP', 'Nama_Lengkap', 'Kontak_WA', 'Email_Google', 'Peran_Utama', 'Jumlah_Bimbingan', 'PIN'] },
-    { name: 'Data_Pengajuan_PKL', headers: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'No_WA', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'] },
+    { name: 'Data_Pengajuan_PKL', headers: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'] },
     { name: 'Data_Perizinan_PKL', headers: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan'] },
     { name: 'Plotting_Pemberangkatan', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'ID_DUDI', 'Nama_DUDI', 'ID_Guru_Pendamping', 'Guru_Pendamping', 'Tanggal_Berangkat', 'Tanggal_Rencana_Tarik', 'Status_Penempatan'] },
-    { name: 'Monitoring_5_Tahap', headers: ['ID_Monitoring', 'ID_Penempatan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'] },
-    { name: 'Nilai_Dan_Sertifikat', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_DUDI', 'Nilai_Guru', 'Nilai_Akhir', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'] },
+    { name: 'Monitoring_5_Tahap', headers: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'] },
+    { name: 'Nilai_Dan_Sertifikat', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'] },
     { name: 'Master_Akun', headers: ['ID', 'Username', 'Password_Hash', 'Role', 'Nama_Lengkap', 'Jabatan', 'Status', 'Updated_At'] }
   ];
 
@@ -78,7 +78,7 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
   const templateDocs = [
     { title: 'Template_Lembar_Permohonan_Rekomendasi_Siswa_' + cleanYear, desc: 'Lembar permohonan ke Kakomli' },
     { title: 'Template_Surat_Permohonan_Penempatan_DUDI_' + cleanYear, desc: 'Surat dinas resmi sekolah ke industri' },
-    { title: 'Template_Instrumen_Monitoring_5_Tahap_' + cleanYear, desc: 'Panduan supervisi guru pendamping' },
+    { title: 'Template_Instrumen_Monitoring_8_Tahap_' + cleanYear, desc: 'Panduan supervisi guru pendamping (Pengantaran, Mon 1-6, Penarikan)' },
     { title: 'Template_Lembar_Penilaian_Industri_DUDI_' + cleanYear, desc: 'Form penilaian kompetensi DUDI' },
     { title: 'Template_Cetak_Blangko_Sertifikat_' + cleanYear, desc: 'Template sertifikat PKL resmi' }
   ];
@@ -129,6 +129,74 @@ function getNormalizedValue(rowObj, header) {
   return '';
 }
 
+function getGasSheetCacheVersion(ssId) {
+  try {
+    return CacheService.getScriptCache().get('ver_' + ssId) || '0';
+  } catch (e) {
+    return '0';
+  }
+}
+
+function bumpGasSheetCacheVersion(ssId) {
+  try {
+    CacheService.getScriptCache().put('ver_' + ssId, String(Date.now()), 3600);
+  } catch (e) {
+    // ignore cache error
+  }
+}
+
+function readSheetRowsFast(ss, sheetName, ssId, ver) {
+  const cacheKey = 'sh_' + ver + '_' + ssId + '_' + sheetName;
+  let scriptCache = null;
+  try {
+    scriptCache = CacheService.getScriptCache();
+    const cached = scriptCache.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    // ignore cache miss
+  }
+
+  const sheet = resolveSheetAlias(ss, sheetName);
+  if (!sheet) {
+    if (sheetName === 'Master_Akun') {
+      return { rows: [], missingSheet: true };
+    }
+    return { error: 'Sheet tidak ditemukan: ' + sheetName };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) {
+    return { rows: [] };
+  }
+
+  const headers = data[0];
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = {};
+    let hasValue = false;
+    for (let j = 0; j < headers.length; j++) {
+      row[headers[j]] = data[i][j];
+      if (String(data[i][j] || '').trim() !== '') hasValue = true;
+    }
+    if (hasValue) rows.push(row);
+  }
+
+  const result = { rows: rows };
+  if (scriptCache) {
+    try {
+      const serialized = JSON.stringify(result);
+      if (serialized.length < 90000) {
+        scriptCache.put(cacheKey, serialized, 90);
+      }
+    } catch (e) {
+      // ignore CacheService 100KB limit
+    }
+  }
+  return result;
+}
+
 function doGet(e) {
   try {
     const params = (e && e.parameter) ? e.parameter : {};
@@ -142,7 +210,10 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (action === 'PING' || (!action && !params.sheet)) {
+    const ssId = ss.getId();
+    const ver = getGasSheetCacheVersion(ssId);
+
+    if (action === 'PING' || (!action && !params.sheet && !params.sheets)) {
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
         title: ss.getName(),
@@ -150,49 +221,100 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (action === 'BATCH_GET' && params.sheets) {
+      const requested = String(params.sheets)
+        .split(',')
+        .map(function(s) { return String(s || '').trim(); })
+        .filter(Boolean);
+      const sheetsPayload = {};
+      for (let i = 0; i < requested.length; i++) {
+        const name = requested[i];
+        const res = readSheetRowsFast(ss, name, ssId, ver);
+        sheetsPayload[name] = res.error ? [] : (res.rows || []);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'success',
+        sheets: sheetsPayload
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const sheetName = params.sheet || 'Master_Jurusan';
-    const sheet = resolveSheetAlias(ss, sheetName);
-    if (!sheet) {
-      if (sheetName === 'Master_Akun') {
-        return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [], missingSheet: true }))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
-      return ContentService.createTextOutput(JSON.stringify({ error: 'Sheet tidak ditemukan: ' + sheetName }))
+    const res = readSheetRowsFast(ss, sheetName, ssId, ver);
+    if (res.error) {
+      return ContentService.createTextOutput(JSON.stringify({ error: res.error }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    const data = sheet.getDataRange().getValues();
-    if (data.length < 2) {
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [] }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-
-    const headers = data[0];
-    const rows = [];
-    for (let i = 1; i < data.length; i++) {
-      const row = {};
-      let hasValue = false;
-      for (let j = 0; j < headers.length; j++) {
-        row[headers[j]] = data[i][j];
-        if (String(data[i][j] || '').trim() !== '') hasValue = true;
-      }
-      if (hasValue) rows.push(row);
-    }
-
-    return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: rows }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'success',
+      data: res.rows || [],
+      missingSheet: Boolean(res.missingSheet)
+    })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
+const REQUIRED_SHEET_HEADERS = {
+  Master_DUDI: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'],
+  Data_Pengajuan_PKL: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'],
+  Monitoring_5_Tahap: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'],
+  Nilai_Dan_Sertifikat: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit']
+};
+
+function ensureMissingHeaders(sheet, canonicalSheetName) {
+  const expected = REQUIRED_SHEET_HEADERS[canonicalSheetName];
+  const lastCol = sheet.getLastColumn();
+  if (!expected || lastCol === 0) {
+    return lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+  }
+  const currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const existingNorms = {};
+  for (let i = 0; i < currentHeaders.length; i++) {
+    existingNorms[normalizeKey(currentHeaders[i])] = true;
+  }
+  const missing = [];
+  for (let j = 0; j < expected.length; j++) {
+    if (!existingNorms[normalizeKey(expected[j])]) {
+      missing.push(expected[j]);
+    }
+  }
+  if (missing.length > 0) {
+    sheet.getRange(1, currentHeaders.length + 1, 1, missing.length)
+      .setValues([missing])
+      .setFontWeight('bold')
+      .setBackground('#0F172A')
+      .setFontColor('#FFFFFF');
+    return currentHeaders.concat(missing);
+  }
+  return currentHeaders;
+}
+
+function syncAllSpreadsheetHeaders() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(REQUIRED_SHEET_HEADERS).forEach(function(name) {
+    const sh = resolveSheetAlias(ss, name);
+    if (sh) ensureMissingHeaders(sh, name);
+  });
+}
+
 function resolveSheetAlias(ss, sheetName) {
   let sheet = ss.getSheetByName(sheetName);
-  if (!sheet && sheetName === 'Master_Siswa_XI') {
-    sheet = ss.getSheetByName('Master_Siswa');
-  } else if (!sheet && sheetName === 'Master_Siswa') {
-    sheet = ss.getSheetByName('Master_Siswa_XI');
+  if (!sheet && (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa')) {
+    sheet = ss.getSheetByName('Master_Siswa_XI') || ss.getSheetByName('Master_Siswa');
+  } else if (
+    !sheet &&
+    (sheetName === 'Monitoring_5_Tahap' ||
+      sheetName === 'Monitoring_6_Tahap' ||
+      sheetName === 'Monitoring_8_Tahap' ||
+      sheetName === 'Monitoring_PKL')
+  ) {
+    sheet =
+      ss.getSheetByName('Monitoring_5_Tahap') ||
+      ss.getSheetByName('Monitoring_6_Tahap') ||
+      ss.getSheetByName('Monitoring_8_Tahap') ||
+      ss.getSheetByName('Monitoring_PKL');
   }
   return sheet;
 }
@@ -261,7 +383,7 @@ function doPost(e) {
       throw new Error('Sheet tidak ditemukan: ' + sheetName);
     }
 
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn() || 1).getValues()[0];
+    const headers = ensureMissingHeaders(sheet, sheetName);
 
     if (action === 'CREATE') {
       const rowObj = body.data || {};
@@ -346,6 +468,7 @@ function doPost(e) {
       }
     }
 
+    bumpGasSheetCacheVersion(ss.getId());
     return ContentService.createTextOutput(JSON.stringify({ success: true }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {

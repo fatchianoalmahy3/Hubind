@@ -3,6 +3,14 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  buildStudentMonitoringSummary,
+  calculateEqualWeightedAverage,
+  extractStageNumber,
+  getPredikatFromScore,
+  getStageValueByNumber,
+  stripStructuredTagsFromNote,
+} from './src/core/utils/monitoringHelpers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,13 +52,39 @@ export interface WorkspaceConfig {
   templates: any[];
 }
 
-// Short-lived in-memory caches (SSOT stays Firestore + Google Spreadsheet)
-const CONFIG_CACHE_TTL_MS = 15_000;
-const SHEET_CACHE_TTL_MS = 30_000;
+// In-memory caches with strict per-sheet write invalidation (SSOT stays Firestore + Google Spreadsheet)
+const CONFIG_CACHE_TTL_MS = 60_000;
+const SHEET_CACHE_TTL_MS = 120_000;
+const GAS_FETCH_TIMEOUT_MS = 15_000;
 
 let cachedWorkspaceConfig: { config: WorkspaceConfig; fetchedAt: number } | null = null;
+let inFlightConfigFetch: Promise<WorkspaceConfig> | null = null;
 const sheetCache = new Map<string, { data: any[]; fetchedAt: number }>();
+const inFlightSheetFetches = new Map<string, Promise<{ rows: any[]; config: WorkspaceConfig }>>();
 const siswaIndexCache = new Map<string, { byKey: Map<string, any>; fetchedAt: number }>();
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = GAS_FETCH_TIMEOUT_MS
+): Promise<globalThis.Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new PortalConfigError(
+        'GAS_TIMEOUT',
+        `Permintaan ke Google Apps Script melebihi batas waktu (${Math.round(timeoutMs / 1000)} detik). Silakan coba lagi.`,
+        504
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function decodeFirestoreValue(val: any): any {
   if (!val || typeof val !== 'object') return null;
@@ -84,59 +118,76 @@ async function getFirestoreWorkspaceConfig(forceRefresh = false): Promise<Worksp
     return cachedWorkspaceConfig.config;
   }
 
-  const emptyConfig: WorkspaceConfig = {
-    activeYear: '2026/2027',
-    spreadsheetId: '',
-    spreadsheetName: '',
-    spreadsheetUrl: '',
-    driveFolderUrl: '',
-    gasDeployUrl: '',
-    academicYears: [],
-    templates: [],
-  };
-
-  if (!firebaseCfg.projectId) {
-    return emptyConfig;
+  if (!forceRefresh && inFlightConfigFetch) {
+    return inFlightConfigFetch;
   }
 
-  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
-    firebaseCfg.projectId
-  )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/config/workspace`;
+  const loadPromise = (async (): Promise<WorkspaceConfig> => {
+    const emptyConfig: WorkspaceConfig = {
+      activeYear: '2026/2027',
+      spreadsheetId: '',
+      spreadsheetName: '',
+      spreadsheetUrl: '',
+      driveFolderUrl: '',
+      gasDeployUrl: '',
+      academicYears: [],
+      templates: [],
+    };
 
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (res.status === 404) {
-    cachedWorkspaceConfig = { config: emptyConfig, fetchedAt: Date.now() };
-    return emptyConfig;
+    if (!firebaseCfg.projectId) {
+      return emptyConfig;
+    }
+
+    const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+      firebaseCfg.projectId
+    )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/config/workspace`;
+
+    const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 10_000);
+    if (res.status === 404) {
+      cachedWorkspaceConfig = { config: emptyConfig, fetchedAt: Date.now() };
+      return emptyConfig;
+    }
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Gagal membaca konfigurasi Firestore (${res.status}): ${errText.slice(0, 160)}`);
+    }
+
+    const docJson = await res.json();
+    const fields = docJson?.fields || {};
+    const decoded: Record<string, any> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      decoded[k] = decodeFirestoreValue(v);
+    }
+
+    const academicYears = Array.isArray(decoded.academicYears) ? decoded.academicYears : [];
+    const activeYear = String(decoded.activeYear || '2026/2027');
+    const activeEntry = academicYears.find((ay: any) => ay?.year === activeYear) || academicYears[0];
+
+    const config: WorkspaceConfig = {
+      activeYear,
+      spreadsheetId: String(decoded.spreadsheetId || activeEntry?.spreadsheetId || ''),
+      spreadsheetName: String(decoded.spreadsheetName || activeEntry?.spreadsheetName || ''),
+      spreadsheetUrl: String(decoded.spreadsheetUrl || activeEntry?.spreadsheetUrl || ''),
+      driveFolderUrl: String(decoded.driveFolderUrl || ''),
+      gasDeployUrl: normalizeServerGasUrl(String(decoded.gasDeployUrl || '')),
+      academicYears,
+      templates: Array.isArray(decoded.templates) ? decoded.templates : [],
+    };
+
+    cachedWorkspaceConfig = { config, fetchedAt: Date.now() };
+    return config;
+  })();
+
+  if (!forceRefresh) {
+    inFlightConfigFetch = loadPromise;
   }
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gagal membaca konfigurasi Firestore (${res.status}): ${errText.slice(0, 160)}`);
+  try {
+    return await loadPromise;
+  } finally {
+    if (inFlightConfigFetch === loadPromise) {
+      inFlightConfigFetch = null;
+    }
   }
-
-  const docJson = await res.json();
-  const fields = docJson?.fields || {};
-  const decoded: Record<string, any> = {};
-  for (const [k, v] of Object.entries(fields)) {
-    decoded[k] = decodeFirestoreValue(v);
-  }
-
-  const academicYears = Array.isArray(decoded.academicYears) ? decoded.academicYears : [];
-  const activeYear = String(decoded.activeYear || '2026/2027');
-  const activeEntry = academicYears.find((ay: any) => ay?.year === activeYear) || academicYears[0];
-
-  const config: WorkspaceConfig = {
-    activeYear,
-    spreadsheetId: String(decoded.spreadsheetId || activeEntry?.spreadsheetId || ''),
-    spreadsheetName: String(decoded.spreadsheetName || activeEntry?.spreadsheetName || ''),
-    spreadsheetUrl: String(decoded.spreadsheetUrl || activeEntry?.spreadsheetUrl || ''),
-    driveFolderUrl: String(decoded.driveFolderUrl || ''),
-    gasDeployUrl: normalizeServerGasUrl(String(decoded.gasDeployUrl || '')),
-    academicYears,
-    templates: Array.isArray(decoded.templates) ? decoded.templates : [],
-  };
-
-  cachedWorkspaceConfig = { config, fetchedAt: Date.now() };
-  return config;
 }
 
 function normalizeServerGasUrl(rawUrl: string): string {
@@ -259,48 +310,167 @@ async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Pr
     return { rows: cached.data, config };
   }
 
-  const separator = gasUrl.includes('?') ? '&' : '?';
-  const targetUrl = `${gasUrl}${separator}sheet=${encodeURIComponent(
-    sheetName
-  )}&year=${encodeURIComponent(config.activeYear)}&spreadsheetId=${encodeURIComponent(
-    config.spreadsheetId
-  )}`;
+  if (!forceRefresh) {
+    const existingFlight = inFlightSheetFetches.get(cacheKey);
+    if (existingFlight) {
+      return existingFlight;
+    }
+  }
 
-  let gasRes: globalThis.Response;
+  const fetchPromise = (async (): Promise<{ rows: any[]; config: WorkspaceConfig }> => {
+    const separator = gasUrl.includes('?') ? '&' : '?';
+    const targetUrl = `${gasUrl}${separator}sheet=${encodeURIComponent(
+      sheetName
+    )}&year=${encodeURIComponent(config.activeYear)}&spreadsheetId=${encodeURIComponent(
+      config.spreadsheetId
+    )}`;
+
+    let gasRes: globalThis.Response;
+    try {
+      gasRes = await fetchWithTimeout(
+        targetUrl,
+        {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          redirect: 'follow',
+        },
+        GAS_FETCH_TIMEOUT_MS
+      );
+    } catch (err: any) {
+      if (err instanceof PortalConfigError) throw err;
+      throw new PortalConfigError(
+        'GAS_FETCH_FAILED',
+        `Server gagal menghubungi URL Google Apps Script (${err?.message || 'network error'}). Periksa URL "/exec" dan pastikan akses deployment adalah "Anyone (Siapa saja)".`,
+        502
+      );
+    }
+
+    const rawText = await gasRes.text();
+
+    if (!gasRes.ok) {
+      parseGasJsonSafely(rawText, sheetName, gasRes.status);
+      throw new PortalConfigError(
+        'GAS_FETCH_FAILED',
+        `Gagal membaca sheet [${sheetName}] dari Google Spreadsheet (HTTP ${gasRes.status}).`,
+        502
+      );
+    }
+
+    const json = parseGasJsonSafely(rawText, sheetName, gasRes.status);
+    if (json?.error) {
+      throw new PortalConfigError('GAS_ERROR', String(json.error), 502);
+    }
+
+    const rows: any[] = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
+    sheetCache.set(cacheKey, { data: rows, fetchedAt: Date.now() });
+    return { rows, config };
+  })();
+
+  if (!forceRefresh) {
+    inFlightSheetFetches.set(cacheKey, fetchPromise);
+  }
   try {
-    gasRes = await fetch(targetUrl, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      redirect: 'follow',
-    });
-  } catch (err: any) {
+    return await fetchPromise;
+  } finally {
+    if (inFlightSheetFetches.get(cacheKey) === fetchPromise) {
+      inFlightSheetFetches.delete(cacheKey);
+    }
+  }
+}
+
+async function fetchBatchSheetsViaGas(
+  sheetNames: string[],
+  optionalSheets: Set<string> = new Set(),
+  forceRefresh = false
+): Promise<{ sheets: Record<string, any[]>; config: WorkspaceConfig }> {
+  const config = await getFirestoreWorkspaceConfig(forceRefresh);
+
+  if (!config.spreadsheetId) {
     throw new PortalConfigError(
-      'GAS_FETCH_FAILED',
-      `Server gagal menghubungi URL Google Apps Script (${err?.message || 'network error'}). Periksa URL "/exec" dan pastikan akses deployment adalah "Anyone (Siapa saja)".`,
-      502
+      'SPREADSHEET_NOT_CONFIGURED',
+      'ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.'
     );
   }
+  const gasUrl = validateGasUrl(config.gasDeployUrl);
 
-  const rawText = await gasRes.text();
+  const sheetsResult: Record<string, any[]> = {};
+  const missingSheets: string[] = [];
+  const now = Date.now();
 
-  if (!gasRes.ok) {
-    // Parse if HTML/JSON gives more helpful diagnostic
-    parseGasJsonSafely(rawText, sheetName, gasRes.status);
-    throw new PortalConfigError(
-      'GAS_FETCH_FAILED',
-      `Gagal membaca sheet [${sheetName}] dari Google Spreadsheet (HTTP ${gasRes.status}).`,
-      502
-    );
+  for (const name of sheetNames) {
+    const cacheKey = `${config.spreadsheetId}::${name}`;
+    const cached = sheetCache.get(cacheKey);
+    if (!forceRefresh && cached && now - cached.fetchedAt < SHEET_CACHE_TTL_MS) {
+      sheetsResult[name] = cached.data;
+    } else {
+      missingSheets.push(name);
+    }
   }
 
-  const json = parseGasJsonSafely(rawText, sheetName, gasRes.status);
-  if (json?.error) {
-    throw new PortalConfigError('GAS_ERROR', String(json.error), 502);
+  if (missingSheets.length === 0) {
+    return { sheets: sheetsResult, config };
   }
 
-  const rows: any[] = Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
-  sheetCache.set(cacheKey, { data: rows, fetchedAt: Date.now() });
-  return { rows, config };
+  // Try GAS native BATCH_GET endpoint first (1 cold-start instead of N parallel roundtrips)
+  if (missingSheets.length > 1) {
+    try {
+      const separator = gasUrl.includes('?') ? '&' : '?';
+      const batchUrl = `${gasUrl}${separator}action=BATCH_GET&sheets=${encodeURIComponent(
+        missingSheets.join(',')
+      )}&year=${encodeURIComponent(config.activeYear)}&spreadsheetId=${encodeURIComponent(
+        config.spreadsheetId
+      )}`;
+
+      const gasRes = await fetchWithTimeout(
+        batchUrl,
+        {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          redirect: 'follow',
+        },
+        GAS_FETCH_TIMEOUT_MS
+      );
+
+      if (gasRes.ok) {
+        const rawText = await gasRes.text();
+        const json = parseGasJsonSafely(rawText, missingSheets.join(','), gasRes.status);
+        if (json?.status === 'success' && json?.sheets && typeof json.sheets === 'object') {
+          const batchFetchedAt = Date.now();
+          for (const name of missingSheets) {
+            const rows = Array.isArray(json.sheets[name]) ? json.sheets[name] : [];
+            sheetsResult[name] = rows;
+            sheetCache.set(`${config.spreadsheetId}::${name}`, {
+              data: rows,
+              fetchedAt: batchFetchedAt,
+            });
+          }
+          return { sheets: sheetsResult, config };
+        }
+      }
+    } catch (err) {
+      // Fallback gracefully below if deployed GAS script hasn't been updated to v2 BATCH_GET yet
+      if (err instanceof PortalConfigError && err.code === 'GAS_TIMEOUT') {
+        throw err;
+      }
+    }
+  }
+
+  await Promise.all(
+    missingSheets.map(async (name) => {
+      try {
+        const res = await fetchLiveSheetViaGas(name, forceRefresh);
+        sheetsResult[name] = res.rows;
+      } catch (err) {
+        if (optionalSheets.has(name)) {
+          sheetsResult[name] = [];
+        } else {
+          throw err;
+        }
+      }
+    })
+  );
+
+  return { sheets: sheetsResult, config };
 }
 
 async function fetchMasterSiswaRows(forceRefresh = false): Promise<{
@@ -353,21 +523,26 @@ async function writeLiveSheetViaGas(
 
   let gasRes: globalThis.Response;
   try {
-    gasRes = await fetch(gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      redirect: 'follow',
-      body: JSON.stringify({
-        action,
-        sheetName,
-        year: config.activeYear,
-        spreadsheetId: config.spreadsheetId,
-        id: resolvedId,
-        data: payload,
-        timestamp: new Date().toISOString(),
-      }),
-    });
+    gasRes = await fetchWithTimeout(
+      gasUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        redirect: 'follow',
+        body: JSON.stringify({
+          action,
+          sheetName,
+          year: config.activeYear,
+          spreadsheetId: config.spreadsheetId,
+          id: resolvedId,
+          data: payload,
+          timestamp: new Date().toISOString(),
+        }),
+      },
+      20_000
+    );
   } catch (err: any) {
+    if (err instanceof PortalConfigError) throw err;
     throw new PortalConfigError(
       'GAS_WRITE_FAILED',
       `Server gagal mengirim data ke URL Google Apps Script (${err?.message || 'network error'}). Periksa URL "/exec" dan deployment Web App.`,
@@ -725,7 +900,7 @@ app.post('/api/admin/login', async (req: Request, res: Response) => {
       });
     }
 
-    const { accounts } = await fetchMasterAkunFromGasOrDefaults(true);
+    const { accounts } = await fetchMasterAkunFromGasOrDefaults(false);
     const matched = accounts.find((a) => a.username.toLowerCase() === username);
 
     if (!matched) {
@@ -812,7 +987,10 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
         });
       }
       await writeLiveSheetViaGas('Master_Akun', 'SYNC_ALL', body.accounts);
-      sheetCache.clear();
+      const cfg = await getFirestoreWorkspaceConfig();
+      if (cfg.spreadsheetId) {
+        sheetCache.delete(`${cfg.spreadsheetId}::Master_Akun`);
+      }
       return res.json({ success: true });
     }
 
@@ -947,11 +1125,24 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
 });
 
 // Invalidate server-side short-lived caches immediately after admin changes settings/data
-app.post('/api/cache/invalidate', (_req: Request, res: Response) => {
-  cachedWorkspaceConfig = null;
-  sheetCache.clear();
-  siswaIndexCache.clear();
-  res.json({ success: true });
+app.post('/api/cache/invalidate', async (req: Request, res: Response) => {
+  const sheetParam = String(req.query.sheet || req.body?.sheet || '').trim();
+  if (sheetParam) {
+    const cfg = await getFirestoreWorkspaceConfig().catch(() => null);
+    if (cfg?.spreadsheetId) {
+      sheetCache.delete(`${cfg.spreadsheetId}::${sheetParam}`);
+      if (sheetParam === 'Master_Siswa_XI' || sheetParam === 'Master_Siswa') {
+        siswaIndexCache.delete(cfg.spreadsheetId);
+      }
+    } else {
+      sheetCache.clear();
+    }
+  } else {
+    cachedWorkspaceConfig = null;
+    sheetCache.clear();
+    siswaIndexCache.clear();
+  }
+  res.json({ success: true, scope: sheetParam || 'all' });
 });
 
 // Admin Proxy: Verify GAS Web App connection without requiring per-device Google OAuth popup
@@ -981,12 +1172,17 @@ app.get('/api/admin/gas-ping', async (req: Request, res: Response) => {
 
     let gasRes: globalThis.Response;
     try {
-      gasRes = await fetch(pingUrl, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        redirect: 'follow',
-      });
+      gasRes = await fetchWithTimeout(
+        pingUrl,
+        {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          redirect: 'follow',
+        },
+        GAS_FETCH_TIMEOUT_MS
+      );
     } catch (err: any) {
+      if (err instanceof PortalConfigError) throw err;
       throw new PortalConfigError(
         'GAS_FETCH_FAILED',
         `Gagal menghubungi Google Apps Script (${err?.message || 'network error'}). Pastikan URL berakhiran "/exec" dan Web App di-deploy dengan akses "Siapa saja (Anyone)".`,
@@ -1165,18 +1361,28 @@ app.get('/api/public/dudi-list', async (_req: Request, res: Response) => {
     const { rows } = await fetchLiveSheetViaGas('Master_DUDI');
     const mapped = rows
       .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
-      .map((d: any, idx: number) => ({
-        id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
-        nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
-        bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
-        alamat: pickField(d, 'Alamat', 'alamat'),
-        kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
-        kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
-        terisi: Number(d.Terisi ?? d.terisi ?? 0),
-        status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
-        pimpinan: pickField(d, 'Nama_PIC', 'namaPic', 'pimpinan'),
-        telepon: pickField(d, 'Kontak_PIC', 'kontakPic', 'telepon'),
-      }));
+      .map((d: any, idx: number) => {
+        const namaPemimpin = pickField(d, 'Nama_Pemimpin', 'namaPemimpin', 'nama_pemimpin', 'pimpinan');
+        const namaPic = pickField(d, 'Nama_PIC', 'namaPic', 'nama_pic');
+        const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
+        const noTelpDudi = pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
+        return {
+          id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
+          nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
+          bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
+          alamat: pickField(d, 'Alamat', 'alamat'),
+          kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
+          kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
+          terisi: Number(d.Terisi ?? d.terisi ?? 0),
+          status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
+          nama_pemimpin: namaPemimpin,
+          nama_pic: namaPic,
+          kontak_pic: kontakPic,
+          no_telp_dudi: noTelpDudi,
+          pimpinan: namaPemimpin || namaPic,
+          telepon: noTelpDudi,
+        };
+      });
 
     res.json({ success: true, total: mapped.length, data: mapped });
   } catch (err: any) {
@@ -1197,6 +1403,26 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
       .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
     const nowIso = new Date().toISOString();
     const timestamp = nowIso.replace('T', ' ').substring(0, 19);
+
+    const namaPemimpin = String(payload.nama_pemimpin || '').trim();
+    const namaPic = String(payload.nama_pic || '').trim();
+    const noTelpDudi = String(payload.no_telp_dudi || '').trim();
+
+    const dudiContactSummary = [
+      namaPemimpin ? `Pemimpin: ${namaPemimpin}` : '',
+      namaPic ? `PIC/Pendamping: ${namaPic}` : '',
+      noTelpDudi ? `Telp DUDI: ${noTelpDudi}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    const baseStatusNote = payload.is_dudi_unregistered
+      ? 'Pengajuan DUDI baru (perlu verifikasi kelayakan Hubin).'
+      : 'Menunggu review relevansi kompetensi oleh Kakomli.';
+
+    const combinedCatatanKakomli = dudiContactSummary
+      ? `${baseStatusNote} [${dudiContactSummary}]`
+      : baseStatusNote;
 
     const sheetRow = {
       id: noPengajuan,
@@ -1222,6 +1448,14 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
       alamatDudi: String(payload.alamat_dudi || ''),
       Bidang_Pekerjaan: String(payload.bidang_dudi || ''),
       bidangPekerjaan: String(payload.bidang_dudi || ''),
+      Nama_Pemimpin: namaPemimpin,
+      namaPemimpin,
+      Nama_PIC: namaPic,
+      namaPic,
+      No_Telp_DUDI: noTelpDudi,
+      noTelpDudi,
+      Kontak_PIC: noTelpDudi,
+      kontakPic: noTelpDudi,
       No_WA: String(payload.telepon || ''),
       noWa: String(payload.telepon || ''),
       Alamat_Domisili: String(payload.alamat_domisili || ''),
@@ -1232,18 +1466,14 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
       noOrtuWali: String(payload.telepon_orang_tua || ''),
       Status_Kakomli: 'Pending',
       statusKakomli: 'Pending',
-      Catatan_Kakomli: payload.catatan
-        ? String(payload.catatan)
-        : payload.is_dudi_unregistered
-        ? 'Pengajuan DUDI baru (perlu verifikasi kelayakan Hubin).'
-        : 'Menunggu review relevansi kompetensi oleh Kakomli.',
-      catatanKakomli: String(payload.catatan || ''),
+      Catatan_Kakomli: combinedCatatanKakomli,
+      catatanKakomli: combinedCatatanKakomli,
       Status_Hubin: 'Menunggu ACC Kakomli',
       statusHubin: 'Menunggu ACC Kakomli',
       Guru_Pendamping: '',
       guruPendamping: '',
-      Tgl_Berangkat: String(payload.tanggal_mulai || ''),
-      tanggalBerangkat: String(payload.tanggal_mulai || ''),
+      Tgl_Berangkat: '',
+      tanggalBerangkat: '',
       status: 'Menunggu Validasi Kakomli',
     };
 
@@ -1272,6 +1502,12 @@ app.get('/api/public/petugas-list', async (_req: Request, res: Response) => {
         peran: pickField(g, 'Peran_Utama', 'peranUtama', 'peran') || 'Guru Pendamping',
         email: pickField(g, 'Email_Google', 'email', 'emailGoogle'),
       }));
+
+    // Background non-blocking warmup for Step 2 (Plotting_Pemberangkatan + Master_DUDI)
+    void fetchBatchSheetsViaGas(
+      ['Plotting_Pemberangkatan', 'Master_DUDI'],
+      new Set(['Plotting_Pemberangkatan', 'Master_DUDI'])
+    ).catch(() => {});
 
     res.json({ success: true, total: mapped.length, data: mapped });
   } catch (err: any) {
@@ -1357,11 +1593,13 @@ app.get('/api/public/petugas-dudi', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Parameter petugasNama atau petugasId wajib diisi.' });
     }
 
-    const [plottingRes, dudiRes, pengajuanRes] = await Promise.all([
-      fetchLiveSheetViaGas('Plotting_Pemberangkatan').catch(() => ({ rows: [] as any[] })),
-      fetchLiveSheetViaGas('Master_DUDI'),
-      fetchLiveSheetViaGas('Data_Pengajuan_PKL').catch(() => ({ rows: [] as any[] })),
-    ]);
+    const { sheets } = await fetchBatchSheetsViaGas(
+      ['Plotting_Pemberangkatan', 'Master_DUDI', 'Data_Pengajuan_PKL'],
+      new Set(['Plotting_Pemberangkatan', 'Data_Pengajuan_PKL'])
+    );
+    const plottingRes = { rows: sheets['Plotting_Pemberangkatan'] || [] };
+    const dudiRes = { rows: sheets['Master_DUDI'] || [] };
+    const pengajuanRes = { rows: sheets['Data_Pengajuan_PKL'] || [] };
 
     const dudiMapById = new Map<string, any>();
     const dudiMapByName = new Map<string, any>();
@@ -1463,6 +1701,7 @@ app.get('/api/public/petugas-dudi', async (req: Request, res: Response) => {
 });
 
 // Placed students inside a selected DUDI from Plotting_Pemberangkatan + Data_Pengajuan_PKL + Master_Siswa_XI
+// enriched with per-student 6-stage monitoring history & grade submission status.
 app.get('/api/public/dudi-students', async (req: Request, res: Response) => {
   try {
     const dudiNama = String(req.query.dudiNama || '').trim();
@@ -1473,11 +1712,34 @@ app.get('/api/public/dudi-students', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'Parameter dudiNama atau dudiId wajib diisi.' });
     }
 
-    const [plottingRes, pengajuanRes, siswaRes] = await Promise.all([
-      fetchLiveSheetViaGas('Plotting_Pemberangkatan').catch(() => ({ rows: [] as any[] })),
-      fetchLiveSheetViaGas('Data_Pengajuan_PKL').catch(() => ({ rows: [] as any[] })),
-      fetchMasterSiswaRows().catch(() => ({ rows: [] as any[] })),
-    ]);
+    const { sheets } = await fetchBatchSheetsViaGas(
+      [
+        'Plotting_Pemberangkatan',
+        'Data_Pengajuan_PKL',
+        'Master_Siswa_XI',
+        'Monitoring_5_Tahap',
+        'Nilai_Dan_Sertifikat',
+      ],
+      new Set([
+        'Plotting_Pemberangkatan',
+        'Data_Pengajuan_PKL',
+        'Master_Siswa_XI',
+        'Monitoring_5_Tahap',
+        'Nilai_Dan_Sertifikat',
+      ])
+    );
+
+    let siswaRows = sheets['Master_Siswa_XI'] || [];
+    if (siswaRows.length === 0) {
+      const fallbackSiswa = await fetchMasterSiswaRows().catch(() => ({ rows: [] as any[] }));
+      siswaRows = fallbackSiswa.rows;
+    }
+
+    const plottingRes = { rows: sheets['Plotting_Pemberangkatan'] || [] };
+    const pengajuanRes = { rows: sheets['Data_Pengajuan_PKL'] || [] };
+    const siswaRes = { rows: siswaRows };
+    const monitoringRes = { rows: sheets['Monitoring_5_Tahap'] || [] };
+    const nilaiRes = { rows: sheets['Nilai_Dan_Sertifikat'] || [] };
 
     const siswaByNis = new Map<string, any>();
     for (const s of siswaRes.rows) {
@@ -1563,14 +1825,21 @@ app.get('/api/public/dudi-students', async (req: Request, res: Response) => {
       }
     }
 
-    const result = Array.from(studentsMap.values());
+    const result = Array.from(studentsMap.values()).map((stu) => {
+      const summary = buildStudentMonitoringSummary(stu, monitoringRes.rows, nilaiRes.rows);
+      return {
+        ...stu,
+        ...summary,
+      };
+    });
+
     res.json({ success: true, total: result.length, data: result });
   } catch (err: any) {
     handlePortalError(res, err);
   }
 });
 
-// Public Monitoring 1-5 Submission -> writes directly to Monitoring_5_Tahap in Spreadsheet
+// Public Monitoring (8 Stages: Pengantaran, Monitoring 1-6, Penarikan) Submission -> writes to Monitoring_5_Tahap & syncs Nilai_Dan_Sertifikat
 app.post('/api/public/submit-monitoring', async (req: Request, res: Response) => {
   try {
     const payload = req.body || {};
@@ -1581,20 +1850,47 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
       });
     }
 
-    const idMonitoring = `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const existingMonId = String(payload.existing_monitoring_id || '').trim();
+    const isUpdate = Boolean(existingMonId);
+    const idMonitoring =
+      existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const tglVal = payload.tanggal || new Date().toISOString().split('T')[0];
-    const avgScore = Number(payload.nilai_rata_rata) || 0;
 
-    const noteCombined = [
-      payload.catatan_perkembangan || '',
-      avgScore > 0
-        ? `[Skor: Teknis=${payload.nilai_teknis ?? '-'}, Disiplin=${payload.nilai_disiplin ?? '-'}, Inisiatif=${payload.nilai_inisiatif ?? '-'}, K3=${payload.nilai_k3 ?? '-'} | Akhir=${avgScore} (${payload.predikat || ''})]`
+    const sakit = Math.max(0, Math.round(Number(payload.sakit ?? 0) || 0));
+    const izin = Math.max(0, Math.round(Number(payload.izin ?? 0) || 0));
+    const alpha = Math.max(0, Math.round(Number(payload.alpha ?? 0) || 0));
+    const nilaiMuncul = Boolean(payload.nilai_pkl_muncul);
+
+    let k3lh = 0;
+    let softskill = 0;
+    let teknis = 0;
+    let alurBisnis = 0;
+    let avgScore = 0;
+    let predikat = '';
+
+    if (nilaiMuncul) {
+      k3lh = Math.min(100, Math.max(0, Number(payload.nilai_k3lh ?? 0) || 0));
+      softskill = Math.min(100, Math.max(0, Number(payload.nilai_softskill ?? 0) || 0));
+      teknis = Math.min(100, Math.max(0, Number(payload.nilai_kompetensi_teknis ?? 0) || 0));
+      alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
+      avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
+      predikat = payload.predikat || getPredikatFromScore(avgScore);
+    }
+
+    const cleanNote = stripStructuredTagsFromNote(payload.catatan_perkembangan);
+    const noteParts = [
+      `[Absensi: S=${sakit}, I=${izin}, A=${alpha}]`,
+      nilaiMuncul && avgScore > 0
+        ? `[Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`
         : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+      cleanNote,
+    ].filter(Boolean);
 
-    const sheetRow = {
+    const noteCombined = noteParts.join(' ');
+    const stageStr = String(payload.tahap_monitoring);
+    const stageNum = extractStageNumber(stageStr);
+
+    const sheetRow: Record<string, any> = {
       id: idMonitoring,
       ID_Monitoring: idMonitoring,
       idMonitoring,
@@ -1618,28 +1914,358 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
       idGuruPendamping: String(payload.guru_id || ''),
       Guru_Pendamping: String(payload.guru_pembimbing || ''),
       guruPendamping: String(payload.guru_pembimbing || ''),
-      Tahap: String(payload.tahap_monitoring),
-      tahap: String(payload.tahap_monitoring),
+      Tahap: stageStr,
+      tahap: stageStr,
       Tanggal_Kunjungan: tglVal,
       tanggalKunjungan: tglVal,
+      Sakit: sakit,
+      sakit,
+      Izin: izin,
+      izin,
+      Alpha: alpha,
+      alpha,
+      Nilai_PKL_Muncul: nilaiMuncul ? 'Ya' : 'Belum',
+      nilaiPklMuncul: nilaiMuncul,
+      Nilai_K3LH: nilaiMuncul ? k3lh : '',
+      nilaiK3lh: nilaiMuncul ? k3lh : '',
+      Nilai_Softskill: nilaiMuncul ? softskill : '',
+      nilaiSoftskill: nilaiMuncul ? softskill : '',
+      Nilai_Kompetensi_Teknis: nilaiMuncul ? teknis : '',
+      nilaiKompetensiTeknis: nilaiMuncul ? teknis : '',
+      Nilai_Alur_Bisnis: nilaiMuncul ? alurBisnis : '',
+      nilaiAlurBisnis: nilaiMuncul ? alurBisnis : '',
+      Nilai_Rata_Rata: nilaiMuncul ? avgScore : '',
+      nilaiRataRata: nilaiMuncul ? avgScore : '',
       Catatan_Kunjungan: noteCombined,
       catatanKunjungan: noteCombined,
       Foto_Bukti_Drive: '',
       fotoBuktiUrl: '',
-      Nilai_DUDI_Terkumpul: avgScore > 0 ? 'Ya' : 'Belum',
-      nilaiDudiTerkumpul: avgScore > 0,
-      Blangko_Sertifikat_Bawa: String(payload.tahap_monitoring).includes('4') ? 'Ya' : 'Belum',
-      blangkoSertifikatBawa: String(payload.tahap_monitoring).includes('4'),
+      Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? 'Ya' : 'Belum',
+      nilaiDudiTerkumpul: nilaiMuncul && avgScore > 0,
+      Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
+      blangkoSertifikatBawa: stageNum >= 5,
       Status_Tahap: 'Terlaksana',
       statusTahap: 'Terlaksana',
     };
 
-    await writeLiveSheetViaGas('Monitoring_5_Tahap', 'CREATE', sheetRow);
+    await writeLiveSheetViaGas('Monitoring_5_Tahap', isUpdate ? 'UPDATE' : 'CREATE', sheetRow);
+
+    let gradeSynced = false;
+    if (nilaiMuncul && avgScore > 0) {
+      try {
+        const nilaiRes = await fetchLiveSheetViaGas('Nilai_Dan_Sertifikat', true).catch(() => ({ rows: [] as any[] }));
+        const existingNilai = nilaiRes.rows.find((n: any) => {
+          const rowNis = pickField(n, 'NIS', 'nis');
+          const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
+          return (
+            (payload.nis && rowNis === String(payload.nis).trim()) ||
+            (payload.id_penempatan && rowPlt === String(payload.id_penempatan).trim())
+          );
+        });
+
+        const roundedDudi = Math.round(avgScore * 10) / 10;
+        const finalPredikat = getPredikatFromScore(roundedDudi);
+        if (existingNilai) {
+          await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'UPDATE', {
+            ...existingNilai,
+            id: pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id'),
+            ID_Penempatan:
+              pickField(existingNilai, 'ID_Penempatan', 'idPenempatan') ||
+              String(payload.id_penempatan || `PLT-${payload.nis}`),
+            Nilai_K3LH: k3lh,
+            nilaiK3lh: k3lh,
+            Nilai_Softskill: softskill,
+            nilaiSoftskill: softskill,
+            Nilai_Kompetensi_Teknis: teknis,
+            nilaiKompetensiTeknis: teknis,
+            Nilai_Alur_Bisnis: alurBisnis,
+            nilaiAlurBisnis: alurBisnis,
+            Nilai_Rata_Rata: roundedDudi,
+            nilaiRataRata: roundedDudi,
+            Nilai_DUDI: roundedDudi,
+            nilaiDudi: roundedDudi,
+            Predikat: finalPredikat,
+            predikat: finalPredikat,
+            Status_Raport: 'Siap Cetak',
+            statusRaport: 'Siap Cetak',
+          });
+        } else {
+          const idPlt = String(payload.id_penempatan || `PLT-${payload.nis}`);
+          await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'CREATE', {
+            id: idPlt,
+            ID_Penempatan: idPlt,
+            idPenempatan: idPlt,
+            NIS: String(payload.nis || ''),
+            nis: String(payload.nis || ''),
+            Nama_Siswa: String(payload.nama_siswa || ''),
+            namaSiswa: String(payload.nama_siswa || ''),
+            Jurusan: String(payload.jurusan || ''),
+            jurusan: String(payload.jurusan || ''),
+            Kelas: String(payload.kelas || '-'),
+            kelas: String(payload.kelas || '-'),
+            DUDI_Tujuan: String(payload.nama_dudi || ''),
+            dudiTujuan: String(payload.nama_dudi || ''),
+            Nilai_K3LH: k3lh,
+            nilaiK3lh: k3lh,
+            Nilai_Softskill: softskill,
+            nilaiSoftskill: softskill,
+            Nilai_Kompetensi_Teknis: teknis,
+            nilaiKompetensiTeknis: teknis,
+            Nilai_Alur_Bisnis: alurBisnis,
+            nilaiAlurBisnis: alurBisnis,
+            Nilai_Rata_Rata: roundedDudi,
+            nilaiRataRata: roundedDudi,
+            Nilai_DUDI: roundedDudi,
+            nilaiDudi: roundedDudi,
+            Predikat: finalPredikat,
+            predikat: finalPredikat,
+            No_Seri_Blangko: '',
+            noSeriBlangko: '',
+            Status_Blangko: 'Tersedia',
+            statusBlangko: 'Tersedia',
+            Status_Raport: 'Siap Cetak',
+            statusRaport: 'Siap Cetak',
+            Tgl_Terbit: tglVal,
+            tanggalTerbit: tglVal,
+          });
+        }
+        gradeSynced = true;
+      } catch (gradeErr) {
+        console.warn('[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:', gradeErr);
+      }
+    }
 
     res.json({
       success: true,
-      message: `Data ${payload.tahap_monitoring} berhasil disimpan ke Google Spreadsheet.`,
+      gradeSynced,
+      message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Google Spreadsheet.`,
       monitoring: sheetRow,
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// Edit / Update already submitted PKL grades in both Monitoring_5_Tahap & Nilai_Dan_Sertifikat
+app.post('/api/public/update-grades', async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const nis = String(payload.nis || '').trim();
+    const namaSiswa = String(payload.nama_siswa || '').trim();
+    const idPenempatan = String(payload.id_penempatan || (nis ? `PLT-${nis}` : '')).trim();
+
+    if (!nis || !namaSiswa) {
+      return res.status(400).json({
+        success: false,
+        message: 'NIS dan Nama Siswa wajib diisi untuk mengubah nilai.',
+      });
+    }
+
+    const k3lh = Math.min(100, Math.max(0, Number(payload.nilai_k3lh ?? 0) || 0));
+    const softskill = Math.min(100, Math.max(0, Number(payload.nilai_softskill ?? 0) || 0));
+    const teknis = Math.min(100, Math.max(0, Number(payload.nilai_kompetensi_teknis ?? 0) || 0));
+    const alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
+    const avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
+    const predikat = getPredikatFromScore(avgScore);
+    const tglVal = String(payload.tanggal || new Date().toISOString().split('T')[0]);
+
+    const monRes = await fetchLiveSheetViaGas('Monitoring_5_Tahap', true).catch(() => ({ rows: [] as any[] }));
+    const targetMonId = String(payload.monitoring_id || '').trim();
+
+    const matchedRows = monRes.rows.filter((r: any) => {
+      const rMonId = pickField(r, 'ID_Monitoring', 'idMonitoring', 'id');
+      const rNis = pickField(r, 'NIS', 'nis');
+      const rPlt = pickField(r, 'ID_Penempatan', 'idPenempatan');
+      if (targetMonId && rMonId === targetMonId) return true;
+      if (nis && rNis === nis) return true;
+      if (idPenempatan && rPlt === idPenempatan) return true;
+      return false;
+    });
+
+    let targetRow =
+      (targetMonId
+        ? matchedRows.find((r: any) => pickField(r, 'ID_Monitoring', 'idMonitoring', 'id') === targetMonId)
+        : undefined) ||
+      [...matchedRows].reverse().find((r: any) => {
+        const flag = normalizeStr(pickField(r, 'Nilai_DUDI_Terkumpul', 'nilaiDudiTerkumpul'));
+        const avg = Number(r.Nilai_Rata_Rata ?? r.nilaiRataRata ?? 0);
+        return flag === 'ya' || flag === 'true' || avg > 0;
+      }) ||
+      matchedRows[matchedRows.length - 1];
+
+    let resolvedMonId = targetMonId;
+    let resolvedStage = String(payload.tahap_monitoring || getStageValueByNumber(5));
+
+    if (targetRow) {
+      resolvedMonId = pickField(targetRow, 'ID_Monitoring', 'idMonitoring', 'id');
+      resolvedStage = pickField(targetRow, 'Tahap', 'tahap') || resolvedStage;
+      const existingSakit = Math.max(0, Math.round(Number(targetRow.Sakit ?? targetRow.sakit ?? 0) || 0));
+      const existingIzin = Math.max(0, Math.round(Number(targetRow.Izin ?? targetRow.izin ?? 0) || 0));
+      const existingAlpha = Math.max(0, Math.round(Number(targetRow.Alpha ?? targetRow.alpha ?? 0) || 0));
+      const cleanNote = stripStructuredTagsFromNote(
+        targetRow.Catatan_Kunjungan ?? targetRow.catatanKunjungan ?? ''
+      );
+      const updatedNote = [
+        `[Absensi: S=${existingSakit}, I=${existingIzin}, A=${existingAlpha}]`,
+        `[Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`,
+        cleanNote,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      await writeLiveSheetViaGas('Monitoring_5_Tahap', 'UPDATE', {
+        ...targetRow,
+        id: resolvedMonId,
+        ID_Monitoring: resolvedMonId,
+        idMonitoring: resolvedMonId,
+        Nilai_PKL_Muncul: 'Ya',
+        nilaiPklMuncul: true,
+        Nilai_K3LH: k3lh,
+        nilaiK3lh: k3lh,
+        Nilai_Softskill: softskill,
+        nilaiSoftskill: softskill,
+        Nilai_Kompetensi_Teknis: teknis,
+        nilaiKompetensiTeknis: teknis,
+        Nilai_Alur_Bisnis: alurBisnis,
+        nilaiAlurBisnis: alurBisnis,
+        Nilai_Rata_Rata: avgScore,
+        nilaiRataRata: avgScore,
+        Nilai_DUDI_Terkumpul: 'Ya',
+        nilaiDudiTerkumpul: true,
+        Catatan_Kunjungan: updatedNote,
+        catatanKunjungan: updatedNote,
+      });
+    } else {
+      resolvedMonId = `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+      const stageNum = extractStageNumber(resolvedStage) || 5;
+      const noteCombined = `[Absensi: S=0, I=0, A=0] [Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`;
+      await writeLiveSheetViaGas('Monitoring_5_Tahap', 'CREATE', {
+        id: resolvedMonId,
+        ID_Monitoring: resolvedMonId,
+        idMonitoring: resolvedMonId,
+        ID_Penempatan: idPenempatan,
+        idPenempatan: idPenempatan,
+        ID_DUDI: String(payload.dudi_id || ''),
+        DUDI_Tujuan: String(payload.nama_dudi || ''),
+        Alamat_DUDI: String(payload.alamat_dudi || ''),
+        NIS: nis,
+        Nama_Siswa: namaSiswa,
+        Daftar_Siswa: `${namaSiswa} (${nis})`,
+        Jurusan: String(payload.jurusan || ''),
+        ID_Guru_Pendamping: String(payload.guru_id || ''),
+        Guru_Pendamping: String(payload.guru_pembimbing || ''),
+        Tahap: resolvedStage,
+        Tanggal_Kunjungan: tglVal,
+        Sakit: 0,
+        Izin: 0,
+        Alpha: 0,
+        Nilai_PKL_Muncul: 'Ya',
+        Nilai_K3LH: k3lh,
+        Nilai_Softskill: softskill,
+        Nilai_Kompetensi_Teknis: teknis,
+        Nilai_Alur_Bisnis: alurBisnis,
+        Nilai_Rata_Rata: avgScore,
+        Catatan_Kunjungan: noteCombined,
+        Nilai_DUDI_Terkumpul: 'Ya',
+        Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
+        Status_Tahap: 'Terlaksana',
+      });
+    }
+
+    let nilaiSynced = false;
+    try {
+      const nilaiRes = await fetchLiveSheetViaGas('Nilai_Dan_Sertifikat', true).catch(() => ({ rows: [] as any[] }));
+      const existingNilai = nilaiRes.rows.find((n: any) => {
+        const rowNis = pickField(n, 'NIS', 'nis');
+        const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
+        return (nis && rowNis === nis) || (idPenempatan && rowPlt === idPenempatan);
+      });
+
+      const roundedDudi = Math.round(avgScore * 10) / 10;
+      const finalPredikat = getPredikatFromScore(roundedDudi);
+      if (existingNilai) {
+        const existingId = pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
+
+        await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'UPDATE', {
+          ...existingNilai,
+          id: existingId,
+          ID_Penempatan: existingId,
+          Nilai_K3LH: k3lh,
+          nilaiK3lh: k3lh,
+          Nilai_Softskill: softskill,
+          nilaiSoftskill: softskill,
+          Nilai_Kompetensi_Teknis: teknis,
+          nilaiKompetensiTeknis: teknis,
+          Nilai_Alur_Bisnis: alurBisnis,
+          nilaiAlurBisnis: alurBisnis,
+          Nilai_Rata_Rata: roundedDudi,
+          nilaiRataRata: roundedDudi,
+          Nilai_DUDI: roundedDudi,
+          nilaiDudi: roundedDudi,
+          Predikat: finalPredikat,
+          predikat: finalPredikat,
+          Status_Raport: 'Siap Cetak',
+          statusRaport: 'Siap Cetak',
+        });
+      } else {
+        await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'CREATE', {
+          id: idPenempatan,
+          ID_Penempatan: idPenempatan,
+          idPenempatan,
+          NIS: nis,
+          nis,
+          Nama_Siswa: namaSiswa,
+          namaSiswa,
+          Jurusan: String(payload.jurusan || ''),
+          jurusan: String(payload.jurusan || ''),
+          Kelas: String(payload.kelas || '-'),
+          kelas: String(payload.kelas || '-'),
+          DUDI_Tujuan: String(payload.nama_dudi || ''),
+          dudiTujuan: String(payload.nama_dudi || ''),
+          Nilai_K3LH: k3lh,
+          nilaiK3lh: k3lh,
+          Nilai_Softskill: softskill,
+          nilaiSoftskill: softskill,
+          Nilai_Kompetensi_Teknis: teknis,
+          nilaiKompetensiTeknis: teknis,
+          Nilai_Alur_Bisnis: alurBisnis,
+          nilaiAlurBisnis: alurBisnis,
+          Nilai_Rata_Rata: roundedDudi,
+          nilaiRataRata: roundedDudi,
+          Nilai_DUDI: roundedDudi,
+          nilaiDudi: roundedDudi,
+          Predikat: finalPredikat,
+          predikat: finalPredikat,
+          No_Seri_Blangko: '',
+          noSeriBlangko: '',
+          Status_Blangko: 'Tersedia',
+          statusBlangko: 'Tersedia',
+          Status_Raport: 'Siap Cetak',
+          statusRaport: 'Siap Cetak',
+          Tgl_Terbit: tglVal,
+          tanggalTerbit: tglVal,
+        });
+      }
+      nilaiSynced = true;
+    } catch (syncErr) {
+      console.warn('[update-grades] Sync to Nilai_Dan_Sertifikat warning:', syncErr);
+    }
+
+    res.json({
+      success: true,
+      nilaiSynced,
+      message: `Perubahan nilai PKL ${namaSiswa} (${avgScore}) berhasil disimpan ke Google Spreadsheet.`,
+      gradeSummary: {
+        monitoringId: resolvedMonId,
+        k3lh,
+        softskill,
+        teknis,
+        alurBisnis,
+        rataRata: avgScore,
+        predikat,
+        tahapDiinput: resolvedStage,
+        tanggal: tglVal,
+      },
     });
   } catch (err: any) {
     handlePortalError(res, err);

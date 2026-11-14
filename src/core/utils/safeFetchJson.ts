@@ -18,6 +18,26 @@ export class HtmlResponseError extends Error {
   }
 }
 
+export class TimeoutError extends Error {
+  public readonly code = 'REQUEST_TIMEOUT';
+  public readonly timeoutMs: number;
+
+  constructor(message: string, timeoutMs: number) {
+    super(message);
+    this.name = 'TimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function isTimeoutError(err: unknown): boolean {
+  return (
+    err instanceof TimeoutError ||
+    (err as any)?.name === 'TimeoutError' ||
+    (err as any)?.name === 'AbortError' ||
+    (err as any)?.code === 'REQUEST_TIMEOUT'
+  );
+}
+
 /**
  * Automatically prepends https:// when users paste a Google Apps Script URL
  * without a scheme (e.g. "script.google.com/macros/s/.../exec").
@@ -142,17 +162,59 @@ export function formatGasNetworkError(err: unknown, gasUrl?: string): string {
   return String((err as any)?.message || 'Gagal menghubungi Google Apps Script Web App.');
 }
 
+export interface SafeFetchInit extends RequestInit {
+  timeoutMs?: number;
+}
+
+const DEFAULT_FETCH_TIMEOUT_MS = 18_000;
+
 /**
- * Safely fetches a JSON endpoint and guards against HTML responses (e.g. <!doctype html>
- * from Google Apps Script login redirects, static SPA fallbacks, or 502 proxy pages).
+ * Safely fetches a JSON endpoint with strict AbortController timeout and HTML response protection.
  */
 export async function safeFetchJson<T = any>(
   input: RequestInfo | URL,
-  init?: RequestInit
+  init?: SafeFetchInit
 ): Promise<SafeFetchResult<T>> {
-  const res = await fetch(input, init);
+  const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, signal: externalSignal, ...fetchInit } = init || {};
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
+  const timer =
+    timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
+      : null;
+
+  let res: Response;
+  let rawText: string;
+  try {
+    res = await fetch(input, { ...fetchInit, signal: controller.signal });
+    rawText = await res.text();
+  } catch (err: any) {
+    if (timedOut || err?.name === 'AbortError') {
+      throw new TimeoutError(
+        `Koneksi melebihi batas waktu (${Math.round(timeoutMs / 1000)} detik). Server atau Google Apps Script lambat merespons. Silakan coba lagi.`,
+        timeoutMs
+      );
+    }
+    throw err;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+  }
+
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
-  const rawText = await res.text();
   const trimmed = rawText.trim();
 
   if (!trimmed) {

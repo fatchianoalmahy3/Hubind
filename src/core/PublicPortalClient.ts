@@ -1,12 +1,26 @@
 import { GoogleSheetClient } from './GoogleSheetClient';
+import { ToastManager } from './ToastManager';
+import {
+  buildStudentMonitoringSummary,
+  calculateEqualWeightedAverage,
+  extractStageNumber,
+  getPredikatFromScore,
+  getStageValueByNumber,
+  stripStructuredTagsFromNote,
+} from './utils/monitoringHelpers';
 import {
   safeFetchJson,
   HtmlResponseError,
+  isTimeoutError,
   normalizeGasUrl,
   validateGasDeployUrl,
   formatGasNetworkError,
   isNetworkFetchError,
 } from './utils/safeFetchJson';
+
+const DIRECT_SHEET_CACHE_TTL_MS = 90_000;
+const directSheetCache = new Map<string, { rows: any[]; fetchedAt: number }>();
+const inFlightDirectReads = new Map<string, Promise<any[]>>();
 
 function pickField(row: Record<string, any>, ...keys: string[]): string {
   for (const k of keys) {
@@ -70,6 +84,7 @@ async function fetchGasGet(sheetName: string, cfg: Awaited<ReturnType<typeof ens
     const { ok, status, data: json } = await safeFetchJson(targetUrl, {
       method: 'GET',
       redirect: 'follow',
+      timeoutMs: 16_000,
     });
     if (!ok || json?.error) {
       throw new Error(json?.error || `Gagal membaca sheet [${sheetName}] dari Google Apps Script (HTTP ${status}).`);
@@ -112,11 +127,13 @@ async function fetchGasPost(
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       redirect: 'follow',
+      timeoutMs: 22_000,
       body: JSON.stringify({
         action,
         sheetName,
         year: cfg.activeYear,
         spreadsheetId: cfg.spreadsheetId,
+        id: payload?.id || payload?.ID_Monitoring || payload?.ID_Penempatan || '',
         data: payload,
         timestamp: new Date().toISOString(),
       }),
@@ -137,13 +154,44 @@ async function fetchGasPost(
   }
 }
 
-async function readSheetDirect(sheetName: string, optional = false): Promise<any[]> {
+async function readSheetDirect(sheetName: string, optional = false, forceRefresh = false): Promise<any[]> {
   const cfg = await ensureHydratedConfig();
+  const cacheKey = `${cfg.spreadsheetId}::${sheetName}`;
+  const cached = directSheetCache.get(cacheKey);
+  if (!forceRefresh && cached && Date.now() - cached.fetchedAt < DIRECT_SHEET_CACHE_TTL_MS) {
+    return cached.rows;
+  }
+
+  if (!forceRefresh) {
+    const existingFlight = inFlightDirectReads.get(cacheKey);
+    if (existingFlight) {
+      try {
+        return await existingFlight;
+      } catch (e) {
+        if (optional) return [];
+        throw e;
+      }
+    }
+  }
+
+  const readPromise = fetchGasGet(sheetName, cfg).then((rows) => {
+    directSheetCache.set(cacheKey, { rows, fetchedAt: Date.now() });
+    return rows;
+  });
+
+  if (!forceRefresh) {
+    inFlightDirectReads.set(cacheKey, readPromise);
+  }
+
   try {
-    return await fetchGasGet(sheetName, cfg);
+    return await readPromise;
   } catch (e) {
     if (optional) return [];
     throw e;
+  } finally {
+    if (inFlightDirectReads.get(cacheKey) === readPromise) {
+      inFlightDirectReads.delete(cacheKey);
+    }
   }
 }
 
@@ -163,6 +211,8 @@ async function readMasterSiswaDirect(): Promise<any[]> {
 async function writeSheetDirect(sheetName: string, action: 'CREATE' | 'UPDATE', payload: any): Promise<void> {
   const cfg = await ensureHydratedConfig();
   await fetchGasPost(sheetName, action, payload, cfg);
+  directSheetCache.delete(`${cfg.spreadsheetId}::${sheetName}`);
+  GoogleSheetClient.getInstance().invalidateClientSheetCache(sheetName);
 }
 
 /**
@@ -181,6 +231,14 @@ async function callPublicEndpoint<T>(
     }
 
     const errCode = String(data?.code || '');
+    // Do NOT trigger slow duplicate direct retry if the backend already timed out talking to GAS
+    if (errCode === 'GAS_TIMEOUT' || status === 504) {
+      throw new Error(
+        data?.message ||
+          'Koneksi ke Google Apps Script melebihi batas waktu. Periksa koneksi atau coba beberapa saat lagi.'
+      );
+    }
+
     const isInfraFailure = INFRA_ERROR_CODES.has(errCode) || status >= 500;
     if (!isInfraFailure) {
       throw new Error(data?.message || `Permintaan ditolak (HTTP ${status}).`);
@@ -188,6 +246,9 @@ async function callPublicEndpoint<T>(
 
     return await directClientCall();
   } catch (err: any) {
+    if (isTimeoutError(err)) {
+      throw err;
+    }
     if (
       err instanceof HtmlResponseError ||
       err instanceof TypeError ||
@@ -234,18 +295,29 @@ export const PublicPortalClient = {
         const rows = await readSheetDirect('Master_DUDI');
         const mapped = rows
           .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
-          .map((d: any, idx: number) => ({
-            id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
-            nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
-            bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
-            alamat: pickField(d, 'Alamat', 'alamat'),
-            kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
-            kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
-            terisi: Number(d.Terisi ?? d.terisi ?? 0),
-            status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
-            pimpinan: pickField(d, 'Nama_PIC', 'namaPic', 'pimpinan'),
-            telepon: pickField(d, 'Kontak_PIC', 'kontakPic', 'telepon'),
-          }));
+          .map((d: any, idx: number) => {
+            const namaPemimpin = pickField(d, 'Nama_Pemimpin', 'namaPemimpin', 'nama_pemimpin', 'pimpinan');
+            const namaPic = pickField(d, 'Nama_PIC', 'namaPic', 'nama_pic');
+            const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
+            const noTelpDudi =
+              pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
+            return {
+              id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
+              nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
+              bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
+              alamat: pickField(d, 'Alamat', 'alamat'),
+              kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
+              kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
+              terisi: Number(d.Terisi ?? d.terisi ?? 0),
+              status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
+              nama_pemimpin: namaPemimpin,
+              nama_pic: namaPic,
+              kontak_pic: kontakPic,
+              no_telp_dudi: noTelpDudi,
+              pimpinan: namaPemimpin || namaPic,
+              telepon: noTelpDudi,
+            };
+          });
         return { success: true, total: mapped.length, data: mapped };
       }
     );
@@ -323,80 +395,138 @@ export const PublicPortalClient = {
     message: string;
     application: any;
   }> {
-    return callPublicEndpoint(
-      () =>
-        safeFetchJson('/api/public/submit-application', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }),
-      async () => {
-        if (!payload?.nis || !payload?.nama) {
-          throw new Error('NIS dan Nama Siswa wajib diisi.');
-        }
-
-        const noPengajuan = `REQ-${new Date().getFullYear()}-${String(payload.jurusan || 'PKL')
-          .substring(0, 3)
-          .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
-        const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-        const sheetRow = {
-          id: noPengajuan,
-          No_Pengajuan: noPengajuan,
-          noPengajuan,
-          Timestamp: timestamp,
-          timestamp,
-          NIS: String(payload.nis).trim(),
-          nis: String(payload.nis).trim(),
-          Nama_Siswa: String(payload.nama).trim(),
-          namaSiswa: String(payload.nama).trim(),
-          nama_siswa: String(payload.nama).trim(),
-          Jurusan: String(payload.jurusan || ''),
-          jurusan: String(payload.jurusan || ''),
-          Kelas: String(payload.kelas || ''),
-          kelas: String(payload.kelas || ''),
-          DUDI_Tujuan: String(payload.nama_dudi || ''),
-          dudiTujuan: String(payload.nama_dudi || ''),
-          ID_DUDI: payload.dudi_id && payload.dudi_id !== 'custom_hubin' ? String(payload.dudi_id) : '',
-          idDudi: payload.dudi_id && payload.dudi_id !== 'custom_hubin' ? String(payload.dudi_id) : '',
-          nama_dudi: String(payload.nama_dudi || ''),
-          Alamat_DUDI: String(payload.alamat_dudi || ''),
-          alamatDudi: String(payload.alamat_dudi || ''),
-          Bidang_Pekerjaan: String(payload.bidang_dudi || ''),
-          bidangPekerjaan: String(payload.bidang_dudi || ''),
-          No_WA: String(payload.telepon || ''),
-          noWa: String(payload.telepon || ''),
-          Alamat_Domisili: String(payload.alamat_domisili || ''),
-          alamatDomisili: String(payload.alamat_domisili || ''),
-          Nama_Ortu_Wali: String(payload.nama_orang_tua || ''),
-          namaOrtuWali: String(payload.nama_orang_tua || ''),
-          No_Ortu_Wali: String(payload.telepon_orang_tua || ''),
-          noOrtuWali: String(payload.telepon_orang_tua || ''),
-          Status_Kakomli: 'Pending',
-          statusKakomli: 'Pending',
-          Catatan_Kakomli: payload.catatan
-            ? String(payload.catatan)
-            : payload.is_dudi_unregistered
-            ? 'Pengajuan DUDI baru (perlu verifikasi kelayakan Hubin).'
-            : 'Menunggu review relevansi kompetensi oleh Kakomli.',
-          catatanKakomli: String(payload.catatan || ''),
-          Status_Hubin: 'Menunggu ACC Kakomli',
-          statusHubin: 'Menunggu ACC Kakomli',
-          Guru_Pendamping: '',
-          guruPendamping: '',
-          Tgl_Berangkat: String(payload.tanggal_mulai || ''),
-          tanggalBerangkat: String(payload.tanggal_mulai || ''),
-          status: 'Menunggu Validasi Kakomli',
-        };
-
-        await writeSheetDirect('Data_Pengajuan_PKL', 'CREATE', sheetRow);
-        return {
-          success: true,
-          message: 'Pengajuan PKL berhasil disimpan langsung ke Google Spreadsheet.',
-          application: sheetRow,
-        };
-      }
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan Pengajuan ke Spreadsheet...',
+      'pending',
+      `Mengirim data pengajuan PKL ${payload?.nama || ''} ke [Data_Pengajuan_PKL]`,
+      'Data_Pengajuan_PKL'
     );
+
+    try {
+      const result = await callPublicEndpoint(
+        () =>
+          safeFetchJson('/api/public/submit-application', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        async () => {
+          if (!payload?.nis || !payload?.nama) {
+            throw new Error('NIS dan Nama Siswa wajib diisi.');
+          }
+
+          const noPengajuan = `REQ-${new Date().getFullYear()}-${String(payload.jurusan || 'PKL')
+            .substring(0, 3)
+            .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+          const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+          const namaPemimpin = String(payload.nama_pemimpin || '').trim();
+          const namaPic = String(payload.nama_pic || '').trim();
+          const noTelpDudi = String(payload.no_telp_dudi || '').trim();
+
+          const dudiContactSummary = [
+            namaPemimpin ? `Pemimpin: ${namaPemimpin}` : '',
+            namaPic ? `PIC/Pendamping: ${namaPic}` : '',
+            noTelpDudi ? `Telp DUDI: ${noTelpDudi}` : '',
+          ]
+            .filter(Boolean)
+            .join(' | ');
+
+          const baseStatusNote = payload.is_dudi_unregistered
+            ? 'Pengajuan DUDI baru (perlu verifikasi kelayakan Hubin).'
+            : 'Menunggu review relevansi kompetensi oleh Kakomli.';
+
+          const combinedCatatanKakomli = dudiContactSummary
+            ? `${baseStatusNote} [${dudiContactSummary}]`
+            : baseStatusNote;
+
+          const sheetRow = {
+            id: noPengajuan,
+            No_Pengajuan: noPengajuan,
+            noPengajuan,
+            Timestamp: timestamp,
+            timestamp,
+            NIS: String(payload.nis).trim(),
+            nis: String(payload.nis).trim(),
+            Nama_Siswa: String(payload.nama).trim(),
+            namaSiswa: String(payload.nama).trim(),
+            nama_siswa: String(payload.nama).trim(),
+            Jurusan: String(payload.jurusan || ''),
+            jurusan: String(payload.jurusan || ''),
+            Kelas: String(payload.kelas || ''),
+            kelas: String(payload.kelas || ''),
+            DUDI_Tujuan: String(payload.nama_dudi || ''),
+            dudiTujuan: String(payload.nama_dudi || ''),
+            ID_DUDI: payload.dudi_id && payload.dudi_id !== 'custom_hubin' ? String(payload.dudi_id) : '',
+            idDudi: payload.dudi_id && payload.dudi_id !== 'custom_hubin' ? String(payload.dudi_id) : '',
+            nama_dudi: String(payload.nama_dudi || ''),
+            Alamat_DUDI: String(payload.alamat_dudi || ''),
+            alamatDudi: String(payload.alamat_dudi || ''),
+            Bidang_Pekerjaan: String(payload.bidang_dudi || ''),
+            bidangPekerjaan: String(payload.bidang_dudi || ''),
+            Nama_Pemimpin: namaPemimpin,
+            namaPemimpin,
+            Nama_PIC: namaPic,
+            namaPic,
+            No_Telp_DUDI: noTelpDudi,
+            noTelpDudi,
+            Kontak_PIC: noTelpDudi,
+            kontakPic: noTelpDudi,
+            No_WA: String(payload.telepon || ''),
+            noWa: String(payload.telepon || ''),
+            Alamat_Domisili: String(payload.alamat_domisili || ''),
+            alamatDomisili: String(payload.alamat_domisili || ''),
+            Nama_Ortu_Wali: String(payload.nama_orang_tua || ''),
+            namaOrtuWali: String(payload.nama_orang_tua || ''),
+            No_Ortu_Wali: String(payload.telepon_orang_tua || ''),
+            noOrtuWali: String(payload.telepon_orang_tua || ''),
+            Status_Kakomli: 'Pending',
+            statusKakomli: 'Pending',
+            Catatan_Kakomli: combinedCatatanKakomli,
+            catatanKakomli: combinedCatatanKakomli,
+            Status_Hubin: 'Menunggu ACC Kakomli',
+            statusHubin: 'Menunggu ACC Kakomli',
+            Guru_Pendamping: '',
+            guruPendamping: '',
+            Tgl_Berangkat: '',
+            tanggalBerangkat: '',
+            status: 'Menunggu Validasi Kakomli',
+          };
+
+          await writeSheetDirect('Data_Pengajuan_PKL', 'CREATE', sheetRow);
+          return {
+            success: true,
+            message: 'Pengajuan PKL berhasil disimpan langsung ke Google Spreadsheet.',
+            application: sheetRow,
+          };
+        }
+      );
+
+      if (result?.success) {
+        ToastManager.getInstance().update(
+          toastId,
+          'Tersimpan di Google Spreadsheet!',
+          'success',
+          `Pengajuan PKL ${payload.nama} (${result.application?.id || ''}) tercatat di Data_Pengajuan_PKL.`
+        );
+      } else {
+        ToastManager.getInstance().update(
+          toastId,
+          'Gagal Menyimpan Pengajuan',
+          'error',
+          result?.message || 'Terjadi kendala saat menyimpan ke Google Spreadsheet.'
+        );
+      }
+      return result;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Menyimpan Pengajuan',
+        'error',
+        err?.message || 'Periksa koneksi dan konfigurasi Apps Script.'
+      );
+      throw err;
+    }
   },
 
   async getPetugasList(): Promise<{ success: boolean; total: number; data: any[] }> {
@@ -634,10 +764,12 @@ export const PublicPortalClient = {
           )}&dudiId=${encodeURIComponent(dudiId || '')}&petugasNama=${encodeURIComponent(petugasNama)}`
         ),
       async () => {
-        const [plottingRows, pengajuanRows, siswaRows] = await Promise.all([
+        const [plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows] = await Promise.all([
           readSheetDirect('Plotting_Pemberangkatan', true),
           readSheetDirect('Data_Pengajuan_PKL', true),
           readMasterSiswaDirect().catch(() => [] as any[]),
+          readSheetDirect('Monitoring_5_Tahap', true),
+          readSheetDirect('Nilai_Dan_Sertifikat', true),
         ]);
 
         const siswaByNis = new Map<string, any>();
@@ -733,7 +865,13 @@ export const PublicPortalClient = {
           }
         }
 
-        const result = Array.from(studentsMap.values());
+        const result = Array.from(studentsMap.values()).map((stu) => {
+          const summary = buildStudentMonitoringSummary(stu, monitoringRows, nilaiRows);
+          return {
+            ...stu,
+            ...summary,
+          };
+        });
         return { success: true, total: result.length, data: result };
       }
     );
@@ -741,81 +879,550 @@ export const PublicPortalClient = {
 
   async submitMonitoring(payload: any): Promise<{
     success: boolean;
+    gradeSynced?: boolean;
     message: string;
     monitoring: any;
   }> {
-    return callPublicEndpoint(
-      () =>
-        safeFetchJson('/api/public/submit-monitoring', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }),
-      async () => {
-        if (!payload?.nis || !payload?.nama_siswa || !payload?.tahap_monitoring) {
-          throw new Error('NIS, Nama Siswa, dan Tahap Monitoring wajib diisi.');
-        }
-
-        const idMonitoring = `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-        const tglVal = payload.tanggal || new Date().toISOString().split('T')[0];
-        const avgScore = Number(payload.nilai_rata_rata) || 0;
-
-        const noteCombined = [
-          payload.catatan_perkembangan || '',
-          avgScore > 0
-            ? `[Skor: Teknis=${payload.nilai_teknis ?? '-'}, Disiplin=${payload.nilai_disiplin ?? '-'}, Inisiatif=${payload.nilai_inisiatif ?? '-'}, K3=${payload.nilai_k3 ?? '-'} | Akhir=${avgScore} (${payload.predikat || ''})]`
-            : '',
-        ]
-          .filter(Boolean)
-          .join(' ');
-
-        const sheetRow = {
-          id: idMonitoring,
-          ID_Monitoring: idMonitoring,
-          idMonitoring,
-          ID_Penempatan: String(payload.id_penempatan || `PLT-${payload.nis}`),
-          idPenempatan: String(payload.id_penempatan || `PLT-${payload.nis}`),
-          ID_DUDI: String(payload.dudi_id || ''),
-          idDudi: String(payload.dudi_id || ''),
-          DUDI_Tujuan: String(payload.nama_dudi || ''),
-          dudiTujuan: String(payload.nama_dudi || ''),
-          Alamat_DUDI: String(payload.alamat_dudi || ''),
-          alamatDudi: String(payload.alamat_dudi || ''),
-          NIS: String(payload.nis || ''),
-          nis: String(payload.nis || ''),
-          Nama_Siswa: String(payload.nama_siswa || ''),
-          namaSiswa: String(payload.nama_siswa || ''),
-          Daftar_Siswa: `${payload.nama_siswa} (${payload.nis})`,
-          daftarSiswa: `${payload.nama_siswa} (${payload.nis})`,
-          Jurusan: String(payload.jurusan || ''),
-          jurusan: String(payload.jurusan || ''),
-          ID_Guru_Pendamping: String(payload.guru_id || ''),
-          idGuruPendamping: String(payload.guru_id || ''),
-          Guru_Pendamping: String(payload.guru_pembimbing || ''),
-          guruPendamping: String(payload.guru_pembimbing || ''),
-          Tahap: String(payload.tahap_monitoring),
-          tahap: String(payload.tahap_monitoring),
-          Tanggal_Kunjungan: tglVal,
-          tanggalKunjungan: tglVal,
-          Catatan_Kunjungan: noteCombined,
-          catatanKunjungan: noteCombined,
-          Foto_Bukti_Drive: '',
-          fotoBuktiUrl: '',
-          Nilai_DUDI_Terkumpul: avgScore > 0 ? 'Ya' : 'Belum',
-          nilaiDudiTerkumpul: avgScore > 0,
-          Blangko_Sertifikat_Bawa: String(payload.tahap_monitoring).includes('4') ? 'Ya' : 'Belum',
-          blangkoSertifikatBawa: String(payload.tahap_monitoring).includes('4'),
-          Status_Tahap: 'Terlaksana',
-          statusTahap: 'Terlaksana',
-        };
-
-        await writeSheetDirect('Monitoring_5_Tahap', 'CREATE', sheetRow);
-        return {
-          success: true,
-          message: `Data ${payload.tahap_monitoring} berhasil disimpan ke Google Spreadsheet.`,
-          monitoring: sheetRow,
-        };
-      }
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan Supervisi ke Spreadsheet...',
+      'pending',
+      `Menulis ${payload?.tahap_monitoring || 'Monitoring'} untuk ${payload?.nama_siswa || 'Siswa'} ke [Monitoring_5_Tahap]`,
+      'Monitoring_5_Tahap'
     );
+
+    try {
+      const res = await callPublicEndpoint(
+        () =>
+          safeFetchJson('/api/public/submit-monitoring', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        async () => {
+          if (!payload?.nis || !payload?.nama_siswa || !payload?.tahap_monitoring) {
+            throw new Error('NIS, Nama Siswa, dan Tahap Monitoring wajib diisi.');
+          }
+
+          const existingMonId = String(payload.existing_monitoring_id || '').trim();
+          const isUpdate = Boolean(existingMonId);
+          const idMonitoring =
+            existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          const tglVal = payload.tanggal || new Date().toISOString().split('T')[0];
+
+          const sakit = Math.max(0, Math.round(Number(payload.sakit ?? 0) || 0));
+          const izin = Math.max(0, Math.round(Number(payload.izin ?? 0) || 0));
+          const alpha = Math.max(0, Math.round(Number(payload.alpha ?? 0) || 0));
+          const nilaiMuncul = Boolean(payload.nilai_pkl_muncul);
+
+          let k3lh = 0;
+          let softskill = 0;
+          let teknis = 0;
+          let alurBisnis = 0;
+          let avgScore = 0;
+          let predikat = '';
+
+          if (nilaiMuncul) {
+            k3lh = Math.min(100, Math.max(0, Number(payload.nilai_k3lh ?? 0) || 0));
+            softskill = Math.min(100, Math.max(0, Number(payload.nilai_softskill ?? 0) || 0));
+            teknis = Math.min(100, Math.max(0, Number(payload.nilai_kompetensi_teknis ?? 0) || 0));
+            alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
+            avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
+            predikat = payload.predikat || getPredikatFromScore(avgScore);
+          }
+
+          const cleanNote = stripStructuredTagsFromNote(payload.catatan_perkembangan);
+          const noteParts = [
+            `[Absensi: S=${sakit}, I=${izin}, A=${alpha}]`,
+            nilaiMuncul && avgScore > 0
+              ? `[Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`
+              : '',
+            cleanNote,
+          ].filter(Boolean);
+
+          const noteCombined = noteParts.join(' ');
+          const stageStr = String(payload.tahap_monitoring);
+          const stageNum = extractStageNumber(stageStr);
+
+          const sheetRow = {
+            id: idMonitoring,
+            ID_Monitoring: idMonitoring,
+            idMonitoring,
+            ID_Penempatan: String(payload.id_penempatan || `PLT-${payload.nis}`),
+            idPenempatan: String(payload.id_penempatan || `PLT-${payload.nis}`),
+            ID_DUDI: String(payload.dudi_id || ''),
+            idDudi: String(payload.dudi_id || ''),
+            DUDI_Tujuan: String(payload.nama_dudi || ''),
+            dudiTujuan: String(payload.nama_dudi || ''),
+            Alamat_DUDI: String(payload.alamat_dudi || ''),
+            alamatDudi: String(payload.alamat_dudi || ''),
+            NIS: String(payload.nis || ''),
+            nis: String(payload.nis || ''),
+            Nama_Siswa: String(payload.nama_siswa || ''),
+            namaSiswa: String(payload.nama_siswa || ''),
+            Daftar_Siswa: `${payload.nama_siswa} (${payload.nis})`,
+            daftarSiswa: `${payload.nama_siswa} (${payload.nis})`,
+            Jurusan: String(payload.jurusan || ''),
+            jurusan: String(payload.jurusan || ''),
+            ID_Guru_Pendamping: String(payload.guru_id || ''),
+            idGuruPendamping: String(payload.guru_id || ''),
+            Guru_Pendamping: String(payload.guru_pembimbing || ''),
+            guruPendamping: String(payload.guru_pembimbing || ''),
+            Tahap: stageStr,
+            tahap: stageStr,
+            Tanggal_Kunjungan: tglVal,
+            tanggalKunjungan: tglVal,
+            Sakit: sakit,
+            sakit,
+            Izin: izin,
+            izin,
+            Alpha: alpha,
+            alpha,
+            Nilai_PKL_Muncul: nilaiMuncul ? 'Ya' : 'Belum',
+            nilaiPklMuncul: nilaiMuncul,
+            Nilai_K3LH: nilaiMuncul ? k3lh : '',
+            nilaiK3lh: nilaiMuncul ? k3lh : '',
+            Nilai_Softskill: nilaiMuncul ? softskill : '',
+            nilaiSoftskill: nilaiMuncul ? softskill : '',
+            Nilai_Kompetensi_Teknis: nilaiMuncul ? teknis : '',
+            nilaiKompetensiTeknis: nilaiMuncul ? teknis : '',
+            Nilai_Alur_Bisnis: nilaiMuncul ? alurBisnis : '',
+            nilaiAlurBisnis: nilaiMuncul ? alurBisnis : '',
+            Nilai_Rata_Rata: nilaiMuncul ? avgScore : '',
+            nilaiRataRata: nilaiMuncul ? avgScore : '',
+            Catatan_Kunjungan: noteCombined,
+            catatanKunjungan: noteCombined,
+            Foto_Bukti_Drive: '',
+            fotoBuktiUrl: '',
+            Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? 'Ya' : 'Belum',
+            nilaiDudiTerkumpul: nilaiMuncul && avgScore > 0,
+            Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
+            blangkoSertifikatBawa: stageNum >= 5,
+            Status_Tahap: 'Terlaksana',
+            statusTahap: 'Terlaksana',
+          };
+
+          await writeSheetDirect('Monitoring_5_Tahap', isUpdate ? 'UPDATE' : 'CREATE', sheetRow);
+
+          let gradeSynced = false;
+          if (nilaiMuncul && avgScore > 0) {
+            try {
+              const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true);
+              const existingNilai = nilaiRows.find((n: any) => {
+                const rowNis = pickField(n, 'NIS', 'nis');
+                const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
+                return (
+                  (payload.nis && rowNis === String(payload.nis).trim()) ||
+                  (payload.id_penempatan && rowPlt === String(payload.id_penempatan).trim())
+                );
+              });
+              const roundedDudi = Math.round(avgScore * 10) / 10;
+              const finalPredikat = getPredikatFromScore(roundedDudi);
+              if (existingNilai) {
+                await writeSheetDirect('Nilai_Dan_Sertifikat', 'UPDATE', {
+                  ...existingNilai,
+                  id: pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id'),
+                  ID_Penempatan:
+                    pickField(existingNilai, 'ID_Penempatan', 'idPenempatan') ||
+                    String(payload.id_penempatan || `PLT-${payload.nis}`),
+                  Nilai_K3LH: k3lh,
+                  nilaiK3lh: k3lh,
+                  Nilai_Softskill: softskill,
+                  nilaiSoftskill: softskill,
+                  Nilai_Kompetensi_Teknis: teknis,
+                  nilaiKompetensiTeknis: teknis,
+                  Nilai_Alur_Bisnis: alurBisnis,
+                  nilaiAlurBisnis: alurBisnis,
+                  Nilai_Rata_Rata: roundedDudi,
+                  nilaiRataRata: roundedDudi,
+                  Nilai_DUDI: roundedDudi,
+                  nilaiDudi: roundedDudi,
+                  Predikat: finalPredikat,
+                  predikat: finalPredikat,
+                  Status_Raport: 'Siap Cetak',
+                  statusRaport: 'Siap Cetak',
+                });
+              } else {
+                const idPlt = String(payload.id_penempatan || `PLT-${payload.nis}`);
+                await writeSheetDirect('Nilai_Dan_Sertifikat', 'CREATE', {
+                  id: idPlt,
+                  ID_Penempatan: idPlt,
+                  idPenempatan: idPlt,
+                  NIS: String(payload.nis || ''),
+                  nis: String(payload.nis || ''),
+                  Nama_Siswa: String(payload.nama_siswa || ''),
+                  namaSiswa: String(payload.nama_siswa || ''),
+                  Jurusan: String(payload.jurusan || ''),
+                  jurusan: String(payload.jurusan || ''),
+                  Kelas: String(payload.kelas || '-'),
+                  kelas: String(payload.kelas || '-'),
+                  DUDI_Tujuan: String(payload.nama_dudi || ''),
+                  dudiTujuan: String(payload.nama_dudi || ''),
+                  Nilai_K3LH: k3lh,
+                  nilaiK3lh: k3lh,
+                  Nilai_Softskill: softskill,
+                  nilaiSoftskill: softskill,
+                  Nilai_Kompetensi_Teknis: teknis,
+                  nilaiKompetensiTeknis: teknis,
+                  Nilai_Alur_Bisnis: alurBisnis,
+                  nilaiAlurBisnis: alurBisnis,
+                  Nilai_Rata_Rata: roundedDudi,
+                  nilaiRataRata: roundedDudi,
+                  Nilai_DUDI: roundedDudi,
+                  nilaiDudi: roundedDudi,
+                  Predikat: finalPredikat,
+                  predikat: finalPredikat,
+                  No_Seri_Blangko: '',
+                  noSeriBlangko: '',
+                  Status_Blangko: 'Tersedia',
+                  statusBlangko: 'Tersedia',
+                  Status_Raport: 'Siap Cetak',
+                  statusRaport: 'Siap Cetak',
+                  Tgl_Terbit: tglVal,
+                  tanggalTerbit: tglVal,
+                });
+              }
+              gradeSynced = true;
+            } catch {
+              // Non-blocking fallback
+            }
+          }
+
+          return {
+            success: true,
+            gradeSynced,
+            message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Google Spreadsheet.`,
+            monitoring: sheetRow,
+          };
+        }
+      );
+
+      if (res?.success) {
+        const nilaiSuffix = res.gradeSynced
+          ? ` · Nilai DUDI (${res.monitoring?.Nilai_Rata_Rata ?? payload.nilai_rata_rata}) tersinkron ke Nilai_Dan_Sertifikat`
+          : '';
+        ToastManager.getInstance().update(
+          toastId,
+          res.gradeSynced ? 'Supervisi & Nilai PKL Tersimpan!' : 'Data Supervisi Tersimpan di Spreadsheet!',
+          'success',
+          `${payload.nama_siswa} · ${payload.tahap_monitoring} (S:${payload.sakit ?? 0} I:${payload.izin ?? 0} A:${payload.alpha ?? 0})${nilaiSuffix}`
+        );
+      } else {
+        ToastManager.getInstance().update(
+          toastId,
+          'Gagal Menyimpan Supervisi',
+          'error',
+          res?.message || 'Gagal menyimpan ke Google Spreadsheet.'
+        );
+      }
+
+      return res;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Menyimpan Supervisi',
+        'error',
+        err?.message || 'Periksa koneksi dan konfigurasi Apps Script.'
+      );
+      throw err;
+    }
+  },
+
+  async updateMonitoringGrades(payload: {
+    monitoring_id?: string;
+    id_penempatan?: string;
+    nis: string;
+    nama_siswa: string;
+    kelas?: string;
+    jurusan?: string;
+    dudi_id?: string;
+    nama_dudi?: string;
+    alamat_dudi?: string;
+    guru_id?: string;
+    guru_pembimbing?: string;
+    tahap_monitoring?: string;
+    tanggal?: string;
+    nilai_k3lh: number;
+    nilai_softskill: number;
+    nilai_kompetensi_teknis: number;
+    nilai_alur_bisnis: number;
+  }): Promise<{
+    success: boolean;
+    nilaiSynced?: boolean;
+    message: string;
+    gradeSummary: {
+      monitoringId?: string;
+      k3lh: number;
+      softskill: number;
+      teknis: number;
+      alurBisnis: number;
+      rataRata: number;
+      predikat: string;
+      tahapDiinput?: string;
+      tanggal?: string;
+    };
+  }> {
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan Perubahan Nilai ke Spreadsheet...',
+      'pending',
+      `Memperbarui nilai PKL ${payload.nama_siswa} pada [Monitoring_5_Tahap]`,
+      'Monitoring_5_Tahap'
+    );
+
+    try {
+      const res = await callPublicEndpoint(
+        () =>
+          safeFetchJson('/api/public/update-grades', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        async () => {
+          const nis = String(payload.nis || '').trim();
+          const namaSiswa = String(payload.nama_siswa || '').trim();
+          const idPenempatan = String(payload.id_penempatan || (nis ? `PLT-${nis}` : '')).trim();
+          if (!nis || !namaSiswa) {
+            throw new Error('NIS dan Nama Siswa wajib diisi untuk mengubah nilai.');
+          }
+
+          const k3lh = Math.min(100, Math.max(0, Number(payload.nilai_k3lh ?? 0) || 0));
+          const softskill = Math.min(100, Math.max(0, Number(payload.nilai_softskill ?? 0) || 0));
+          const teknis = Math.min(100, Math.max(0, Number(payload.nilai_kompetensi_teknis ?? 0) || 0));
+          const alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
+          const avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
+          const predikat = getPredikatFromScore(avgScore);
+          const tglVal = String(payload.tanggal || new Date().toISOString().split('T')[0]);
+
+          const monRows = await readSheetDirect('Monitoring_5_Tahap', true);
+          const targetMonId = String(payload.monitoring_id || '').trim();
+          const matchedRows = monRows.filter((r: any) => {
+            const rMonId = pickField(r, 'ID_Monitoring', 'idMonitoring', 'id');
+            const rNis = pickField(r, 'NIS', 'nis');
+            const rPlt = pickField(r, 'ID_Penempatan', 'idPenempatan');
+            if (targetMonId && rMonId === targetMonId) return true;
+            if (nis && rNis === nis) return true;
+            if (idPenempatan && rPlt === idPenempatan) return true;
+            return false;
+          });
+
+          const targetRow =
+            (targetMonId
+              ? matchedRows.find((r: any) => pickField(r, 'ID_Monitoring', 'idMonitoring', 'id') === targetMonId)
+              : undefined) ||
+            [...matchedRows].reverse().find((r: any) => {
+              const flag = normalizeStr(pickField(r, 'Nilai_DUDI_Terkumpul', 'nilaiDudiTerkumpul'));
+              const avg = Number(r.Nilai_Rata_Rata ?? r.nilaiRataRata ?? 0);
+              return flag === 'ya' || flag === 'true' || avg > 0;
+            }) ||
+            matchedRows[matchedRows.length - 1];
+
+          let resolvedMonId = targetMonId;
+          let resolvedStage = String(payload.tahap_monitoring || getStageValueByNumber(5));
+
+          if (targetRow) {
+            resolvedMonId = pickField(targetRow, 'ID_Monitoring', 'idMonitoring', 'id');
+            resolvedStage = pickField(targetRow, 'Tahap', 'tahap') || resolvedStage;
+            const existingSakit = Math.max(0, Math.round(Number(targetRow.Sakit ?? targetRow.sakit ?? 0) || 0));
+            const existingIzin = Math.max(0, Math.round(Number(targetRow.Izin ?? targetRow.izin ?? 0) || 0));
+            const existingAlpha = Math.max(0, Math.round(Number(targetRow.Alpha ?? targetRow.alpha ?? 0) || 0));
+            const cleanNote = stripStructuredTagsFromNote(
+              targetRow.Catatan_Kunjungan ?? targetRow.catatanKunjungan ?? ''
+            );
+            const updatedNote = [
+              `[Absensi: S=${existingSakit}, I=${existingIzin}, A=${existingAlpha}]`,
+              `[Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`,
+              cleanNote,
+            ]
+              .filter(Boolean)
+              .join(' ');
+
+            await writeSheetDirect('Monitoring_5_Tahap', 'UPDATE', {
+              ...targetRow,
+              id: resolvedMonId,
+              ID_Monitoring: resolvedMonId,
+              idMonitoring: resolvedMonId,
+              Nilai_PKL_Muncul: 'Ya',
+              nilaiPklMuncul: true,
+              Nilai_K3LH: k3lh,
+              nilaiK3lh: k3lh,
+              Nilai_Softskill: softskill,
+              nilaiSoftskill: softskill,
+              Nilai_Kompetensi_Teknis: teknis,
+              nilaiKompetensiTeknis: teknis,
+              Nilai_Alur_Bisnis: alurBisnis,
+              nilaiAlurBisnis: alurBisnis,
+              Nilai_Rata_Rata: avgScore,
+              nilaiRataRata: avgScore,
+              Nilai_DUDI_Terkumpul: 'Ya',
+              nilaiDudiTerkumpul: true,
+              Catatan_Kunjungan: updatedNote,
+              catatanKunjungan: updatedNote,
+            });
+          } else {
+            resolvedMonId = `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+            const stageNum = extractStageNumber(resolvedStage) || 5;
+            const noteCombined = `[Absensi: S=0, I=0, A=0] [Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`;
+            await writeSheetDirect('Monitoring_5_Tahap', 'CREATE', {
+              id: resolvedMonId,
+              ID_Monitoring: resolvedMonId,
+              idMonitoring: resolvedMonId,
+              ID_Penempatan: idPenempatan,
+              ID_DUDI: String(payload.dudi_id || ''),
+              DUDI_Tujuan: String(payload.nama_dudi || ''),
+              Alamat_DUDI: String(payload.alamat_dudi || ''),
+              NIS: nis,
+              Nama_Siswa: namaSiswa,
+              Daftar_Siswa: `${namaSiswa} (${nis})`,
+              Jurusan: String(payload.jurusan || ''),
+              ID_Guru_Pendamping: String(payload.guru_id || ''),
+              Guru_Pendamping: String(payload.guru_pembimbing || ''),
+              Tahap: resolvedStage,
+              Tanggal_Kunjungan: tglVal,
+              Sakit: 0,
+              Izin: 0,
+              Alpha: 0,
+              Nilai_PKL_Muncul: 'Ya',
+              Nilai_K3LH: k3lh,
+              Nilai_Softskill: softskill,
+              Nilai_Kompetensi_Teknis: teknis,
+              Nilai_Alur_Bisnis: alurBisnis,
+              Nilai_Rata_Rata: avgScore,
+              Catatan_Kunjungan: noteCombined,
+              Nilai_DUDI_Terkumpul: 'Ya',
+              Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
+              Status_Tahap: 'Terlaksana',
+            });
+          }
+
+          let nilaiSynced = false;
+          try {
+            const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true);
+            const existingNilai = nilaiRows.find((n: any) => {
+              const rowNis = pickField(n, 'NIS', 'nis');
+              const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
+              return (nis && rowNis === nis) || (idPenempatan && rowPlt === idPenempatan);
+            });
+            const roundedDudi = Math.round(avgScore * 10) / 10;
+            const finalPredikat = getPredikatFromScore(roundedDudi);
+            if (existingNilai) {
+              const existingId = pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
+
+              await writeSheetDirect('Nilai_Dan_Sertifikat', 'UPDATE', {
+                ...existingNilai,
+                id: existingId,
+                ID_Penempatan: existingId,
+                Nilai_K3LH: k3lh,
+                nilaiK3lh: k3lh,
+                Nilai_Softskill: softskill,
+                nilaiSoftskill: softskill,
+                Nilai_Kompetensi_Teknis: teknis,
+                nilaiKompetensiTeknis: teknis,
+                Nilai_Alur_Bisnis: alurBisnis,
+                nilaiAlurBisnis: alurBisnis,
+                Nilai_Rata_Rata: roundedDudi,
+                nilaiRataRata: roundedDudi,
+                Nilai_DUDI: roundedDudi,
+                nilaiDudi: roundedDudi,
+                Predikat: finalPredikat,
+                predikat: finalPredikat,
+                Status_Raport: 'Siap Cetak',
+                statusRaport: 'Siap Cetak',
+              });
+            } else {
+              await writeSheetDirect('Nilai_Dan_Sertifikat', 'CREATE', {
+                id: idPenempatan,
+                ID_Penempatan: idPenempatan,
+                idPenempatan,
+                NIS: nis,
+                nis,
+                Nama_Siswa: namaSiswa,
+                namaSiswa,
+                Jurusan: String(payload.jurusan || ''),
+                jurusan: String(payload.jurusan || ''),
+                Kelas: String(payload.kelas || '-'),
+                kelas: String(payload.kelas || '-'),
+                DUDI_Tujuan: String(payload.nama_dudi || ''),
+                dudiTujuan: String(payload.nama_dudi || ''),
+                Nilai_K3LH: k3lh,
+                nilaiK3lh: k3lh,
+                Nilai_Softskill: softskill,
+                nilaiSoftskill: softskill,
+                Nilai_Kompetensi_Teknis: teknis,
+                nilaiKompetensiTeknis: teknis,
+                Nilai_Alur_Bisnis: alurBisnis,
+                nilaiAlurBisnis: alurBisnis,
+                Nilai_Rata_Rata: roundedDudi,
+                nilaiRataRata: roundedDudi,
+                Nilai_DUDI: roundedDudi,
+                nilaiDudi: roundedDudi,
+                Predikat: finalPredikat,
+                predikat: finalPredikat,
+                No_Seri_Blangko: '',
+                noSeriBlangko: '',
+                Status_Blangko: 'Tersedia',
+                statusBlangko: 'Tersedia',
+                Status_Raport: 'Siap Cetak',
+                statusRaport: 'Siap Cetak',
+                Tgl_Terbit: tglVal,
+                tanggalTerbit: tglVal,
+              });
+            }
+            nilaiSynced = true;
+          } catch {
+            // Non-blocking fallback
+          }
+
+          return {
+            success: true,
+            nilaiSynced,
+            message: `Perubahan nilai PKL ${namaSiswa} (${avgScore}) berhasil disimpan ke Google Spreadsheet.`,
+            gradeSummary: {
+              monitoringId: resolvedMonId,
+              k3lh,
+              softskill,
+              teknis,
+              alurBisnis,
+              rataRata: avgScore,
+              predikat,
+              tahapDiinput: resolvedStage,
+              tanggal: tglVal,
+            },
+          };
+        }
+      );
+
+      if (res?.success) {
+        ToastManager.getInstance().update(
+          toastId,
+          'Perubahan Nilai Tersimpan di Spreadsheet!',
+          'success',
+          `${payload.nama_siswa}: Rata-rata ${res.gradeSummary?.rataRata ?? ''} (${res.gradeSummary?.predikat ?? ''})`
+        );
+        if (res.nilaiSynced) {
+          ToastManager.getInstance().show(
+            'Rekap Nilai_Dan_Sertifikat Diperbarui!',
+            'success',
+            `Nilai DUDI terbaru untuk ${payload.nama_siswa} (${res.gradeSummary?.rataRata}) telah disinkronkan.`,
+            'Nilai_Dan_Sertifikat'
+          );
+        }
+      } else {
+        ToastManager.getInstance().update(
+          toastId,
+          'Gagal Memperbarui Nilai',
+          'error',
+          res?.message || 'Gagal menyimpan perubahan nilai ke Spreadsheet.'
+        );
+      }
+
+      return res;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Memperbarui Nilai',
+        'error',
+        err?.message || 'Periksa koneksi dan konfigurasi Apps Script.'
+      );
+      throw err;
+    }
   },
 };

@@ -723,21 +723,33 @@ function renderDocContent(
             <div className="text-slate-600 text-[11px]">Serah terima siswa resmi dengan pimpinan/pembimbing bengkel DUDI &amp; briefing K3.</div>
           </div>
           <div className="border border-slate-200 p-2 rounded-lg">
-            <div className="font-bold text-indigo-900">Tahap 2: Monitoring 1 (Bulan Ke-1)</div>
-            <div className="text-slate-600 text-[11px]">Pengecekan adaptasi lingkungan kerja dan kedisiplinan logbook presensi harian.</div>
+            <div className="font-bold text-indigo-900">Tahap 2: Monitoring 1</div>
+            <div className="text-slate-600 text-[11px]">Pengecekan adaptasi lingkungan kerja, Absensi (S/I/A), dan kedisiplinan harian.</div>
           </div>
           <div className="border border-slate-200 p-2 rounded-lg">
-            <div className="font-bold text-purple-900">Tahap 3: Monitoring 2 (Bulan Ke-2)</div>
-            <div className="text-slate-600 text-[11px]">Evaluasi capaian kompetensi teknis, penanganan masalah siswa di lapangan.</div>
+            <div className="font-bold text-violet-900">Tahap 3: Monitoring 2</div>
+            <div className="text-slate-600 text-[11px]">Evaluasi perkembangan kompetensi kerja dan absensi S/I/A bulan berjalan.</div>
+          </div>
+          <div className="border border-slate-200 p-2 rounded-lg">
+            <div className="font-bold text-purple-900">Tahap 4: Monitoring 3</div>
+            <div className="text-slate-600 text-[11px]">Supervisi teknis lanjutan, penanganan kendala lapangan, dan rekap absensi.</div>
           </div>
           <div className="border-2 border-amber-300 bg-amber-50/50 p-2.5 rounded-lg">
-            <div className="font-bold text-amber-900">Tahap 4: Monitoring 3 (Pengambilan Nilai &amp; Blangko Sertifikat)</div>
+            <div className="font-bold text-amber-900">Tahap 5: Monitoring 4 (Cek Pengambilan Nilai PKL)</div>
             <div className="text-slate-700 text-[11px]">
-              No. Seri Blangko: <b>{student.noSeriBlangko || '(Belum Dialokasikan)'}</b>
+              Input 4 kategori nilai (K3LH, Softskill, Kompetensi Teknis, Alur Bisnis) · No. Seri Blangko: <b>{student.noSeriBlangko || '(Belum Dialokasikan)'}</b>
             </div>
           </div>
           <div className="border border-slate-200 p-2 rounded-lg">
-            <div className="font-bold text-emerald-900">Tahap 5: Penarikan Siswa</div>
+            <div className="font-bold text-orange-900">Tahap 6: Monitoring 5</div>
+            <div className="text-slate-600 text-[11px]">Pemantapan persiapan akhir PKL &amp; susulan input nilai jika belum muncul di Mon 4.</div>
+          </div>
+          <div className="border border-slate-200 p-2 rounded-lg">
+            <div className="font-bold text-cyan-900">Tahap 7: Monitoring 6</div>
+            <div className="text-slate-600 text-[11px]">Finalisasi kelengkapan absensi, nilai industri, dan validasi blangko sertifikat.</div>
+          </div>
+          <div className="border border-slate-200 p-2 rounded-lg">
+            <div className="font-bold text-emerald-900">Tahap 8: Penarikan Siswa</div>
             <div className="text-slate-600 text-[11px]">Penjemputan resmi siswa purnatugas prakerin dan penyerahan cinderamata kemitraan sekolah.</div>
           </div>
         </div>
@@ -746,9 +758,18 @@ function renderDocContent(
   }
 
   if (docType === 'nilai') {
-    const nilaiDudiVal = student.nilaiDudi ?? '-';
-    const nilaiGuruVal = student.nilaiGuru ?? '-';
-    const nilaiAkhirVal = student.nilaiAkhir ?? '-';
+    const k3lhVal = student.nilaiK3lh ?? student.Nilai_K3LH ?? '-';
+    const softskillVal = student.nilaiSoftskill ?? student.Nilai_Softskill ?? '-';
+    const teknisVal = student.nilaiKompetensiTeknis ?? student.Nilai_Kompetensi_Teknis ?? '-';
+    const alurBisnisVal = student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis ?? '-';
+    const rataRataVal =
+      student.nilaiRataRata ??
+      student.Nilai_Rata_Rata ??
+      student.nilaiDudi ??
+      student.Nilai_DUDI ??
+      student.nilaiAkhir ??
+      student.Nilai_Akhir ??
+      '-';
 
     return (
       <div className="space-y-4">
@@ -762,25 +783,49 @@ function renderDocContent(
         <table className="w-full text-xs font-sans border-collapse border border-slate-300 my-3">
           <thead className="bg-slate-100">
             <tr>
-              <th className="border p-2 w-10">No</th>
-              <th className="border p-2">Komponen Penilaian</th>
-              <th className="border p-2 w-28 text-center">Skor (0-100)</th>
+              <th className="border p-2 w-10 text-center">No</th>
+              <th className="border p-2 text-left">Kategori Penilaian DUDI (Bobot Sama 25%)</th>
+              <th className="border p-2 w-28 text-center">Nilai DUDI</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td className="border p-2 text-center">1</td>
-              <td className="border p-2 font-semibold">Penilaian Industri (DUDI)</td>
-              <td className="border p-2 text-center font-bold font-mono">{nilaiDudiVal}</td>
+              <td className="border p-2">
+                <div className="font-semibold">K3LH</div>
+                <div className="text-[10px] text-slate-500">Keselamatan, Kesehatan Kerja, Penggunaan APD &amp; Kebersihan Area</div>
+              </td>
+              <td className="border p-2 text-center font-bold font-mono">{k3lhVal}</td>
             </tr>
             <tr>
               <td className="border p-2 text-center">2</td>
-              <td className="border p-2 font-semibold">Penilaian Guru Pendamping</td>
-              <td className="border p-2 text-center font-bold font-mono">{nilaiGuruVal}</td>
+              <td className="border p-2">
+                <div className="font-semibold">Softskill</div>
+                <div className="text-[10px] text-slate-500">Etos Kerja, Kedisiplinan, Komunikasi &amp; Kerjasama Tim</div>
+              </td>
+              <td className="border p-2 text-center font-bold font-mono">{softskillVal}</td>
+            </tr>
+            <tr>
+              <td className="border p-2 text-center">3</td>
+              <td className="border p-2">
+                <div className="font-semibold">Kompetensi Teknis</div>
+                <div className="text-[10px] text-slate-500">Keterampilan Kejuruan, Kualitas Hasil Kerja &amp; Kesesuaian SOP</div>
+              </td>
+              <td className="border p-2 text-center font-bold font-mono">{teknisVal}</td>
+            </tr>
+            <tr>
+              <td className="border p-2 text-center">4</td>
+              <td className="border p-2">
+                <div className="font-semibold">Alur Bisnis Dunia Kerja</div>
+                <div className="text-[10px] text-slate-500">Pemahaman Proses Operasional Industri &amp; Budaya Kerja DUDI</div>
+              </td>
+              <td className="border p-2 text-center font-bold font-mono">{alurBisnisVal}</td>
             </tr>
             <tr className="bg-slate-50 font-bold">
-              <td colSpan={2} className="border p-2 text-right">NILAI AKHIR PRAKERIN ({student.predikat || '-'}):</td>
-              <td className="border p-2 text-center text-blue-700 font-mono text-sm">{nilaiAkhirVal}</td>
+              <td colSpan={2} className="border p-2 text-right">
+                RATA-RATA NILAI DUDI ({student.predikat || '-'}):
+              </td>
+              <td className="border p-2 text-center text-blue-700 font-mono text-sm">{rataRataVal}</td>
             </tr>
           </tbody>
         </table>
@@ -966,9 +1011,22 @@ function renderDocContent(
       </div>
 
       <div className="text-center text-xs font-sans text-slate-700 leading-relaxed max-w-lg mx-auto">
-        Telah menyelesaikan Praktik Kerja Industri (Prakerin) di <b>{dudiName}</b> dengan Capaian Nilai Akhir:{' '}
-        <b className="text-emerald-700 text-sm">{student.nilaiAkhir ?? '-'}</b> (Predikat:{' '}
-        <b>{student.predikat || '-'}</b>).
+        Telah menyelesaikan Praktik Kerja Industri (Prakerin) di <b>{dudiName}</b> dengan Rata-rata Nilai DUDI:{' '}
+        <b className="text-emerald-700 text-sm">
+          {student.nilaiRataRata ??
+            student.Nilai_Rata_Rata ??
+            student.nilaiDudi ??
+            student.Nilai_DUDI ??
+            student.nilaiAkhir ??
+            '-'}
+        </b>{' '}
+        (Predikat: <b>{student.predikat || '-'}</b>).
+        <div className="mt-2 pt-2 border-t border-amber-200/70 text-[11px] text-slate-600 grid grid-cols-2 sm:grid-cols-4 gap-1.5 font-mono">
+          <span>K3LH: <b>{student.nilaiK3lh ?? student.Nilai_K3LH ?? '-'}</b></span>
+          <span>Softskill: <b>{student.nilaiSoftskill ?? student.Nilai_Softskill ?? '-'}</b></span>
+          <span>Teknis: <b>{student.nilaiKompetensiTeknis ?? student.Nilai_Kompetensi_Teknis ?? '-'}</b></span>
+          <span>Alur Bisnis: <b>{student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis ?? '-'}</b></span>
+        </div>
       </div>
 
       <div className="flex justify-around items-end pt-10 font-sans text-xs">

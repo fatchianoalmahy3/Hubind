@@ -236,11 +236,6 @@ export default function App() {
     setCurrentUser(user);
     setUserRole(user.role as UserRole);
     setAppMode('admin');
-    ToastManager.getInstance().show(
-      `Selamat Datang, ${user.name}`,
-      'success',
-      `Login berhasil sebagai ${user.title} (${user.username})`
-    );
   };
 
   const handleLogout = async () => {
@@ -668,7 +663,7 @@ export default function App() {
     siswa: 'Master Siswa',
     dudi: 'Mitra DUDI & Kuota',
     guru: 'Guru Pendamping',
-    monitoring: 'Supervisi 5 Tahap Guru',
+    monitoring: 'Supervisi 8 Tahap Guru',
     sertifikat: 'Raport & Blangko Sertifikat',
     jurusan: 'Kompetensi Keahlian',
     kelas: 'Kelas & Wali Kelas',

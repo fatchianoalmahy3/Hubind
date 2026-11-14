@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BaseRepository } from '../core/BaseRepository';
 import { FilterState, SortState } from '../core/types/metadata';
-import { GoogleSheetClient } from '../core/GoogleSheetClient';
+import { ToastManager } from '../core/ToastManager';
 
 export function useDataGrid<T extends { id: string }>(repository: BaseRepository<T>) {
   const [data, setData] = useState<T[]>([]);
@@ -24,6 +24,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   // Sync state
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const lastVisibleFetchRef = useRef<number>(0);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -37,6 +38,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       const res = await repository.query(filter, sort, page, pageSize, search);
       setData(res.data);
       setTotal(res.total);
+      lastVisibleFetchRef.current = Date.now();
     } catch (e: any) {
       console.error('Failed to query data', e);
       setLoadError(e?.message || 'Gagal membaca data dari Google Spreadsheet.');
@@ -52,7 +54,11 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
+      // Only revalidate on focus return if data is older than 2 minutes
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastVisibleFetchRef.current > 120_000
+      ) {
         fetchData();
       }
     };
@@ -134,20 +140,30 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     setSyncing(true);
     setSyncMessage(null);
     setLoadError(null);
+    const toastId = ToastManager.getInstance().show(
+      `Menyegarkan Sheet ${sheetName}...`,
+      'pending',
+      'Mengambil data terbaru langsung dari Google Spreadsheet.',
+      sheetName
+    );
     try {
       await repository.reloadFromSpreadsheet();
       const repoErr = repository.getLastError();
       if (repoErr) {
         setLoadError(repoErr);
         setSyncMessage(repoErr);
+        ToastManager.getInstance().update(toastId, 'Gagal Memuat Sheet', 'error', repoErr);
       } else {
-        setSyncMessage(`Sheet ${sheetName} berhasil disegarkan dari Google Spreadsheet.`);
+        const msg = `Sheet ${sheetName} berhasil disegarkan dari Google Spreadsheet.`;
+        setSyncMessage(msg);
+        ToastManager.getInstance().update(toastId, 'Data Sheet Diperbarui', 'success', msg);
       }
       await fetchData();
     } catch (e: any) {
       const msg = `Gagal sinkronisasi: ${e?.message || 'Koneksi terputus'}`;
       setLoadError(msg);
       setSyncMessage(msg);
+      ToastManager.getInstance().update(toastId, 'Gagal Menyegarkan Sheet', 'error', msg);
     } finally {
       setSyncing(false);
     }

@@ -39,7 +39,10 @@ export class RelationSyncService {
    * - Master_Guru_Pendamping.jumlahBimbingan
    * from active rows in Plotting_Pemberangkatan (statusPenempatan !== 'Dibatalkan').
    */
-  public async syncPlacementCounts(): Promise<{ updatedDudi: number; updatedGuru: number }> {
+  public async syncPlacementCounts(
+    options: { silentToast?: boolean } = { silentToast: true }
+  ): Promise<{ updatedDudi: number; updatedGuru: number }> {
+    const silentOpts = { silentToast: options.silentToast !== false };
     const [dudiList, guruList, placements] = await Promise.all([
       DudiService.getInstance().getAll(),
       GuruService.getInstance().getAll(),
@@ -87,7 +90,7 @@ export class RelationSyncService {
     for (const d of dudiList) {
       const nextCount = dudiCounts.get(d.id) || 0;
       if (Number(d.terisi || 0) !== nextCount) {
-        await DudiService.getInstance().update(d.id, { terisi: nextCount });
+        await DudiService.getInstance().update(d.id, { terisi: nextCount }, silentOpts);
         updatedDudi++;
       }
     }
@@ -96,7 +99,7 @@ export class RelationSyncService {
     for (const g of guruList) {
       const nextCount = guruCounts.get(g.id) || 0;
       if (Number(g.jumlahBimbingan || 0) !== nextCount) {
-        await GuruService.getInstance().update(g.id, { jumlahBimbingan: nextCount });
+        await GuruService.getInstance().update(g.id, { jumlahBimbingan: nextCount }, silentOpts);
         updatedGuru++;
       }
     }
@@ -178,7 +181,7 @@ export class RelationSyncService {
         }
 
         if (Object.keys(patch).length > 0) {
-          const updated = await siswaPklService.update(p.id, patch);
+          const updated = await siswaPklService.update(p.id, patch, { silentToast: true });
           if (updated) {
             effectivePlacements[i] = updated;
           }
@@ -215,7 +218,7 @@ export class RelationSyncService {
     for (const d of dudiList) {
       const nextCount = dudiCounts.get(d.id) || 0;
       if (Number(d.terisi || 0) !== nextCount) {
-        await dudiService.update(d.id, { terisi: nextCount });
+        await dudiService.update(d.id, { terisi: nextCount }, { silentToast: true });
         updatedDudi++;
       }
     }
@@ -224,7 +227,7 @@ export class RelationSyncService {
     for (const g of guruList) {
       const nextCount = guruCounts.get(g.id) || 0;
       if (Number(g.jumlahBimbingan || 0) !== nextCount) {
-        await guruService.update(g.id, { jumlahBimbingan: nextCount });
+        await guruService.update(g.id, { jumlahBimbingan: nextCount }, { silentToast: true });
         updatedGuru++;
       }
     }
@@ -260,7 +263,7 @@ export class RelationSyncService {
     for (const j of jurusanList) {
       const nextCount = jurusanCounts.get(j.id) || 0;
       if (Number(j.totalTerdaftar || 0) !== nextCount) {
-        await jurusanService.update(j.id, { totalTerdaftar: nextCount });
+        await jurusanService.update(j.id, { totalTerdaftar: nextCount }, { silentToast: true });
         updatedJurusan++;
       }
     }
@@ -269,7 +272,7 @@ export class RelationSyncService {
     for (const k of kelasList) {
       const nextCount = kelasCounts.get(k.id) || 0;
       if (Number(k.jumlahSiswa || 0) !== nextCount) {
-        await kelasService.update(k.id, { jumlahSiswa: nextCount });
+        await kelasService.update(k.id, { jumlahSiswa: nextCount }, { silentToast: true });
         updatedKelas++;
       }
     }

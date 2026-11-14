@@ -26,7 +26,10 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
    * Automatically create a Perizinan PKL tracking record from an approved Pengajuan PKL row
    * if one does not already exist for that noPengajuan or active NIS+DUDI.
    */
-  public async createFromPengajuan(pengajuan: Pengajuan): Promise<PerizinanPKL> {
+  public async createFromPengajuan(
+    pengajuan: Pengajuan,
+    options?: { silentToast?: boolean }
+  ): Promise<PerizinanPKL> {
     const existingList = await this.getAll();
     const alreadyExists = existingList.find(
       (p) =>
@@ -49,47 +52,67 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     const noPerizinan = `IZN-${year}-${randomSuffix}`;
     const noSuratPermohonan = `421.5/${randomSuffix}/Hubin/SMK.PGRI2/${year}`;
 
-    return this.create({
-      id: noPerizinan,
-      noPerizinan,
-      noPengajuan: pengajuan.noPengajuan || pengajuan.id,
-      nis: pengajuan.nis,
-      namaSiswa: pengajuan.namaSiswa,
-      jurusan: pengajuan.jurusan,
-      kelas: pengajuan.kelas,
-      namaOrtuWali: siswa?.namaOrtuWali || '-',
-      noOrtuWali: siswa?.noOrtuWali || pengajuan.noWa || '-',
-      statusIzinOrtu: 'Menunggu Izin',
-      noSuratPermohonan,
-      dudiTujuan: pengajuan.dudiTujuan,
-      alamatDudi: pengajuan.alamatDudi || '-',
-      tanggalKirimSurat: '',
-      statusBalasanDudi: 'Belum Dikirim',
-      tanggalBalasan: '',
-      catatanPerizinan: 'Terbuat otomatis dari pengajuan ACC Kakomli.',
-      linkBuktiBalasan: '',
-    });
+    return this.create(
+      {
+        id: noPerizinan,
+        noPerizinan,
+        noPengajuan: pengajuan.noPengajuan || pengajuan.id,
+        nis: pengajuan.nis,
+        namaSiswa: pengajuan.namaSiswa,
+        jurusan: pengajuan.jurusan,
+        kelas: pengajuan.kelas,
+        namaOrtuWali: siswa?.namaOrtuWali || '-',
+        noOrtuWali: siswa?.noOrtuWali || pengajuan.noWa || '-',
+        statusIzinOrtu: 'Menunggu Izin',
+        noSuratPermohonan,
+        dudiTujuan: pengajuan.dudiTujuan,
+        alamatDudi: pengajuan.alamatDudi || '-',
+        tanggalKirimSurat: '',
+        statusBalasanDudi: 'Belum Dikirim',
+        tanggalBalasan: '',
+        catatanPerizinan: 'Terbuat otomatis dari pengajuan ACC Kakomli.',
+        linkBuktiBalasan: '',
+      },
+      options
+    );
   }
 
-  public async markOrtuApproved(id: string): Promise<PerizinanPKL | null> {
-    return this.update(id, {
-      statusIzinOrtu: 'Diizinkan Ortu',
-    });
+  public async markOrtuApproved(
+    id: string,
+    options?: { silentToast?: boolean }
+  ): Promise<PerizinanPKL | null> {
+    return this.update(
+      id,
+      {
+        statusIzinOrtu: 'Diizinkan Ortu',
+      },
+      options
+    );
   }
 
-  public async markDudiAccepted(id: string, tanggalBalasan?: string): Promise<PerizinanPKL | null> {
+  public async markDudiAccepted(
+    id: string,
+    tanggalBalasan?: string,
+    options?: { silentToast?: boolean }
+  ): Promise<PerizinanPKL | null> {
     const tgl = tanggalBalasan || new Date().toISOString().split('T')[0];
     const item = await this.getById(id);
     if (!item) return null;
 
-    const updated = await this.update(id, {
-      statusBalasanDudi: 'Diterima DUDI',
-      tanggalBalasan: tgl,
-      tanggalKirimSurat: item.tanggalKirimSurat || tgl,
-    });
+    const updated = await this.update(
+      id,
+      {
+        statusBalasanDudi: 'Diterima DUDI',
+        tanggalBalasan: tgl,
+        tanggalKirimSurat: item.tanggalKirimSurat || tgl,
+      },
+      options
+    );
 
     if (item.nis) {
-      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Diterima DUDI');
+      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Diterima DUDI', {
+        silentToast: true,
+      });
     }
     return updated;
   }
@@ -102,7 +125,8 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     perizinanId: string,
     guruPendamping: string,
     tanggalBerangkat: string,
-    tanggalRencanaTarik: string
+    tanggalRencanaTarik: string,
+    options?: { silentToast?: boolean }
   ): Promise<PenempatanPKL> {
     const item = await this.getById(perizinanId);
     if (!item) {
@@ -128,43 +152,56 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
 
     let penempatan: PenempatanPKL;
     if (existingActive) {
-      const updated = await SiswaPklService.getInstance().update(existingActive.id, {
-        idGuruPendamping: guru?.id || existingActive.idGuruPendamping,
-        guruPendamping,
-        tanggalBerangkat,
-        tanggalRencanaTarik,
-        statusPenempatan: 'Terjadwal',
-      });
+      const updated = await SiswaPklService.getInstance().update(
+        existingActive.id,
+        {
+          idGuruPendamping: guru?.id || existingActive.idGuruPendamping,
+          guruPendamping,
+          tanggalBerangkat,
+          tanggalRencanaTarik,
+          statusPenempatan: 'Terjadwal',
+        },
+        options
+      );
       penempatan = updated || existingActive;
     } else {
       const idPenempatan = `PLT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      penempatan = await SiswaPklService.getInstance().create({
-        id: idPenempatan,
-        idPenempatan,
-        nis: item.nis,
-        namaSiswa: item.namaSiswa,
-        idDudi: matchedDudi?.id || '',
-        namaDudi: item.dudiTujuan,
-        idGuruPendamping: guru?.id || '',
-        guruPendamping,
-        tanggalBerangkat,
-        tanggalRencanaTarik,
-        statusPenempatan: 'Terjadwal',
+      penempatan = await SiswaPklService.getInstance().create(
+        {
+          id: idPenempatan,
+          idPenempatan,
+          nis: item.nis,
+          namaSiswa: item.namaSiswa,
+          idDudi: matchedDudi?.id || '',
+          namaDudi: item.dudiTujuan,
+          idGuruPendamping: guru?.id || '',
+          guruPendamping,
+          tanggalBerangkat,
+          tanggalRencanaTarik,
+          statusPenempatan: 'Terjadwal',
+        },
+        options
+      );
+    }
+
+    await this.update(
+      perizinanId,
+      {
+        statusIzinOrtu: 'Diizinkan Ortu',
+        statusBalasanDudi: 'Diterima DUDI',
+        tanggalBalasan: item.tanggalBalasan || new Date().toISOString().split('T')[0],
+      },
+      { silentToast: true }
+    );
+
+    if (item.nis) {
+      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Sedang PKL', {
+        silentToast: true,
       });
     }
 
-    await this.update(perizinanId, {
-      statusIzinOrtu: 'Diizinkan Ortu',
-      statusBalasanDudi: 'Diterima DUDI',
-      tanggalBalasan: item.tanggalBalasan || new Date().toISOString().split('T')[0],
-    });
-
-    if (item.nis) {
-      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Sedang PKL');
-    }
-
     await RelationSyncService.getInstance()
-      .syncPlacementCounts()
+      .syncPlacementCounts({ silentToast: true })
       .catch((err) => console.warn('Relation count sync warning:', err));
 
     return penempatan;

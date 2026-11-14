@@ -3,8 +3,8 @@ import { Monitoring } from '../core/types/schema';
 
 export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
   id: 'monitoring',
-  title: 'Monitoring 5 Tahap Guru Pendamping',
-  subtitle: 'Pengantaran, Monitoring 1-3, Pengambilan Nilai & Sertifikat DUDI, serta Penarikan',
+  title: 'Monitoring 8 Tahap Guru Pendamping',
+  subtitle: 'Pengantaran, Monitoring 1–6, Absensi S/I/A, Nilai PKL (mulai Monitoring 4), & Penarikan',
   tableName: 'Monitoring_5_Tahap',
   icon: 'Compass',
   allowedRoles: ['Hubin', 'Kakomli', 'GuruPendamping'],
@@ -20,33 +20,33 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       title: 'Tahap 1 - Pengantaran',
       computedValue: (data) =>
         data.filter((m) => {
-          const t = String((m as any)?.tahap || (m as any)?.tahap_monitoring || '');
-          return t.includes('1');
+          const t = String((m as any)?.tahap || (m as any)?.tahap_monitoring || '').toLowerCase();
+          return t.startsWith('1') || t.includes('pengantaran');
         }).length,
       icon: 'Send',
       change: 'Pemberangkatan siswa',
       variant: 'info',
     },
     {
-      title: 'Tahap 4 - Nilai & Sertifikat',
+      title: 'Monitoring 4+ / Nilai Masuk',
       computedValue: (data) =>
         data.filter((m) => {
-          const t = String((m as any)?.tahap || (m as any)?.tahap_monitoring || '');
+          const t = String((m as any)?.tahap || (m as any)?.tahap_monitoring || '').toLowerCase();
           const hasNilai = Boolean(
-            m?.nilaiDudiTerkumpul || (m as any)?.nilai_rata_rata > 0
+            m?.nilaiDudiTerkumpul || Number((m as any)?.nilaiRataRata || (m as any)?.nilai_rata_rata || 0) > 0
           );
-          return t.includes('4') || hasNilai;
+          return t.includes('monitoring 4') || t.startsWith('5') || hasNilai;
         }).length,
       icon: 'Award',
-      change: 'Nilai & TTD DUDI beres',
+      change: 'Nilai PKL DUDI terinput',
       variant: 'warning',
     },
     {
-      title: 'Tahap 5 - Penarikan',
+      title: 'Tahap 8 - Penarikan',
       computedValue: (data) =>
         data.filter((m) => {
-          const t = String((m as any)?.tahap || (m as any)?.tahap_monitoring || '');
-          return t.includes('5');
+          const t = String((m as any)?.tahap || (m as any)?.tahap_monitoring || '').toLowerCase();
+          return t.startsWith('8') || t.includes('penarikan');
         }).length,
       icon: 'CheckCircle',
       change: 'Prakerin tuntas',
@@ -77,13 +77,13 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'daftarSiswa',
-      label: 'Kelompok Siswa',
+      label: 'Siswa / Kelompok',
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
       isSearchable: true,
       validation: { required: true },
-      placeholder: 'Nama-nama siswa di DUDI ini',
+      placeholder: 'Nama siswa di DUDI ini',
     },
     {
       key: 'jurusan',
@@ -128,9 +128,12 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       options: [
         { label: '1. Pengantaran', value: '1. Pengantaran', badgeColor: 'bg-blue-100 text-blue-800' },
         { label: '2. Monitoring 1', value: '2. Monitoring 1', badgeColor: 'bg-indigo-100 text-indigo-800' },
-        { label: '3. Monitoring 2', value: '3. Monitoring 2', badgeColor: 'bg-purple-100 text-purple-800' },
-        { label: '4. Monitoring 3 (Nilai & Sertifikat)', value: '4. Monitoring 3 (Nilai & Sertifikat)', badgeColor: 'bg-amber-100 text-amber-800' },
-        { label: '5. Penarikan', value: '5. Penarikan', badgeColor: 'bg-emerald-100 text-emerald-800' },
+        { label: '3. Monitoring 2', value: '3. Monitoring 2', badgeColor: 'bg-violet-100 text-violet-800' },
+        { label: '4. Monitoring 3', value: '4. Monitoring 3', badgeColor: 'bg-purple-100 text-purple-800' },
+        { label: '5. Monitoring 4', value: '5. Monitoring 4', badgeColor: 'bg-amber-100 text-amber-800' },
+        { label: '6. Monitoring 5', value: '6. Monitoring 5', badgeColor: 'bg-orange-100 text-orange-800' },
+        { label: '7. Monitoring 6', value: '7. Monitoring 6', badgeColor: 'bg-cyan-100 text-cyan-800' },
+        { label: '8. Penarikan', value: '8. Penarikan', badgeColor: 'bg-emerald-100 text-emerald-800' },
       ],
       validation: { required: true },
     },
@@ -144,27 +147,84 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       validation: { required: true },
     },
     {
+      key: 'sakit',
+      label: 'Sakit (Hari)',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0 },
+    },
+    {
+      key: 'izin',
+      label: 'Izin (Hari)',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0 },
+    },
+    {
+      key: 'alpha',
+      label: 'Alpha (Hari)',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0 },
+    },
+    {
       key: 'catatanKunjungan',
-      label: 'Catatan Supervisi / Evaluasi Siswa',
+      label: 'Catatan Supervisi / Absensi / Nilai',
       type: 'textarea',
       isTableColumn: true,
       isFormInput: true,
       isSearchable: true,
-      placeholder: 'Catatan kondisi siswa, kedisiplinan, materi yang dipelajari...',
+      placeholder: 'Catatan kondisi siswa, absensi S/I/A, perkembangan PKL...',
     },
     {
       key: 'nilaiDudiTerkumpul',
-      label: 'Nilai DUDI Masuk',
+      label: 'Nilai PKL Masuk',
       type: 'boolean',
       isTableColumn: true,
       isFormInput: true,
     },
     {
-      key: 'blangkoSertifikatBawa',
-      label: 'Blangko Sertifikat Dibawa',
-      type: 'boolean',
+      key: 'nilaiK3lh',
+      label: 'K3LH (DUDI)',
+      type: 'number',
       isTableColumn: true,
       isFormInput: true,
+      validation: { min: 0, max: 100 },
+    },
+    {
+      key: 'nilaiSoftskill',
+      label: 'Softskill (DUDI)',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0, max: 100 },
+    },
+    {
+      key: 'nilaiKompetensiTeknis',
+      label: 'Kompetensi Teknis (DUDI)',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0, max: 100 },
+    },
+    {
+      key: 'nilaiAlurBisnis',
+      label: 'Alur Bisnis Dunia Kerja (DUDI)',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0, max: 100 },
+    },
+    {
+      key: 'nilaiRataRata',
+      label: 'Rata-rata Nilai DUDI',
+      type: 'number',
+      isTableColumn: true,
+      isFormInput: true,
+      validation: { min: 0, max: 100 },
     },
     {
       key: 'statusTahap',

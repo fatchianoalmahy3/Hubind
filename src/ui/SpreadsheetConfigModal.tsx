@@ -12,6 +12,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
+import { ToastManager } from '../core/ToastManager';
 import { normalizeGasUrl, validateGasDeployUrl } from '../core/utils/safeFetchJson';
 
 interface SpreadsheetConfigModalProps {
@@ -67,10 +68,12 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
     setGasUrl(normalized);
     const check = validateGasDeployUrl(normalized);
     if (!check.valid) {
+      const errMsg = check.error || 'URL Google Apps Script tidak valid.';
       setTestResult({
         success: false,
-        message: check.error || 'URL Google Apps Script tidak valid.',
+        message: errMsg,
       });
+      ToastManager.getInstance().show('URL Apps Script Tidak Valid', 'error', errMsg);
       return;
     }
 

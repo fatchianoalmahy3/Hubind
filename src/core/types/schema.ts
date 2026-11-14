@@ -1,5 +1,23 @@
 export type UserRole = 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli' | 'GuruPendamping' | 'Siswa';
 
+export const MONITORING_STAGES = [
+  { num: 1, value: '1. Pengantaran', shortLabel: 'Pengantaran', label: '1. Pengantaran' },
+  { num: 2, value: '2. Monitoring 1', shortLabel: 'Mon 1', label: '2. Monitoring 1' },
+  { num: 3, value: '3. Monitoring 2', shortLabel: 'Mon 2', label: '3. Monitoring 2' },
+  { num: 4, value: '4. Monitoring 3', shortLabel: 'Mon 3', label: '4. Monitoring 3' },
+  { num: 5, value: '5. Monitoring 4', shortLabel: 'Mon 4 · Nilai', label: '5. Monitoring 4' },
+  { num: 6, value: '6. Monitoring 5', shortLabel: 'Mon 5', label: '6. Monitoring 5' },
+  { num: 7, value: '7. Monitoring 6', shortLabel: 'Mon 6', label: '7. Monitoring 6' },
+  { num: 8, value: '8. Penarikan', shortLabel: 'Penarikan', label: '8. Penarikan' },
+] as const;
+
+export type MonitoringTahapValue =
+  | (typeof MONITORING_STAGES)[number]['value']
+  | '4. Monitoring 3 (Cek Nilai PKL)'
+  | '4. Monitoring 3 (Nilai & Sertifikat)'
+  | '5. Penarikan'
+  | '6. Penarikan';
+
 export interface Siswa {
   id: string;
   nis: string;
@@ -43,8 +61,10 @@ export interface Dudi {
   bidangKeahlian: string;
   alamat: string;
   wilayahKota: string;
+  namaPemimpin?: string;
   namaPic: string;
   kontakPic: string;
+  noTelpDudi?: string;
   kuotaMaksimal: number;
   terisi: number;
   statusKerjasama: 'MoU Aktif' | 'Proses Perpanjangan' | 'Mitra Baru';
@@ -72,7 +92,13 @@ export interface Pengajuan {
   dudiTujuan: string;
   alamatDudi: string;
   bidangPekerjaan: string;
+  namaPemimpin?: string;
+  namaPic?: string;
+  noTelpDudi?: string;
   noWa: string;
+  alamatDomisili?: string;
+  namaOrtuWali?: string;
+  noOrtuWali?: string;
   statusKakomli: 'Pending' | 'Disetujui' | 'Ditolak';
   catatanKakomli?: string;
   statusHubin: 'Menunggu ACC Kakomli' | 'Siap Diberangkatkan' | 'Terjadwal' | 'Batal';
@@ -118,13 +144,24 @@ export interface PenempatanPKL {
 export interface Monitoring {
   id: string;
   idPenempatan: string;
+  nis?: string;
+  namaSiswa?: string;
   dudiTujuan: string;
   alamatDudi: string;
-  daftarSiswa: string; // Nama-nama siswa satu kelompok
+  daftarSiswa: string;
   jurusan: string;
   guruPendamping: string;
-  tahap: '1. Pengantaran' | '2. Monitoring 1' | '3. Monitoring 2' | '4. Monitoring 3 (Nilai & Sertifikat)' | '5. Penarikan';
+  tahap: MonitoringTahapValue | string;
   tanggalKunjungan: string;
+  sakit?: number;
+  izin?: number;
+  alpha?: number;
+  nilaiPklMuncul?: boolean;
+  nilaiK3lh?: number;
+  nilaiSoftskill?: number;
+  nilaiKompetensiTeknis?: number;
+  nilaiAlurBisnis?: number;
+  nilaiRataRata?: number;
   catatanKunjungan: string;
   fotoBuktiUrl?: string;
   nilaiDudiTerkumpul?: boolean;
@@ -139,10 +176,12 @@ export interface Sertifikat {
   jurusan: string;
   kelas: string;
   dudiTujuan: string;
-  nilaiDudi: number;
-  nilaiGuru: number;
-  nilaiAkhir: number;
-  predikat: 'Sangat Baik (A)' | 'Baik (B)' | 'Cukup (C)';
+  nilaiK3lh: number;
+  nilaiSoftskill: number;
+  nilaiKompetensiTeknis: number;
+  nilaiAlurBisnis: number;
+  nilaiRataRata: number;
+  predikat: 'Sangat Baik (A)' | 'Baik (B)' | 'Cukup (C)' | 'Kurang (D)';
   noSeriBlangko: string;
   statusBlangko: 'Tersedia' | 'Dialokasikan' | 'Tervalidasi DUDI' | 'Tercetak & Terbit' | 'Rusak / Batal';
   statusRaport: 'Belum Diproses' | 'Siap Cetak' | 'Sudah Diterbitkan';

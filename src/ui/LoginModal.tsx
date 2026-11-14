@@ -16,6 +16,7 @@ import {
   AdminSessionUser,
   DEFAULT_ADMIN_ACCOUNTS,
 } from '../core/auth/LocalAccountAuthService';
+import { ToastManager } from '../core/ToastManager';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -48,16 +49,30 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setLoading(true);
     setErrorMsg('');
 
+    const toastId = ToastManager.getInstance().show(
+      'Memverifikasi Akun...',
+      'pending',
+      `Mencocokkan username "${username.trim().toLowerCase()}"`
+    );
+
     try {
       const session = await LocalAccountAuthService.loginWithUsernamePassword(
         username,
         password
       );
       setPassword('');
+      ToastManager.getInstance().update(
+        toastId,
+        `Selamat Datang, ${session.user.name}`,
+        'success',
+        `Login berhasil sebagai ${session.user.title} (${session.user.username})`
+      );
       onLoginSuccess(session.user);
       onClose();
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Username atau Password tidak sesuai.');
+      const msg = err?.message || 'Username atau Password tidak sesuai.';
+      setErrorMsg(msg);
+      ToastManager.getInstance().update(toastId, 'Login Gagal', 'error', msg);
     } finally {
       setLoading(false);
     }

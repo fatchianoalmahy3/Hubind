@@ -132,7 +132,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           <div className="pt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
             <span>Pengajuan Mandiri Berbasis NIS</span>
             <span aria-hidden="true">·</span>
-            <span>Supervisi 5 Tahap &amp; 4 Kategori Nilai</span>
+            <span>Supervisi 8 Tahap &amp; 4 Kategori Nilai</span>
             <span aria-hidden="true">·</span>
             <span>Terhubung Google Spreadsheet Resmi</span>
           </div>

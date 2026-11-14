@@ -12,14 +12,84 @@ import {
   Save,
   MapPin,
   RefreshCw,
+  CheckCircle2,
+  Minus,
+  Plus,
+  ClipboardCheck,
+  Award,
+  Pencil,
 } from 'lucide-react';
 import { ToastManager } from '../core/ToastManager';
 import { PublicPortalClient } from '../core/PublicPortalClient';
+import { MONITORING_STAGES } from '../core/types/schema';
+import {
+  calculateEqualWeightedAverage,
+  getPredikatFromScore,
+  getStageValueByNumber,
+} from '../core/utils/monitoringHelpers';
 
 interface TeacherMonitoringPortalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+}
+
+interface StudentStageDraft {
+  sakit: number;
+  izin: number;
+  alpha: number;
+  nilaiPklMuncul: boolean | null;
+  nilaiK3lh: number;
+  nilaiSoftskill: number;
+  nilaiKompetensiTeknis: number;
+  nilaiAlurBisnis: number;
+  catatanPerkembangan: string;
+}
+
+const DEFAULT_DRAFT: StudentStageDraft = {
+  sakit: 0,
+  izin: 0,
+  alpha: 0,
+  nilaiPklMuncul: null,
+  nilaiK3lh: 85,
+  nilaiSoftskill: 85,
+  nilaiKompetensiTeknis: 85,
+  nilaiAlurBisnis: 85,
+  catatanPerkembangan: '',
+};
+
+const QUICK_SCORE_PRESETS = [75, 80, 85, 90, 95];
+
+const GRADE_CATEGORIES: Array<{
+  field: 'nilaiK3lh' | 'nilaiSoftskill' | 'nilaiKompetensiTeknis' | 'nilaiAlurBisnis';
+  title: string;
+  subtitle: string;
+}> = [
+  {
+    field: 'nilaiK3lh',
+    title: '1. K3LH',
+    subtitle: 'Keselamatan, Kesehatan Kerja, Penggunaan APD & Kebersihan Area',
+  },
+  {
+    field: 'nilaiSoftskill',
+    title: '2. Softskill',
+    subtitle: 'Etos Kerja, Kedisiplinan, Komunikasi & Kerjasama Tim',
+  },
+  {
+    field: 'nilaiKompetensiTeknis',
+    title: '3. Kompetensi Teknis',
+    subtitle: 'Keterampilan Kejuruan, Kualitas Hasil Kerja & Kesesuaian SOP',
+  },
+  {
+    field: 'nilaiAlurBisnis',
+    title: '4. Alur Bisnis Dunia Kerja',
+    subtitle: 'Pemahaman Proses Operasional Industri & Budaya Kerja DUDI',
+  },
+];
+
+function getStudentKey(student: any, fallbackIdx = 0): string {
+  if (!student) return `stu_${fallbackIdx}`;
+  return String(student.nis && student.nis !== '-' ? student.nis : student.id || `stu_${fallbackIdx}`);
 }
 
 export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = ({
@@ -47,38 +117,30 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   const [dudiError, setDudiError] = useState('');
   const [selectedDudi, setSelectedDudi] = useState<any>(null);
 
-  // Step 3: Students placed in the selected DUDI
+  // Step 3: Students placed in selected DUDI + Isolated Per-Student State
   const [dudiStudents, setDudiStudents] = useState<any[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [studentsError, setStudentsError] = useState('');
   const [selectedStudentIndex, setSelectedStudentIndex] = useState(0);
 
-  // 4 Kategori Penilaian Standar Industri
-  const [nilaiTeknis, setNilaiTeknis] = useState(85);
-  const [nilaiDisiplin, setNilaiDisiplin] = useState(85);
-  const [nilaiInisiatif, setNilaiInisiatif] = useState(85);
-  const [nilaiK3, setNilaiK3] = useState(85);
-  const [kehadiran, setKehadiran] = useState('Hadir');
-  const [catatanPerkembangan, setCatatanPerkembangan] = useState('');
-  const [tahapMonitoring, setTahapMonitoring] = useState('Tahap 4 (Evaluasi Akhir)');
+  // Isolated per-student stage & per-(student, stage) drafts
+  const [stageByStudent, setStageByStudent] = useState<Record<string, number>>({});
+  const [draftsByKey, setDraftsByKey] = useState<Record<string, StudentStageDraft>>({});
+  const [editingGradeByStudent, setEditingGradeByStudent] = useState<Record<string, boolean>>({});
+  const [gradeEditDrafts, setGradeEditDrafts] = useState<
+    Record<
+      string,
+      {
+        nilaiK3lh: number;
+        nilaiSoftskill: number;
+        nilaiKompetensiTeknis: number;
+        nilaiAlurBisnis: number;
+      }
+    >
+  >({});
+  const [savingGradeEdit, setSavingGradeEdit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [evaluatedStudentIds, setEvaluatedStudentIds] = useState<Record<string, number>>({});
-
-  const nilaiAkhir = useMemo(() => {
-    const raw =
-      nilaiTeknis * 0.3 +
-      nilaiDisiplin * 0.25 +
-      nilaiInisiatif * 0.25 +
-      nilaiK3 * 0.2;
-    return Math.round(raw * 10) / 10;
-  }, [nilaiTeknis, nilaiDisiplin, nilaiInisiatif, nilaiK3]);
-
-  const predikat = useMemo(() => {
-    if (nilaiAkhir >= 90) return 'Amat Baik (A)';
-    if (nilaiAkhir >= 80) return 'Baik (B)';
-    if (nilaiAkhir >= 70) return 'Cukup (C)';
-    return 'Kurang (D)';
-  }, [nilaiAkhir]);
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -109,8 +171,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     try {
       const json = await PublicPortalClient.getPetugasList();
       if (!json.success) {
+        const errMsg = 'Gagal membaca daftar petugas dari Google Spreadsheet.';
         setPetugasList([]);
-        setPetugasLoadError('Gagal membaca daftar petugas dari Google Spreadsheet.');
+        setPetugasLoadError(errMsg);
+        ToastManager.getInstance().show('Gagal Memuat Daftar Petugas', 'error', errMsg);
         return;
       }
 
@@ -122,8 +186,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         setSelectedPetugasNip(list[0].nip || '-');
       }
     } catch (e: any) {
+      const errMsg = e?.message || 'Tidak dapat terhubung ke Google Spreadsheet.';
       setPetugasList([]);
-      setPetugasLoadError(e?.message || 'Tidak dapat terhubung ke Google Spreadsheet.');
+      setPetugasLoadError(errMsg);
+      ToastManager.getInstance().show('Gagal Memuat Daftar Petugas', 'error', errMsg);
     } finally {
       setLoadingPetugas(false);
     }
@@ -135,14 +201,18 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     try {
       const json = await PublicPortalClient.getPetugasDudi(teacherName, teacherId);
       if (!json.success) {
+        const errMsg = 'Gagal memuat daftar DUDI bimbingan dari Spreadsheet.';
         setAssignedDudiList([]);
-        setDudiError('Gagal memuat daftar DUDI bimbingan dari Spreadsheet.');
+        setDudiError(errMsg);
+        ToastManager.getInstance().show('Gagal Memuat DUDI Bimbingan', 'error', errMsg);
         return;
       }
       setAssignedDudiList(Array.isArray(json.data) ? json.data : []);
     } catch (e: any) {
+      const errMsg = e?.message || 'Gagal terhubung ke Google Spreadsheet.';
       setAssignedDudiList([]);
-      setDudiError(e?.message || 'Gagal terhubung ke Google Spreadsheet.');
+      setDudiError(errMsg);
+      ToastManager.getInstance().show('Gagal Memuat DUDI Bimbingan', 'error', errMsg);
     } finally {
       setLoadingDudi(false);
     }
@@ -151,12 +221,19 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   const handleVerifyPin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!selectedPetugasId) {
-      setPinError('Pilih nama petugas dari daftar terlebih dahulu.');
+      const msg = 'Pilih nama petugas dari daftar terlebih dahulu.';
+      setPinError(msg);
+      ToastManager.getInstance().show('Petugas Belum Dipilih', 'error', msg);
       return;
     }
 
     setVerifyingPin(true);
     setPinError('');
+    const toastId = ToastManager.getInstance().show(
+      'Memverifikasi PIN Petugas...',
+      'pending',
+      `Mencocokkan identitas ${selectedPetugasNama || 'petugas'} dengan Spreadsheet`
+    );
 
     try {
       const json = await PublicPortalClient.verifyPetugasPin({
@@ -184,18 +261,26 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           })
         );
 
-        await loadAssignedDudi(verified.nama, verified.id);
-        setCurrentStep(2);
-        ToastManager.getInstance().show(
+        ToastManager.getInstance().update(
+          toastId,
           'Identitas Terverifikasi',
           'success',
           `Selamat datang, ${verified.nama}`
         );
+
+        // Immediately enter Step 2 and stream DUDI list asynchronously so button never hangs
+        setCurrentStep(2);
+        setVerifyingPin(false);
+        void loadAssignedDudi(verified.nama, verified.id);
       } else {
-        setPinError(json.message || 'PIN Petugas tidak valid.');
+        const errMsg = json.message || 'PIN Petugas tidak valid.';
+        setPinError(errMsg);
+        ToastManager.getInstance().update(toastId, 'Verifikasi PIN Gagal', 'error', errMsg);
       }
     } catch (e: any) {
-      setPinError(e?.message || 'Gagal memverifikasi PIN. Periksa koneksi Anda.');
+      const errMsg = e?.message || 'Gagal memverifikasi PIN. Periksa koneksi Anda.';
+      setPinError(errMsg);
+      ToastManager.getInstance().update(toastId, 'Verifikasi PIN Gagal', 'error', errMsg);
     } finally {
       setVerifyingPin(false);
     }
@@ -206,8 +291,13 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     setCurrentStep(3);
     setLoadingStudents(true);
     setStudentsError('');
+    setFormError('');
     setDudiStudents([]);
     setSelectedStudentIndex(0);
+    setStageByStudent({});
+    setDraftsByKey({});
+    setEditingGradeByStudent({});
+    setGradeEditDrafts({});
 
     try {
       const json = await PublicPortalClient.getDudiStudents(
@@ -216,57 +306,304 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         selectedPetugasNama
       );
       if (!json.success) {
-        setStudentsError('Gagal memuat daftar siswa dari Google Spreadsheet.');
+        const errMsg = 'Gagal memuat daftar siswa dari Google Spreadsheet.';
+        setStudentsError(errMsg);
+        ToastManager.getInstance().show('Gagal Memuat Daftar Siswa', 'error', errMsg);
         return;
       }
-      setDudiStudents(Array.isArray(json.data) ? json.data : []);
+
+      const students = Array.isArray(json.data) ? json.data : [];
+      const initStages: Record<string, number> = {};
+      const initDrafts: Record<string, StudentStageDraft> = {};
+
+      students.forEach((stu: any, idx: number) => {
+        const stuKey = getStudentKey(stu, idx);
+        const recStage = Math.min(8, Math.max(1, Number(stu.recommendedStage || 1)));
+        initStages[stuKey] = recStage;
+
+        if (stu.stageLogs && typeof stu.stageLogs === 'object') {
+          Object.entries(stu.stageLogs).forEach(([stageStr, log]: [string, any]) => {
+            const draftKey = `${stuKey}::${stageStr}`;
+            initDrafts[draftKey] = {
+              ...DEFAULT_DRAFT,
+              sakit: Number(log?.sakit ?? 0) || 0,
+              izin: Number(log?.izin ?? 0) || 0,
+              alpha: Number(log?.alpha ?? 0) || 0,
+              catatanPerkembangan: String(log?.catatan || ''),
+            };
+          });
+        }
+      });
+
+      setStageByStudent(initStages);
+      setDraftsByKey(initDrafts);
+      setDudiStudents(students);
     } catch (e: any) {
-      setStudentsError(e?.message || 'Gagal menghubungi Google Spreadsheet.');
+      const errMsg = e?.message || 'Gagal menghubungi Google Spreadsheet.';
+      setStudentsError(errMsg);
+      ToastManager.getInstance().show('Gagal Memuat Siswa DUDI', 'error', errMsg);
     } finally {
       setLoadingStudents(false);
     }
   };
 
-  const handleSaveEvaluation = async () => {
-    const activeStudent = dudiStudents[selectedStudentIndex];
-    if (!activeStudent || !selectedDudi) return;
+  const activeStudent = dudiStudents[selectedStudentIndex] || null;
+  const activeStudentKey = activeStudent ? getStudentKey(activeStudent, selectedStudentIndex) : '';
+  const activeStageNum = activeStudent
+    ? stageByStudent[activeStudentKey] || Number(activeStudent.recommendedStage || 1)
+    : 1;
+  const activeDraftKey = activeStudent ? `${activeStudentKey}::${activeStageNum}` : '';
+  const activeDraft: StudentStageDraft =
+    (activeDraftKey && draftsByKey[activeDraftKey]) || DEFAULT_DRAFT;
 
-    setSubmitting(true);
+  const updateActiveDraft = (patch: Partial<StudentStageDraft>) => {
+    if (!activeDraftKey) return;
+    setFormError('');
+    setDraftsByKey((prev) => ({
+      ...prev,
+      [activeDraftKey]: {
+        ...(prev[activeDraftKey] || DEFAULT_DRAFT),
+        ...patch,
+      },
+    }));
+  };
+
+  const setStudentStage = (stageNum: number) => {
+    if (!activeStudentKey) return;
+    setFormError('');
+    setStageByStudent((prev) => ({
+      ...prev,
+      [activeStudentKey]: stageNum,
+    }));
+  };
+
+  const alreadyHasGrade = Boolean(activeStudent?.hasSubmittedGrades);
+  const isEditingGrade = Boolean(activeStudentKey && editingGradeByStudent[activeStudentKey]);
+  const canInputGradeThisStage = !alreadyHasGrade && activeStageNum >= 5;
+  const showGradeInputs = canInputGradeThisStage && activeDraft.nilaiPklMuncul === true;
+
+  const activeGradeEditDraft = (activeStudentKey && gradeEditDrafts[activeStudentKey]) || {
+    nilaiK3lh: Number(activeStudent?.submittedGradeSummary?.k3lh ?? 85) || 85,
+    nilaiSoftskill: Number(activeStudent?.submittedGradeSummary?.softskill ?? 85) || 85,
+    nilaiKompetensiTeknis: Number(activeStudent?.submittedGradeSummary?.teknis ?? 85) || 85,
+    nilaiAlurBisnis: Number(activeStudent?.submittedGradeSummary?.alurBisnis ?? 85) || 85,
+  };
+
+  const rataRataEditNilai = useMemo(() => {
+    return calculateEqualWeightedAverage(
+      activeGradeEditDraft.nilaiK3lh,
+      activeGradeEditDraft.nilaiSoftskill,
+      activeGradeEditDraft.nilaiKompetensiTeknis,
+      activeGradeEditDraft.nilaiAlurBisnis
+    );
+  }, [
+    activeGradeEditDraft.nilaiK3lh,
+    activeGradeEditDraft.nilaiSoftskill,
+    activeGradeEditDraft.nilaiKompetensiTeknis,
+    activeGradeEditDraft.nilaiAlurBisnis,
+  ]);
+
+  const predikatEditNilai = useMemo(() => getPredikatFromScore(rataRataEditNilai), [rataRataEditNilai]);
+
+  const startEditGrade = () => {
+    if (!activeStudent || !activeStudentKey) return;
+    const g = activeStudent.submittedGradeSummary;
+    const fallbackAvg = Number(g?.rataRata ?? 85) || 85;
+    setGradeEditDrafts((prev) => ({
+      ...prev,
+      [activeStudentKey]: {
+        nilaiK3lh: Number(g?.k3lh ?? fallbackAvg) || 85,
+        nilaiSoftskill: Number(g?.softskill ?? fallbackAvg) || 85,
+        nilaiKompetensiTeknis: Number(g?.teknis ?? fallbackAvg) || 85,
+        nilaiAlurBisnis: Number(g?.alurBisnis ?? fallbackAvg) || 85,
+      },
+    }));
+    setEditingGradeByStudent((prev) => ({ ...prev, [activeStudentKey]: true }));
+    setFormError('');
+  };
+
+  const cancelEditGrade = () => {
+    if (!activeStudentKey) return;
+    setEditingGradeByStudent((prev) => ({ ...prev, [activeStudentKey]: false }));
+    setFormError('');
+  };
+
+  const updateGradeEditDraft = (
+    patch: Partial<{
+      nilaiK3lh: number;
+      nilaiSoftskill: number;
+      nilaiKompetensiTeknis: number;
+      nilaiAlurBisnis: number;
+    }>
+  ) => {
+    if (!activeStudentKey) return;
+    setFormError('');
+    setGradeEditDrafts((prev) => ({
+      ...prev,
+      [activeStudentKey]: {
+        ...activeGradeEditDraft,
+        ...patch,
+      },
+    }));
+  };
+
+  const handleSaveEditedGrades = async () => {
+    if (!activeStudent || !activeStudentKey || !selectedDudi) return;
+    setSavingGradeEdit(true);
+    setFormError('');
     try {
-      const payload = {
+      const stageLabel = getStageValueByNumber(activeStageNum);
+      const res = await PublicPortalClient.updateMonitoringGrades({
+        monitoring_id: activeStudent.submittedGradeSummary?.monitoringId,
         id_penempatan: activeStudent.idPenempatan || activeStudent.id,
         nis: activeStudent.nis,
         nama_siswa: activeStudent.nama,
+        kelas: activeStudent.kelas || '-',
         jurusan: activeStudent.jurusan || '',
         dudi_id: selectedDudi.id || '',
         nama_dudi: selectedDudi.nama,
         alamat_dudi: selectedDudi.alamat || '',
         guru_id: selectedPetugasId || '',
         guru_pembimbing: selectedPetugasNama,
-        tahap_monitoring: tahapMonitoring,
+        tahap_monitoring: activeStudent.submittedGradeSummary?.tahapDiinput || stageLabel,
         tanggal: new Date().toISOString().split('T')[0],
-        kehadiran: kehadiran,
-        catatan_perkembangan: catatanPerkembangan,
-        nilai_teknis: nilaiTeknis,
-        nilai_disiplin: nilaiDisiplin,
-        nilai_inisiatif: nilaiInisiatif,
-        nilai_k3: nilaiK3,
-        nilai_rata_rata: nilaiAkhir,
-        predikat: predikat,
+        nilai_k3lh: activeGradeEditDraft.nilaiK3lh,
+        nilai_softskill: activeGradeEditDraft.nilaiSoftskill,
+        nilai_kompetensi_teknis: activeGradeEditDraft.nilaiKompetensiTeknis,
+        nilai_alur_bisnis: activeGradeEditDraft.nilaiAlurBisnis,
+      });
+
+      if (res.success) {
+        setDudiStudents((prev) =>
+          prev.map((stu, idx) =>
+            idx === selectedStudentIndex
+              ? {
+                  ...stu,
+                  hasSubmittedGrades: true,
+                  submittedGradeSummary: res.gradeSummary,
+                }
+              : stu
+          )
+        );
+        setEditingGradeByStudent((prev) => ({ ...prev, [activeStudentKey]: false }));
+        if (onSuccess) onSuccess();
+      } else {
+        setFormError(res.message || 'Gagal menyimpan perubahan nilai ke Google Spreadsheet.');
+      }
+    } catch (e: any) {
+      setFormError(e?.message || 'Gagal memperbarui nilai ke Google Spreadsheet.');
+    } finally {
+      setSavingGradeEdit(false);
+    }
+  };
+
+  const rataRataNilai = useMemo(() => {
+    return calculateEqualWeightedAverage(
+      activeDraft.nilaiK3lh,
+      activeDraft.nilaiSoftskill,
+      activeDraft.nilaiKompetensiTeknis,
+      activeDraft.nilaiAlurBisnis
+    );
+  }, [
+    activeDraft.nilaiK3lh,
+    activeDraft.nilaiSoftskill,
+    activeDraft.nilaiKompetensiTeknis,
+    activeDraft.nilaiAlurBisnis,
+  ]);
+
+  const predikatNilai = useMemo(() => getPredikatFromScore(rataRataNilai), [rataRataNilai]);
+
+  const handleSaveSupervision = async () => {
+    if (!activeStudent || !selectedDudi) return;
+    setFormError('');
+
+    if (activeStageNum === 5 && !alreadyHasGrade && activeDraft.nilaiPklMuncul === null) {
+      setFormError(
+        'Pada Monitoring ke-4, silakan pilih terlebih dahulu apakah nilai PKL sudah muncul ("Ya, Sudah Muncul" atau "Belum Muncul").'
+      );
+      return;
+    }
+
+    const stageLabel = getStageValueByNumber(activeStageNum);
+    const shouldSubmitGrades = canInputGradeThisStage && activeDraft.nilaiPklMuncul === true;
+    const existingStageLog = activeStudent.stageLogs?.[activeStageNum];
+
+    setSubmitting(true);
+    try {
+      const payload = {
+        existing_monitoring_id: existingStageLog?.monitoringId,
+        id_penempatan: activeStudent.idPenempatan || activeStudent.id,
+        nis: activeStudent.nis,
+        nama_siswa: activeStudent.nama,
+        kelas: activeStudent.kelas || '-',
+        jurusan: activeStudent.jurusan || '',
+        dudi_id: selectedDudi.id || '',
+        nama_dudi: selectedDudi.nama,
+        alamat_dudi: selectedDudi.alamat || '',
+        guru_id: selectedPetugasId || '',
+        guru_pembimbing: selectedPetugasNama,
+        tahap_monitoring: stageLabel,
+        tanggal: new Date().toISOString().split('T')[0],
+        sakit: activeDraft.sakit,
+        izin: activeDraft.izin,
+        alpha: activeDraft.alpha,
+        nilai_pkl_muncul: shouldSubmitGrades,
+        nilai_k3lh: shouldSubmitGrades ? activeDraft.nilaiK3lh : undefined,
+        nilai_softskill: shouldSubmitGrades ? activeDraft.nilaiSoftskill : undefined,
+        nilai_kompetensi_teknis: shouldSubmitGrades ? activeDraft.nilaiKompetensiTeknis : undefined,
+        nilai_alur_bisnis: shouldSubmitGrades ? activeDraft.nilaiAlurBisnis : undefined,
+        nilai_rata_rata: shouldSubmitGrades ? rataRataNilai : undefined,
+        predikat: shouldSubmitGrades ? predikatNilai : undefined,
+        catatan_perkembangan: activeDraft.catatanPerkembangan,
       };
 
       const json = await PublicPortalClient.submitMonitoring(payload);
 
       if (json.success) {
-        setEvaluatedStudentIds((prev) => ({
-          ...prev,
-          [activeStudent.id]: nilaiAkhir,
-        }));
+        setDudiStudents((prev) =>
+          prev.map((stu, idx) => {
+            if (idx !== selectedStudentIndex) return stu;
+            const prevCompleted: number[] = Array.isArray(stu.completedStages) ? stu.completedStages : [];
+            const nextCompleted = Array.from(new Set([...prevCompleted, activeStageNum])).sort(
+              (a, b) => a - b
+            );
+            const maxDone = nextCompleted[nextCompleted.length - 1] || activeStageNum;
+            const nextRec = Math.min(maxDone + 1, 8);
+            const savedMonId = json.monitoring?.ID_Monitoring || existingStageLog?.monitoringId;
 
-        ToastManager.getInstance().show(
-          'Nilai Tersimpan ke Spreadsheet!',
-          'success',
-          `${activeStudent.nama}: Nilai Akhir ${nilaiAkhir} (${predikat})`
+            return {
+              ...stu,
+              completedStages: nextCompleted,
+              recommendedStage: nextRec,
+              hasSubmittedGrades: stu.hasSubmittedGrades || shouldSubmitGrades,
+              submittedGradeSummary: shouldSubmitGrades
+                ? {
+                    monitoringId: savedMonId,
+                    k3lh: activeDraft.nilaiK3lh,
+                    softskill: activeDraft.nilaiSoftskill,
+                    teknis: activeDraft.nilaiKompetensiTeknis,
+                    alurBisnis: activeDraft.nilaiAlurBisnis,
+                    rataRata: rataRataNilai,
+                    tahapDiinput: stageLabel,
+                    tanggal: payload.tanggal,
+                  }
+                : stu.submittedGradeSummary,
+              stageLogs: {
+                ...(stu.stageLogs || {}),
+                [activeStageNum]: {
+                  monitoringId: savedMonId,
+                  stageNum: activeStageNum,
+                  tahap: stageLabel,
+                  sakit: activeDraft.sakit,
+                  izin: activeDraft.izin,
+                  alpha: activeDraft.alpha,
+                  catatan: activeDraft.catatanPerkembangan,
+                  tanggal: payload.tanggal,
+                  status: 'Terlaksana',
+                },
+              },
+            };
+          })
         );
 
         if (onSuccess) onSuccess();
@@ -275,14 +612,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           setSelectedStudentIndex(selectedStudentIndex + 1);
         }
       } else {
-        throw new Error(json.message || 'Gagal menyimpan nilai ke Google Spreadsheet');
+        setFormError(json.message || 'Gagal menyimpan data ke Google Spreadsheet.');
       }
     } catch (e: any) {
-      ToastManager.getInstance().show(
-        'Gagal Menyimpan Nilai',
-        'error',
-        e.message || 'Periksa koneksi dan konfigurasi Apps Script'
-      );
+      setFormError(e?.message || 'Periksa koneksi dan konfigurasi Apps Script.');
     } finally {
       setSubmitting(false);
     }
@@ -298,55 +631,61 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     setSelectedDudi(null);
     setDudiStudents([]);
     setAssignedDudiList([]);
+    setStageByStudent({});
+    setDraftsByKey({});
+    setEditingGradeByStudent({});
+    setGradeEditDrafts({});
     setCurrentStep(1);
     setPinInput('');
+    ToastManager.getInstance().show(
+      'Sesi Petugas Berakhir',
+      'info',
+      'Silakan pilih kembali nama petugas dan verifikasi PIN untuk melanjutkan.'
+    );
   };
 
   if (!isOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl border border-slate-200/90 w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-3xl shadow-2xl border border-slate-200/90 w-full max-w-3xl max-h-[94vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0 gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                  Portal Supervisi Guru Pembimbing
-                </h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  Langkah {currentStep} dari 3
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Data 100% langsung dari Google Spreadsheet (Master Guru &amp; Plotting)
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate">
+                Portal Supervisi Guru Pembimbing
+              </h2>
+              <p className="text-[11px] text-slate-500 truncate">
+                Langkah {currentStep} dari 3 · Sinkron Google Spreadsheet
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {isPinVerified && (
               <button
                 type="button"
                 onClick={handlePetugasLogout}
-                className="px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
               >
                 Ganti Petugas
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-full hover:bg-slate-200/70 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+              aria-label="Tutup portal supervisi"
+              className="min-w-[40px] min-h-[40px] rounded-full hover:bg-slate-200/70 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -354,9 +693,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         </div>
 
         {/* Step Progress Bar */}
-        <div className="px-6 py-2.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center justify-between text-xs font-semibold shrink-0">
+        <div className="px-4 sm:px-6 py-2.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center justify-between text-xs font-semibold shrink-0 overflow-x-auto gap-2">
           <div
-            className={`flex items-center gap-2 ${
+            className={`flex items-center gap-2 whitespace-nowrap ${
               currentStep === 1
                 ? 'text-blue-700 font-bold'
                 : isPinVerified
@@ -378,10 +717,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             <span>1. Identitas &amp; PIN</span>
           </div>
 
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
 
           <div
-            className={`flex items-center gap-2 ${
+            className={`flex items-center gap-2 whitespace-nowrap ${
               currentStep === 2
                 ? 'text-blue-700 font-bold'
                 : selectedDudi
@@ -403,10 +742,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             <span>2. DUDI Bimbingan</span>
           </div>
 
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
 
           <div
-            className={`flex items-center gap-2 ${
+            className={`flex items-center gap-2 whitespace-nowrap ${
               currentStep === 3 ? 'text-blue-700 font-bold' : 'text-slate-400'
             }`}
           >
@@ -419,12 +758,12 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             >
               3
             </span>
-            <span>3. Penilaian 4 Kategori</span>
+            <span>3. Absensi &amp; Supervisi</span>
           </div>
         </div>
 
         {/* Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
           {currentStep === 1 && (
             <div className="max-w-md mx-auto space-y-5 py-4 animate-in fade-in duration-150">
               <div className="text-center space-y-1">
@@ -448,9 +787,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                   <button
                     type="button"
                     onClick={loadPetugasList}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-amber-300 rounded-lg font-semibold text-amber-800 hover:bg-amber-100 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 bg-white border border-amber-300 rounded-lg font-semibold text-amber-800 hover:bg-amber-100 cursor-pointer"
                   >
-                    <RefreshCw className="w-3 h-3" />
+                    <RefreshCw className="w-3.5 h-3.5" />
                     <span>Muat Ulang</span>
                   </button>
                 </div>
@@ -465,7 +804,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
               <form onSubmit={handleVerifyPin} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     Nama Petugas / Guru Pendamping:
                   </label>
                   <select
@@ -481,7 +820,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                       }
                       setPinError('');
                     }}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer disabled:opacity-50"
+                    className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer disabled:opacity-50"
                   >
                     {loadingPetugas ? (
                       <option value="">Memuat daftar guru dari Google Spreadsheet...</option>
@@ -503,11 +842,12 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     PIN Keamanan (4 Digit):
                   </label>
                   <input
                     type="password"
+                    inputMode="numeric"
                     maxLength={8}
                     value={pinInput}
                     onChange={(e) => {
@@ -515,7 +855,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                       setPinError('');
                     }}
                     placeholder="4 digit terakhir NIP / WA"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-center text-base tracking-widest font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                    className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-center text-base tracking-widest font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
                     required
                   />
                 </div>
@@ -523,7 +863,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 <button
                   type="submit"
                   disabled={verifyingPin || petugasList.length === 0}
-                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
                 >
                   {verifyingPin ? (
                     <span>Memverifikasi PIN...</span>
@@ -540,7 +880,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
           {currentStep === 2 && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-3.5 bg-blue-50/80 border border-blue-200/80 rounded-2xl flex items-center justify-between text-xs text-blue-900">
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200/80 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>
@@ -578,11 +918,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                       className="p-4 rounded-2xl border border-slate-200/90 bg-white hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
                     >
                       <div>
-                        <div className="flex items-start justify-between gap-2 mb-1.5">
-                          <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
-                            {dudi.bidang}
-                          </span>
-                          <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                        <div className="flex items-center justify-between gap-2 mb-1.5 text-[11px] text-slate-500">
+                          <span className="font-semibold text-blue-700 truncate">{dudi.bidang}</span>
+                          <span className="font-bold text-slate-600 flex items-center gap-1 shrink-0">
                             <Users className="w-3.5 h-3.5 text-slate-400" />
                             <span>{dudi.jumlahSiswa ?? dudi.kuota} Siswa</span>
                           </span>
@@ -599,14 +937,14 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                       </div>
 
                       <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-500">
+                        <span className="text-[11px] text-slate-500 truncate">
                           PIC: <b className="text-slate-700">{dudi.pic}</b>
                         </span>
                         <button
                           type="button"
-                          className="px-3 py-1.5 rounded-lg bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition-all"
+                          className="min-h-[38px] px-3 py-1.5 rounded-lg bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition-all shrink-0"
                         >
-                          <span>Nilai Siswa</span>
+                          <span>Supervisi</span>
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -619,34 +957,35 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
           {currentStep === 3 && selectedDudi && (
             <div className="space-y-5 animate-in fade-in duration-150">
+              {/* Selected DUDI Banner */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <button
                     type="button"
                     onClick={() => setCurrentStep(2)}
-                    className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                    className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 flex items-center gap-1 text-xs font-semibold cursor-pointer shrink-0"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                     <span>Ganti DUDI</span>
                   </button>
-                  <div className="text-xs">
-                    <span className="text-slate-500 block text-[10px]">DUDI Yang Dipilih:</span>
-                    <span className="font-bold text-slate-900">{selectedDudi.nama}</span>
+                  <div className="text-xs min-w-0">
+                    <span className="text-slate-500 block text-[10px]">DUDI Yang Dipilih</span>
+                    <span className="font-bold text-slate-900 truncate block">{selectedDudi.nama}</span>
                   </div>
                 </div>
 
-                <div className="text-[11px] text-slate-600 flex items-center gap-2">
+                <div className="text-[11px] text-slate-600 flex items-center gap-2 shrink-0">
                   <span>Petugas: <b>{selectedPetugasNama}</b></span>
-                  <span>·</span>
+                  <span aria-hidden="true">·</span>
                   <span className="text-blue-700 font-bold">
-                    {dudiStudents.length} Siswa Terdaftar
+                    {dudiStudents.length} Siswa
                   </span>
                 </div>
               </div>
 
               {loadingStudents ? (
                 <div className="p-8 text-center text-xs text-slate-500">
-                  Memuat daftar siswa di DUDI ini dari Google Spreadsheet...
+                  Memuat daftar siswa &amp; riwayat tahap monitoring dari Google Spreadsheet...
                 </div>
               ) : studentsError ? (
                 <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800">
@@ -658,38 +997,41 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 </div>
               ) : (
                 <>
+                  {/* Student Switcher (Isolated State per Student) */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-2">
-                      Pilih Siswa yang Sedang Dinilai:
+                      Pilih Siswa ({dudiStudents.length} Siswa Terdata):
                     </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       {dudiStudents.map((student, idx) => {
                         const isSelected = selectedStudentIndex === idx;
-                        const savedScore = evaluatedStudentIds[student.id];
+                        const completedCount = Array.isArray(student.completedStages)
+                          ? student.completedStages.length
+                          : 0;
+                        const hasGrade = Boolean(student.hasSubmittedGrades);
+
                         return (
                           <button
                             key={`${student.id || 'stu'}_${idx}`}
                             type="button"
-                            onClick={() => setSelectedStudentIndex(idx)}
-                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            onClick={() => {
+                              setSelectedStudentIndex(idx);
+                              setFormError('');
+                            }}
+                            className={`min-h-[60px] p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                               isSelected
                                 ? 'border-blue-600 bg-blue-50/70 text-blue-900 ring-2 ring-blue-600/20'
                                 : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
                             }`}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-mono font-bold text-slate-500">
-                                NIS: {student.nis}
+                            <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500">
+                              <span>NIS: {student.nis}</span>
+                              <span className="font-semibold text-slate-600">
+                                Tahap {completedCount}/8{hasGrade ? ' · Nilai ✓' : ''}
                               </span>
-                              {savedScore !== undefined && (
-                                <span
-                                  className="w-2 h-2 rounded-full bg-emerald-500"
-                                  title="Sudah Dinilai"
-                                />
-                              )}
                             </div>
                             <div className="font-bold text-xs truncate mt-1">{student.nama}</div>
-                            <div className="text-[10px] text-slate-500 mt-0.5">
+                            <div className="text-[11px] text-slate-500 mt-0.5 truncate">
                               {student.kelas}
                             </div>
                           </button>
@@ -698,188 +1040,519 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                     </div>
                   </div>
 
-                  {dudiStudents[selectedStudentIndex] && (
-                    <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-4">
+                  {activeStudent && (
+                    <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-5">
+                      {/* Active Student Header */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-200 gap-2">
                         <div>
                           <h4 className="text-sm font-bold text-slate-900">
-                            Penilaian: {dudiStudents[selectedStudentIndex].nama}
+                            Supervisi: {activeStudent.nama}
                           </h4>
                           <p className="text-xs text-slate-500">
-                            NIS: {dudiStudents[selectedStudentIndex].nis} · Kelas:{' '}
-                            {dudiStudents[selectedStudentIndex].kelas}
+                            NIS: {activeStudent.nis} · Kelas: {activeStudent.kelas} · Jurusan: {activeStudent.jurusan}
                           </p>
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={tahapMonitoring}
-                            onChange={(e) => setTahapMonitoring(e.target.value)}
-                            className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none"
-                          >
-                            <option value="1. Pengantaran">Tahap 1 (Pengantaran)</option>
-                            <option value="2. Monitoring 1">Tahap 2 (Monitoring 1)</option>
-                            <option value="3. Monitoring 2">Tahap 3 (Monitoring 2)</option>
-                            <option value="4. Monitoring 3 (Nilai & Sertifikat)">
-                              Tahap 4 (Evaluasi Akhir)
-                            </option>
-                            <option value="5. Penarikan">Tahap 5 (Penarikan)</option>
-                          </select>
-
-                          <select
-                            value={kehadiran}
-                            onChange={(e) => setKehadiran(e.target.value)}
-                            className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none"
-                          >
-                            <option value="Hadir">Hadir</option>
-                            <option value="Izin">Izin</option>
-                            <option value="Sakit">Sakit</option>
-                            <option value="Alfa">Alfa</option>
-                          </select>
+                        <div className="text-xs font-semibold text-blue-700">
+                          Deteksi Otomatis: Tahap {activeStudent.recommendedStage || 1} dari 8
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="text-xs font-bold text-slate-900 block">
-                                1. Kompetensi Teknis &amp; Kejuruan
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                Bobot: 30% · Standar SOP &amp; Hasil Praktik
-                              </span>
-                            </div>
-                            <span className="text-sm font-bold font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-                              {nilaiTeknis}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min={50}
-                            max={100}
-                            value={nilaiTeknis}
-                            onChange={(e) => setNilaiTeknis(Number(e.target.value))}
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-
-                        <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="text-xs font-bold text-slate-900 block">
-                                2. Kedisiplinan &amp; Etos Kerja
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                Bobot: 25% · Presensi, Ketepatan Waktu
-                              </span>
-                            </div>
-                            <span className="text-sm font-bold font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-                              {nilaiDisiplin}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min={50}
-                            max={100}
-                            value={nilaiDisiplin}
-                            onChange={(e) => setNilaiDisiplin(Number(e.target.value))}
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-
-                        <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="text-xs font-bold text-slate-900 block">
-                                3. Inisiatif &amp; Tanggung Jawab
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                Bobot: 25% · Kemandirian &amp; Kerjasama
-                              </span>
-                            </div>
-                            <span className="text-sm font-bold font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-                              {nilaiInisiatif}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min={50}
-                            max={100}
-                            value={nilaiInisiatif}
-                            onChange={(e) => setNilaiInisiatif(Number(e.target.value))}
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-
-                        <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="text-xs font-bold text-slate-900 block">
-                                4. Keselamatan Kerja (K3LH)
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                Bobot: 20% · Penggunaan APD &amp; Kebersihan
-                              </span>
-                            </div>
-                            <span className="text-sm font-bold font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-                              {nilaiK3}
-                            </span>
-                          </div>
-                          <input
-                            type="range"
-                            min={50}
-                            max={100}
-                            value={nilaiK3}
-                            onChange={(e) => setNilaiK3(Number(e.target.value))}
-                            className="w-full accent-blue-600"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="p-4 bg-blue-50/70 border border-blue-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <span className="text-xs text-slate-600 block">
-                            Kalkulasi Nilai Akhir Otomatis:
+                      {/* 8-Stage Auto-Detect & Selector */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="font-bold text-slate-800">
+                            Tahap Monitoring (8 Tahap):
                           </span>
-                          <div className="flex items-baseline gap-2 mt-0.5">
-                            <span className="text-2xl font-bold font-mono text-blue-700">
-                              {nilaiAkhir}
-                            </span>
-                            <span className="text-xs font-bold text-slate-700">
-                              Predikat: <b className="text-emerald-700">{predikat}</b>
-                            </span>
-                          </div>
+                          <span className="text-[11px] text-slate-500">
+                            {(activeStudent.completedStages || []).includes(activeStageNum)
+                              ? 'Sudah terdata di Spreadsheet'
+                              : 'Tahap berikutnya'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {MONITORING_STAGES.map((st) => {
+                            const isCompleted = (activeStudent.completedStages || []).includes(st.num);
+                            const isActive = activeStageNum === st.num;
+                            return (
+                              <button
+                                key={st.num}
+                                type="button"
+                                onClick={() => setStudentStage(st.num)}
+                                className={`min-h-[44px] px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
+                                  isActive
+                                    ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
+                                    : isCompleted
+                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100/70'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                }`}
+                              >
+                                <span className="truncate">{st.label}</span>
+                                {isCompleted && (
+                                  <CheckCircle2
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      isActive ? 'text-white' : 'text-emerald-600'
+                                    }`}
+                                  />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Section: Absensi (Sakit, Izin, Alpha) */}
+                      <div className="space-y-2.5">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                          <ClipboardCheck className="w-4 h-4 text-blue-600" />
+                          <span>Absensi Siswa (Sakit, Izin, Alpha) — Tahap {activeStageNum}</span>
                         </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {(
+                            [
+                              { key: 'sakit', label: 'Sakit (Hari)', accent: 'text-amber-700' },
+                              { key: 'izin', label: 'Izin (Hari)', accent: 'text-blue-700' },
+                              { key: 'alpha', label: 'Alpha (Hari)', accent: 'text-rose-700' },
+                            ] as const
+                          ).map((item) => {
+                            const val = activeDraft[item.key];
+                            return (
+                              <div
+                                key={item.key}
+                                className="p-3 bg-white border border-slate-200 rounded-xl space-y-2"
+                              >
+                                <label className={`block text-xs font-bold ${item.accent}`}>
+                                  {item.label}
+                                </label>
+                                <div className="flex items-center justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    aria-label={`Kurangi ${item.label}`}
+                                    onClick={() =>
+                                      updateActiveDraft({
+                                        [item.key]: Math.max(0, val - 1),
+                                      })
+                                    }
+                                    className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                                  >
+                                    <Minus className="w-4 h-4" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min={0}
+                                    max={90}
+                                    value={val}
+                                    onChange={(e) => {
+                                      const parsed = Math.max(
+                                        0,
+                                        Math.min(90, Math.round(Number(e.target.value) || 0))
+                                      );
+                                      updateActiveDraft({ [item.key]: parsed });
+                                    }}
+                                    className="w-full min-h-[44px] text-center font-mono tabular-nums text-base font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Tambah ${item.label}`}
+                                    onClick={() =>
+                                      updateActiveDraft({
+                                        [item.key]: Math.min(90, val + 1),
+                                      })
+                                    }
+                                    className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Conditional Section: Already Submitted Grade Notice (+ Edit Nilai) OR Monitoring ke-4+ Prompt */}
+                      {alreadyHasGrade ? (
+                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3 text-xs text-emerald-900">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 font-bold text-sm text-emerald-900">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>Nilai PKL Sudah Terinput</span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                              {activeStudent.submittedGradeSummary?.rataRata ? (
+                                <span className="font-mono tabular-nums font-bold text-sm text-emerald-800">
+                                  Rata-rata: {activeStudent.submittedGradeSummary.rataRata}
+                                </span>
+                              ) : null}
+                              {!isEditingGrade && (
+                                <button
+                                  type="button"
+                                  onClick={startEditGrade}
+                                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                  <span>Edit Nilai</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {!isEditingGrade ? (
+                            <>
+                              <p className="text-emerald-800 leading-relaxed">
+                                Nilai DUDI untuk siswa ini sudah tercatat di Spreadsheet
+                                {activeStudent.submittedGradeSummary?.tahapDiinput
+                                  ? ` (${activeStudent.submittedGradeSummary.tahapDiinput})`
+                                  : ''}
+                                , sehingga form input awal tidak ditampilkan lagi. Gunakan tombol <b>Edit Nilai</b> bila perlu merevisi skor.
+                              </p>
+                              {activeStudent.submittedGradeSummary?.k3lh !== null &&
+                                activeStudent.submittedGradeSummary?.k3lh !== undefined && (
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono tabular-nums text-[11px]">
+                                    <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
+                                      <span className="text-slate-500 block font-sans">K3LH</span>
+                                      <b>{activeStudent.submittedGradeSummary.k3lh}</b>
+                                    </div>
+                                    <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
+                                      <span className="text-slate-500 block font-sans">Softskill</span>
+                                      <b>{activeStudent.submittedGradeSummary.softskill}</b>
+                                    </div>
+                                    <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
+                                      <span className="text-slate-500 block font-sans">Teknis</span>
+                                      <b>{activeStudent.submittedGradeSummary.teknis}</b>
+                                    </div>
+                                    <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
+                                      <span className="text-slate-500 block font-sans">Alur Bisnis</span>
+                                      <b>{activeStudent.submittedGradeSummary.alurBisnis}</b>
+                                    </div>
+                                  </div>
+                                )}
+                            </>
+                          ) : (
+                            <div className="space-y-3 pt-2 border-t border-emerald-200/80 animate-in fade-in duration-150">
+                              <div className="flex items-center justify-between text-xs text-emerald-950">
+                                <span className="font-bold">
+                                  Edit 4 Kategori Nilai PKL (Bobot Sama 25%)
+                                </span>
+                                <span className="text-[11px] text-emerald-700">Skala 0 – 100</span>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {GRADE_CATEGORIES.map((cat) => {
+                                  const score = activeGradeEditDraft[cat.field];
+                                  return (
+                                    <div
+                                      key={cat.field}
+                                      className="p-3.5 bg-white border border-emerald-200 rounded-xl space-y-2.5"
+                                    >
+                                      <div>
+                                        <span className="text-xs font-bold text-slate-900 block">
+                                          {cat.title}
+                                        </span>
+                                        <span className="text-[11px] text-slate-500 leading-snug block">
+                                          {cat.subtitle}
+                                        </span>
+                                      </div>
+
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          aria-label={`Kurangi ${cat.title}`}
+                                          onClick={() =>
+                                            updateGradeEditDraft({
+                                              [cat.field]: Math.max(0, score - 1),
+                                            })
+                                          }
+                                          className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                                        >
+                                          <Minus className="w-4 h-4" />
+                                        </button>
+                                        <input
+                                          type="number"
+                                          inputMode="numeric"
+                                          min={0}
+                                          max={100}
+                                          value={score}
+                                          onChange={(e) => {
+                                            const nextVal = Math.max(
+                                              0,
+                                              Math.min(100, Math.round(Number(e.target.value) || 0))
+                                            );
+                                            updateGradeEditDraft({ [cat.field]: nextVal });
+                                          }}
+                                          className="w-full min-h-[44px] text-center font-mono tabular-nums text-base font-bold text-blue-700 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                        />
+                                        <button
+                                          type="button"
+                                          aria-label={`Tambah ${cat.title}`}
+                                          onClick={() =>
+                                            updateGradeEditDraft({
+                                              [cat.field]: Math.min(100, score + 1),
+                                            })
+                                          }
+                                          className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                                        >
+                                          <Plus className="w-4 h-4" />
+                                        </button>
+                                      </div>
+
+                                      <div className="grid grid-cols-5 gap-1.5">
+                                        {QUICK_SCORE_PRESETS.map((preset) => (
+                                          <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => updateGradeEditDraft({ [cat.field]: preset })}
+                                            className={`min-h-[36px] rounded-lg text-xs font-mono tabular-nums font-bold transition-colors cursor-pointer ${
+                                              score === preset
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                            }`}
+                                          >
+                                            {preset}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="p-3.5 bg-white border border-emerald-200 rounded-xl flex items-center justify-between gap-3">
+                                <div>
+                                  <span className="text-[11px] text-slate-600 block">
+                                    Rata-rata Terbaru (4 Kategori Sama Rata)
+                                  </span>
+                                  <span className="text-xs font-bold text-emerald-700">
+                                    Predikat: {predikatEditNilai}
+                                  </span>
+                                </div>
+                                <span className="text-2xl font-bold font-mono tabular-nums text-blue-700">
+                                  {rataRataEditNilai}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={savingGradeEdit}
+                                  onClick={cancelEditGrade}
+                                  className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs cursor-pointer disabled:opacity-50"
+                                >
+                                  Batal
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingGradeEdit}
+                                  onClick={handleSaveEditedGrades}
+                                  className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                >
+                                  <Save className="w-4 h-4" />
+                                  <span>
+                                    {savingGradeEdit
+                                      ? 'Menyimpan Perubahan...'
+                                      : 'Simpan Perubahan Nilai'}
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        canInputGradeThisStage && (
+                          <div className="p-4 bg-white border border-slate-200 rounded-2xl space-y-4">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                                <Award className="w-4 h-4 text-blue-600 shrink-0" />
+                                <span>Apakah nilai PKL sudah muncul?</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500">
+                                {activeStageNum === 5
+                                  ? 'Wajib dijawab pada Monitoring ke-4. Jika belum muncul, nilai dapat menyusul pada Monitoring ke-5, ke-6, atau Penarikan.'
+                                  : `Nilai PKL belum tercatat pada tahap sebelumnya. Pilih "Ya" apabila nilai DUDI sudah keluar pada ${getStageValueByNumber(activeStageNum)}.`}
+                              </p>
+
+                              <div className="grid grid-cols-2 gap-2.5 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => updateActiveDraft({ nilaiPklMuncul: false })}
+                                  className={`min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                    activeDraft.nilaiPklMuncul === false
+                                      ? 'border-slate-800 bg-slate-800 text-white'
+                                      : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  Belum Muncul
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => updateActiveDraft({ nilaiPklMuncul: true })}
+                                  className={`min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                    activeDraft.nilaiPklMuncul === true
+                                      ? 'border-blue-600 bg-blue-600 text-white'
+                                      : 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  Ya, Sudah Muncul
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Mobile-First Ergonomic 4 Grade Inputs (No Sliders) */}
+                            {showGradeInputs && (
+                              <div className="space-y-3 pt-3 border-t border-slate-100 animate-in fade-in duration-150">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-bold text-slate-900">
+                                    Input 4 Kategori Nilai PKL (Bobot Sama 25%)
+                                  </span>
+                                  <span className="text-[11px] text-slate-500">Skala 0 – 100</span>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  {GRADE_CATEGORIES.map((cat) => {
+                                    const score = activeDraft[cat.field];
+                                    return (
+                                      <div
+                                        key={cat.field}
+                                        className="p-3.5 bg-slate-50/80 border border-slate-200 rounded-xl space-y-2.5"
+                                      >
+                                        <div>
+                                          <span className="text-xs font-bold text-slate-900 block">
+                                            {cat.title}
+                                          </span>
+                                          <span className="text-[11px] text-slate-500 leading-snug block">
+                                            {cat.subtitle}
+                                          </span>
+                                        </div>
+
+                                        {/* Stepper + Numeric Input (44px+ touch targets) */}
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            aria-label={`Kurangi nilai ${cat.title}`}
+                                            onClick={() =>
+                                              updateActiveDraft({
+                                                [cat.field]: Math.max(0, score - 1),
+                                              })
+                                            }
+                                            className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                                          >
+                                            <Minus className="w-4 h-4" />
+                                          </button>
+                                          <input
+                                            type="number"
+                                            inputMode="numeric"
+                                            min={0}
+                                            max={100}
+                                            value={score}
+                                            onChange={(e) => {
+                                              const nextVal = Math.max(
+                                                0,
+                                                Math.min(100, Math.round(Number(e.target.value) || 0))
+                                              );
+                                              updateActiveDraft({ [cat.field]: nextVal });
+                                            }}
+                                            className="w-full min-h-[44px] text-center font-mono tabular-nums text-base font-bold text-blue-700 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                          />
+                                          <button
+                                            type="button"
+                                            aria-label={`Tambah nilai ${cat.title}`}
+                                            onClick={() =>
+                                              updateActiveDraft({
+                                                [cat.field]: Math.min(100, score + 1),
+                                              })
+                                            }
+                                            className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer"
+                                          >
+                                            <Plus className="w-4 h-4" />
+                                          </button>
+                                        </div>
+
+                                        {/* Quick Tap Score Presets */}
+                                        <div className="grid grid-cols-5 gap-1.5">
+                                          {QUICK_SCORE_PRESETS.map((preset) => (
+                                            <button
+                                              key={preset}
+                                              type="button"
+                                              onClick={() => updateActiveDraft({ [cat.field]: preset })}
+                                              className={`min-h-[36px] rounded-lg text-xs font-mono tabular-nums font-bold transition-colors cursor-pointer ${
+                                                score === preset
+                                                  ? 'bg-blue-600 text-white'
+                                                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              {preset}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between gap-3">
+                                  <div>
+                                    <span className="text-[11px] text-slate-600 block">
+                                      Rata-rata Nilai PKL (4 Kategori Sama Rata)
+                                    </span>
+                                    <span className="text-xs font-bold text-emerald-700">
+                                      Predikat: {predikatNilai}
+                                    </span>
+                                  </div>
+                                  <span className="text-2xl font-bold font-mono tabular-nums text-blue-700">
+                                    {rataRataNilai}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      )}
+
+                      {/* Catatan Pembimbing */}
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                          Catatan Pembimbing / Evaluasi DUDI:
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={activeDraft.catatanPerkembangan}
+                          onChange={(e) =>
+                            updateActiveDraft({ catatanPerkembangan: e.target.value })
+                          }
+                          placeholder="Tuliskan catatan supervisi, kondisi siswa, atau kendala lapangan..."
+                          className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+
+                      {formError && (
+                        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-xs text-rose-700">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                          <span>{formError}</span>
+                        </div>
+                      )}
+
+                      {/* Primary Save CTA */}
+                      <div className="pt-1 flex justify-end">
                         <button
                           type="button"
-                          onClick={handleSaveEvaluation}
+                          onClick={handleSaveSupervision}
                           disabled={submitting}
-                          className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                          className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
                         >
                           {submitting ? (
                             <span>Menyimpan ke Spreadsheet...</span>
                           ) : (
                             <>
                               <Save className="w-4 h-4" />
-                              <span>Simpan Nilai Siswa Ini</span>
+                              <span>
+                                {showGradeInputs
+                                  ? 'Simpan Absensi & Nilai PKL Siswa Ini'
+                                  : `Simpan Supervisi Tahap ${activeStageNum}`}
+                              </span>
                             </>
                           )}
                         </button>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Catatan Pembimbing / Evaluasi DUDI:
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={catatanPerkembangan}
-                          onChange={(e) => setCatatanPerkembangan(e.target.value)}
-                          placeholder="Tuliskan catatan supervisi atau perkembangan siswa di DUDI..."
-                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        />
                       </div>
                     </div>
                   )}
@@ -890,7 +1563,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         </div>
 
         {/* Footer */}
-        <div className="px-5 sm:px-6 py-3.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-6 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between shrink-0">
           <div className="text-[11px] text-slate-500">
             {currentStep === 3 && dudiStudents.length > 0 && (
               <span>
@@ -901,7 +1574,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
+            className="min-h-[40px] px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
           >
             Tutup
           </button>

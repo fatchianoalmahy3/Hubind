@@ -77,7 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'monitoring',
-      label: 'Supervisi 5 Tahap',
+      label: 'Supervisi 8 Tahap',
       icon: Compass,
       allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
     },

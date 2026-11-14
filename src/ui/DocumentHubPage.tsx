@@ -926,7 +926,16 @@ function renderDocumentBody(params: {
                 </tr>
               ))
             ) : (
-              ['1. Pengantaran', '2. Monitoring 1', '3. Monitoring 2', '4. Monitoring 3 (Nilai & Sertifikat)', '5. Penarikan'].map(
+              [
+                '1. Pengantaran',
+                '2. Monitoring 1',
+                '3. Monitoring 2',
+                '4. Monitoring 3',
+                '5. Monitoring 4',
+                '6. Monitoring 5',
+                '7. Monitoring 6',
+                '8. Penarikan',
+              ].map(
                 (stage, idx) => (
                   <tr key={stage}>
                     <td className="border border-slate-300 p-2 text-center">{idx + 1}</td>

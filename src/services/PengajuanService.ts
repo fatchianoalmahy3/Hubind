@@ -23,48 +23,71 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
     return PengajuanService.instance;
   }
 
-  public async approveByKakomli(id: string, catatan?: string): Promise<Pengajuan | null> {
+  public async approveByKakomli(
+    id: string,
+    catatan?: string,
+    options?: { silentToast?: boolean }
+  ): Promise<Pengajuan | null> {
     const item = await this.getById(id);
     if (!item) return null;
 
-    const updated = await this.update(id, {
-      statusKakomli: 'Disetujui',
-      statusHubin: 'Siap Diberangkatkan',
-      catatanKakomli:
-        catatan || 'Disetujui oleh Ketua Kompetensi Keahlian (Kakomli). Sesuai standar industri.',
-    });
+    const updated = await this.update(
+      id,
+      {
+        statusKakomli: 'Disetujui',
+        statusHubin: 'Siap Diberangkatkan',
+        catatanKakomli:
+          catatan || 'Disetujui oleh Ketua Kompetensi Keahlian (Kakomli). Sesuai standar industri.',
+      },
+      options
+    );
 
     if (item.nis) {
-      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Diterima DUDI');
+      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Diterima DUDI', {
+        silentToast: true,
+      });
     }
 
     if (updated) {
       await PerizinanService.getInstance()
-        .createFromPengajuan(updated)
+        .createFromPengajuan(updated, { silentToast: true })
         .catch((err) => console.warn('Auto-create PerizinanPKL warning:', err));
     }
 
     return updated;
   }
 
-  public async createPerizinanFromPengajuan(id: string): Promise<void> {
+  public async createPerizinanFromPengajuan(
+    id: string,
+    options?: { silentToast?: boolean }
+  ): Promise<void> {
     const item = await this.getById(id);
     if (!item) throw new Error('Data pengajuan tidak ditemukan.');
-    await PerizinanService.getInstance().createFromPengajuan(item);
+    await PerizinanService.getInstance().createFromPengajuan(item, options);
   }
 
-  public async rejectByKakomli(id: string, reason: string): Promise<Pengajuan | null> {
+  public async rejectByKakomli(
+    id: string,
+    reason: string,
+    options?: { silentToast?: boolean }
+  ): Promise<Pengajuan | null> {
     const item = await this.getById(id);
     if (!item) return null;
 
-    const updated = await this.update(id, {
-      statusKakomli: 'Ditolak',
-      statusHubin: 'Batal',
-      catatanKakomli: reason || 'Ditolak: DUDI tidak linier dengan kompetensi keahlian.',
-    });
+    const updated = await this.update(
+      id,
+      {
+        statusKakomli: 'Ditolak',
+        statusHubin: 'Batal',
+        catatanKakomli: reason || 'Ditolak: DUDI tidak linier dengan kompetensi keahlian.',
+      },
+      options
+    );
 
     if (item.nis) {
-      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Belum Daftar');
+      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Belum Daftar', {
+        silentToast: true,
+      });
     }
 
     return updated;
@@ -73,19 +96,26 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
   public async scheduleHubin(
     id: string,
     guruPendamping: string,
-    tanggalBerangkat: string
+    tanggalBerangkat: string,
+    options?: { silentToast?: boolean }
   ): Promise<Pengajuan | null> {
     const item = await this.getById(id);
     if (!item) return null;
 
-    const updated = await this.update(id, {
-      statusHubin: 'Terjadwal',
-      guruPendamping,
-      tanggalBerangkat,
-    });
+    const updated = await this.update(
+      id,
+      {
+        statusHubin: 'Terjadwal',
+        guruPendamping,
+        tanggalBerangkat,
+      },
+      options
+    );
 
     if (item.nis) {
-      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Sedang PKL');
+      await SiswaService.getInstance().updateStatusPKL(item.nis, 'Sedang PKL', {
+        silentToast: true,
+      });
     }
 
     // Resolve canonical Master IDs and upsert into Plotting_Pemberangkatan so Portal Supervisi Guru & Data Siswa PKL stay 100% synced
@@ -113,33 +143,40 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       : '';
 
     if (existingActive) {
-      await SiswaPklService.getInstance().update(existingActive.id, {
-        idDudi: matchedDudi?.id || existingActive.idDudi,
-        namaDudi: matchedDudi?.namaDudi || item.dudiTujuan,
-        idGuruPendamping: guru?.id || existingActive.idGuruPendamping,
-        guruPendamping: guru?.nama || guruPendamping,
-        tanggalBerangkat,
-        statusPenempatan: 'Terjadwal',
-      });
+      await SiswaPklService.getInstance().update(
+        existingActive.id,
+        {
+          idDudi: matchedDudi?.id || existingActive.idDudi,
+          namaDudi: matchedDudi?.namaDudi || item.dudiTujuan,
+          idGuruPendamping: guru?.id || existingActive.idGuruPendamping,
+          guruPendamping: guru?.nama || guruPendamping,
+          tanggalBerangkat,
+          statusPenempatan: 'Terjadwal',
+        },
+        { silentToast: true }
+      );
     } else {
       const idPenempatan = `PLT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      await SiswaPklService.getInstance().create({
-        id: idPenempatan,
-        idPenempatan,
-        nis: item.nis,
-        namaSiswa: item.namaSiswa,
-        idDudi: matchedDudi?.id || '',
-        namaDudi: matchedDudi?.namaDudi || item.dudiTujuan,
-        idGuruPendamping: guru?.id || '',
-        guruPendamping: guru?.nama || guruPendamping,
-        tanggalBerangkat,
-        tanggalRencanaTarik: defaultTarik,
-        statusPenempatan: 'Terjadwal',
-      });
+      await SiswaPklService.getInstance().create(
+        {
+          id: idPenempatan,
+          idPenempatan,
+          nis: item.nis,
+          namaSiswa: item.namaSiswa,
+          idDudi: matchedDudi?.id || '',
+          namaDudi: matchedDudi?.namaDudi || item.dudiTujuan,
+          idGuruPendamping: guru?.id || '',
+          guruPendamping: guru?.nama || guruPendamping,
+          tanggalBerangkat,
+          tanggalRencanaTarik: defaultTarik,
+          statusPenempatan: 'Terjadwal',
+        },
+        { silentToast: true }
+      );
     }
 
     await RelationSyncService.getInstance()
-      .syncPlacementCounts()
+      .syncPlacementCounts({ silentToast: true })
       .catch((err) => console.warn('Relation count sync warning:', err));
 
     return updated;

@@ -27,10 +27,14 @@ export class SiswaService extends BaseRepository<Siswa> {
     return list.filter((s) => s.jurusan === jurusan);
   }
 
-  public async updateStatusPKL(nis: string, status: Siswa['statusPKL']): Promise<void> {
+  public async updateStatusPKL(
+    nis: string,
+    status: Siswa['statusPKL'],
+    options?: { silentToast?: boolean }
+  ): Promise<void> {
     const siswa = await this.getByNis(nis);
     if (siswa) {
-      await this.update(siswa.id, { statusPKL: status });
+      await this.update(siswa.id, { statusPKL: status }, options);
     }
   }
 }

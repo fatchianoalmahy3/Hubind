@@ -120,7 +120,7 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Master_DUDI",
-      headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_PIC", "Kontak_PIC", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"]
+      headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_Pemimpin", "Nama_PIC", "Kontak_PIC", "No_Telp_DUDI", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"]
     },
     {
       name: "Master_Guru_Pendamping",
@@ -128,11 +128,11 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Data_Pengajuan_PKL",
-      headers: ["No_Pengajuan", "Timestamp", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "DUDI_Tujuan", "Alamat_DUDI", "Bidang_Pekerjaan", "No_WA", "Status_Kakomli", "Catatan_Kakomli", "Status_Hubin", "Guru_Pendamping", "Tgl_Berangkat"]
+      headers: ["No_Pengajuan", "Timestamp", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "DUDI_Tujuan", "Alamat_DUDI", "Bidang_Pekerjaan", "Nama_Pemimpin", "Nama_PIC", "No_Telp_DUDI", "No_WA", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Kakomli", "Catatan_Kakomli", "Status_Hubin", "Guru_Pendamping", "Tgl_Berangkat"]
     },
     {
       name: "Data_Perizinan_PKL",
-      headers: ["No_Perizinan", "No_Pengajuan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Izin_Ortu", "No_Surat_Permohonan", "DUDI_Tujuan", "Alamat_DUDI", "Tanggal_Kirim_Surat", "Status_Balasan_DUDI", "Tanggal_Balasan", "Catatan_Perizinan", "Link_Bukti_Balasan"]
+      headers: ["ID_Perizinan", "No_Pengajuan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Izin_Ortu", "No_Surat_Permohonan", "DUDI_Tujuan", "Alamat_DUDI", "Tgl_Kirim_Surat", "Status_Balasan_DUDI", "Tgl_Balasan", "Catatan_Perizinan", "Link_Bukti_Balasan"]
     },
     {
       name: "Plotting_Pemberangkatan",
@@ -140,11 +140,11 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Monitoring_5_Tahap",
-      headers: ["ID_Monitoring", "ID_Penempatan", "DUDI_Tujuan", "Alamat_DUDI", "Daftar_Siswa", "Jurusan", "Guru_Pendamping", "Tahap", "Tanggal_Kunjungan", "Catatan_Kunjungan", "Foto_Bukti_Drive", "Nilai_DUDI_Terkumpul", "Blangko_Sertifikat_Bawa", "Status_Tahap"]
+      headers: ["ID_Monitoring", "ID_Penempatan", "NIS", "Nama_Siswa", "DUDI_Tujuan", "Alamat_DUDI", "Daftar_Siswa", "Jurusan", "Guru_Pendamping", "Tahap", "Tanggal_Kunjungan", "Sakit", "Izin", "Alpha", "Nilai_PKL_Muncul", "Nilai_K3LH", "Nilai_Softskill", "Nilai_Kompetensi_Teknis", "Nilai_Alur_Bisnis", "Nilai_Rata_Rata", "Catatan_Kunjungan", "Foto_Bukti_Drive", "Nilai_DUDI_Terkumpul", "Blangko_Sertifikat_Bawa", "Status_Tahap"]
     },
     {
       name: "Nilai_Dan_Sertifikat",
-      headers: ["ID_Penempatan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "DUDI_Tujuan", "Nilai_DUDI", "Nilai_Guru", "Nilai_Akhir", "Predikat", "No_Seri_Blangko", "Status_Blangko", "Status_Raport", "Tgl_Terbit"]
+      headers: ["ID_Penempatan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "DUDI_Tujuan", "Nilai_K3LH", "Nilai_Softskill", "Nilai_Kompetensi_Teknis", "Nilai_Alur_Bisnis", "Nilai_Rata_Rata", "Predikat", "No_Seri_Blangko", "Status_Blangko", "Status_Raport", "Tgl_Terbit"]
     },
     {
       name: "Master_Akun",

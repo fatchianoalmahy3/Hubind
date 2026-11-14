@@ -98,7 +98,9 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
         setFormOpen(false);
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Gagal memuat daftar akun dari Google Spreadsheet.');
+      const errMsg = err?.message || 'Gagal memuat daftar akun dari Google Spreadsheet.';
+      setErrorMsg(errMsg);
+      ToastManager.getInstance().show('Gagal Memuat Akun', 'error', errMsg);
     } finally {
       setLoading(false);
     }
@@ -145,6 +147,14 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     setSaving(true);
     setErrorMsg('');
 
+    const cleanUser = username.trim().toLowerCase();
+    const toastId = ToastManager.getInstance().show(
+      editingId ? 'Memperbarui Akun...' : 'Menambahkan Akun Baru...',
+      'pending',
+      `Menyimpan "${cleanUser}" ke sheet [Master_Akun]`,
+      'Master_Akun'
+    );
+
     try {
       const res = await LocalAccountAuthService.saveAccount({
         id: editingId,
@@ -169,13 +179,16 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
         onCurrentUserUpdated(refreshedSession.user);
       }
 
-      ToastManager.getInstance().show(
+      ToastManager.getInstance().update(
+        toastId,
         editingId ? 'Akun Berhasil Diperbarui' : 'Akun Baru Ditambahkan',
         'success',
-        `Perubahan untuk username "${username.trim().toLowerCase()}" tersimpan di sheet Master_Akun.`
+        `Perubahan untuk username "${cleanUser}" tersimpan di sheet Master_Akun.`
       );
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Gagal menyimpan perubahan akun.');
+      const msg = err?.message || 'Gagal menyimpan perubahan akun.';
+      setErrorMsg(msg);
+      ToastManager.getInstance().update(toastId, 'Gagal Menyimpan Akun', 'error', msg);
     } finally {
       setSaving(false);
     }
@@ -184,6 +197,12 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   const handleDelete = async (id: string) => {
     setSaving(true);
     setErrorMsg('');
+    const toastId = ToastManager.getInstance().show(
+      'Menghapus Akun...',
+      'pending',
+      'Menghapus data akun dari sheet [Master_Akun]',
+      'Master_Akun'
+    );
     try {
       const updated = await LocalAccountAuthService.deleteAccount(id);
       setAccounts(updated);
@@ -191,13 +210,16 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       if (editingId === id) {
         setFormOpen(false);
       }
-      ToastManager.getInstance().show(
+      ToastManager.getInstance().update(
+        toastId,
         'Akun Dihapus',
         'info',
         'Daftar akun di Google Spreadsheet telah diperbarui.'
       );
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Gagal menghapus akun.');
+      const msg = err?.message || 'Gagal menghapus akun.';
+      setErrorMsg(msg);
+      ToastManager.getInstance().update(toastId, 'Gagal Menghapus Akun', 'error', msg);
     } finally {
       setSaving(false);
     }
@@ -207,17 +229,26 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     if (bootstrapping) return;
     setBootstrapping(true);
     setErrorMsg('');
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan 5 Akun Default...',
+      'pending',
+      'Menginisialisasi tab [Master_Akun] di Google Spreadsheet',
+      'Master_Akun'
+    );
     try {
       const saved = await LocalAccountAuthService.bootstrapDefaultAccountsToSheet();
       setAccounts(saved);
       setSyncedToSheet(true);
-      ToastManager.getInstance().show(
+      ToastManager.getInstance().update(
+        toastId,
         '5 Akun Default Tersimpan ke Sheet',
         'success',
         'Tab Master_Akun di Google Spreadsheet sekarang menyimpan akun pengelola.'
       );
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Gagal menyimpan akun default ke Spreadsheet.');
+      const msg = err?.message || 'Gagal menyimpan akun default ke Spreadsheet.';
+      setErrorMsg(msg);
+      ToastManager.getInstance().update(toastId, 'Gagal Inisialisasi Akun', 'error', msg);
     } finally {
       setBootstrapping(false);
     }

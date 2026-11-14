@@ -90,13 +90,22 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       validation: { required: true },
     },
     {
+      key: 'namaPemimpin',
+      label: 'Nama Pemimpin DUDI',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      isSearchable: true,
+      placeholder: 'Nama Direktur / Kepala Bengkel / Pemilik',
+    },
+    {
       key: 'namaPic',
       label: 'Nama PIC / Pembimbing DUDI',
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
       isSearchable: true,
-      placeholder: 'Kontak pimpinan / pembimbing bengkel',
+      placeholder: 'Nama pembimbing lapangan / HRD',
     },
     {
       key: 'kontakPic',
@@ -105,6 +114,14 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       isTableColumn: true,
       isFormInput: true,
       placeholder: '0812xxxxxxxx',
+    },
+    {
+      key: 'noTelpDudi',
+      label: 'No. Telp DUDI',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: '0352-xxxxxx / 0812xxxxxxxx',
     },
     {
       key: 'kuotaMaksimal',

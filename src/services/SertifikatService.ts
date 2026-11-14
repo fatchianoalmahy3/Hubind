@@ -2,6 +2,10 @@ import { BaseRepository } from '../core/BaseRepository';
 import { Sertifikat } from '../core/types/schema';
 import { SertifikatMetadata } from '../modules/sertifikat.meta.ts';
 import { initialSertifikat } from './InitialData';
+import {
+  calculateEqualWeightedAverage,
+  getPredikatFromScore,
+} from '../core/utils/monitoringHelpers';
 
 export class SertifikatService extends BaseRepository<Sertifikat> {
   private static instance: SertifikatService;
@@ -23,16 +27,29 @@ export class SertifikatService extends BaseRepository<Sertifikat> {
     return `SERI-${year}-${jurusanKode.toUpperCase()}-${randomNum}`;
   }
 
-  public async updateGrades(id: string, nilaiDudi: number, nilaiGuru: number): Promise<Sertifikat | null> {
-    const nilaiAkhir = Math.round(nilaiDudi * 0.6 + nilaiGuru * 0.4);
-    let predikat: Sertifikat['predikat'] = 'Cukup (C)';
-    if (nilaiAkhir >= 88) predikat = 'Sangat Baik (A)';
-    else if (nilaiAkhir >= 78) predikat = 'Baik (B)';
+  public async updateGrades(
+    id: string,
+    scores: {
+      nilaiK3lh: number;
+      nilaiSoftskill: number;
+      nilaiKompetensiTeknis: number;
+      nilaiAlurBisnis: number;
+    }
+  ): Promise<Sertifikat | null> {
+    const nilaiRataRata = calculateEqualWeightedAverage(
+      scores.nilaiK3lh,
+      scores.nilaiSoftskill,
+      scores.nilaiKompetensiTeknis,
+      scores.nilaiAlurBisnis
+    );
+    const predikat = getPredikatFromScore(nilaiRataRata) as Sertifikat['predikat'];
 
     return this.update(id, {
-      nilaiDudi,
-      nilaiGuru,
-      nilaiAkhir,
+      nilaiK3lh: scores.nilaiK3lh,
+      nilaiSoftskill: scores.nilaiSoftskill,
+      nilaiKompetensiTeknis: scores.nilaiKompetensiTeknis,
+      nilaiAlurBisnis: scores.nilaiAlurBisnis,
+      nilaiRataRata,
       predikat,
       statusRaport: 'Siap Cetak',
     });

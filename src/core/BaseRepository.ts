@@ -1,6 +1,10 @@
 import { ModuleMetadata, QueryResult, FilterState, SortState } from './types/metadata';
 import { GoogleSheetClient } from './GoogleSheetClient';
 
+export interface MutationOptions {
+  silentToast?: boolean;
+}
+
 export abstract class BaseRepository<T extends { id: string }> {
   protected tableName: string;
   protected metadata: ModuleMetadata<T>;
@@ -10,7 +14,7 @@ export abstract class BaseRepository<T extends { id: string }> {
   protected isInitialized: boolean = false;
   protected lastError: string | null = null;
   protected lastFetchedAt: number = 0;
-  private static readonly REVALIDATE_TTL_MS = 25_000;
+  private static readonly REVALIDATE_TTL_MS = 120_000;
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
     this.tableName = tableName;
@@ -117,7 +121,10 @@ export abstract class BaseRepository<T extends { id: string }> {
     return item ? { ...item } : null;
   }
 
-  public async create(data: Omit<T, 'id'> & { id?: string }): Promise<T> {
+  public async create(
+    data: Omit<T, 'id'> & { id?: string },
+    options?: MutationOptions
+  ): Promise<T> {
     await this.ensureInitialized();
     const newRecord = {
       ...data,
@@ -127,17 +134,23 @@ export abstract class BaseRepository<T extends { id: string }> {
     const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
       this.tableName,
       'CREATE',
-      newRecord
+      newRecord,
+      options
     );
     if (!commitRes.success) {
       throw new Error(commitRes.error || 'Gagal menyimpan data baru ke Google Spreadsheet.');
     }
 
     this.memoryData.unshift(newRecord);
+    this.lastFetchedAt = Date.now();
     return { ...newRecord };
   }
 
-  public async update(id: string, updates: Partial<T>): Promise<T | null> {
+  public async update(
+    id: string,
+    updates: Partial<T>,
+    options?: MutationOptions
+  ): Promise<T | null> {
     await this.ensureInitialized();
     const index = this.memoryData.findIndex((row) => row.id === id);
     if (index === -1) return null;
@@ -150,17 +163,19 @@ export abstract class BaseRepository<T extends { id: string }> {
     const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
       this.tableName,
       'UPDATE',
-      candidate
+      candidate,
+      options
     );
     if (!commitRes.success) {
       throw new Error(commitRes.error || 'Gagal memperbarui data di Google Spreadsheet.');
     }
 
     this.memoryData[index] = candidate;
+    this.lastFetchedAt = Date.now();
     return { ...this.memoryData[index] };
   }
 
-  public async delete(id: string): Promise<boolean> {
+  public async delete(id: string, options?: MutationOptions): Promise<boolean> {
     await this.ensureInitialized();
     const target = this.memoryData.find((r) => r.id === id);
     if (!target) return false;
@@ -168,17 +183,19 @@ export abstract class BaseRepository<T extends { id: string }> {
     const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
       this.tableName,
       'DELETE',
-      { id, deletedRow: target }
+      { id, deletedRow: target },
+      options
     );
     if (!commitRes.success) {
       throw new Error(commitRes.error || 'Gagal menghapus data dari Google Spreadsheet.');
     }
 
     this.memoryData = this.memoryData.filter((row) => row.id !== id);
+    this.lastFetchedAt = Date.now();
     return true;
   }
 
-  public async bulkDelete(ids: string[]): Promise<number> {
+  public async bulkDelete(ids: string[], options?: MutationOptions): Promise<number> {
     await this.ensureInitialized();
     const idSet = new Set(ids);
     const matching = this.memoryData.filter((row) => idSet.has(row.id));
@@ -187,17 +204,23 @@ export abstract class BaseRepository<T extends { id: string }> {
     const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
       this.tableName,
       'BULK_DELETE',
-      { ids }
+      { ids },
+      options
     );
     if (!commitRes.success) {
       throw new Error(commitRes.error || 'Gagal menghapus baris terpilih dari Google Spreadsheet.');
     }
 
     this.memoryData = this.memoryData.filter((row) => !idSet.has(row.id));
+    this.lastFetchedAt = Date.now();
     return matching.length;
   }
 
-  public async bulkUpdate(ids: string[], updates: Partial<T>): Promise<number> {
+  public async bulkUpdate(
+    ids: string[],
+    updates: Partial<T>,
+    options?: MutationOptions
+  ): Promise<number> {
     await this.ensureInitialized();
     const idSet = new Set(ids);
     const updatedRows: T[] = [];
@@ -215,17 +238,19 @@ export abstract class BaseRepository<T extends { id: string }> {
     const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
       this.tableName,
       'BULK_UPDATE',
-      { ids, updates, updatedRows }
+      { ids, updates, updatedRows },
+      options
     );
     if (!commitRes.success) {
       throw new Error(commitRes.error || 'Gagal memperbarui baris terpilih di Google Spreadsheet.');
     }
 
     this.memoryData = nextMemory;
+    this.lastFetchedAt = Date.now();
     return updatedRows.length;
   }
 
-  public async importRows(newRows: Partial<T>[]): Promise<number> {
+  public async importRows(newRows: Partial<T>[], options?: MutationOptions): Promise<number> {
     await this.ensureInitialized();
     const createdRows: T[] = newRows.map((item, idx) => ({
       ...item,
@@ -237,13 +262,15 @@ export abstract class BaseRepository<T extends { id: string }> {
     const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
       this.tableName,
       'IMPORT',
-      createdRows
+      createdRows,
+      options
     );
     if (!commitRes.success) {
       throw new Error(commitRes.error || 'Gagal mengimpor data ke Google Spreadsheet.');
     }
 
     this.memoryData = [...createdRows, ...this.memoryData];
+    this.lastFetchedAt = Date.now();
     return createdRows.length;
   }
 

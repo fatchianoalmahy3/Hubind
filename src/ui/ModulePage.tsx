@@ -31,6 +31,10 @@ import { GuruService } from '../services/GuruService';
 import { RelationSyncService } from '../services/RelationSyncService';
 import { Guru } from '../core/types/schema';
 import { ToastManager } from '../core/ToastManager';
+import {
+  calculateEqualWeightedAverage,
+  getPredikatFromScore,
+} from '../core/utils/monitoringHelpers';
 
 interface ModulePageProps<T extends { id: string }> {
   metadata: ModuleMetadata<T>;
@@ -149,6 +153,11 @@ export function ModulePage<T extends { id: string }>({
 
   const handleSyncRelations = async () => {
     setSyncingRelations(true);
+    const toastId = ToastManager.getInstance().show(
+      'Menyinkronkan Relasi Data...',
+      'pending',
+      'Menghitung ulang keterisian DUDI, Guru, Jurusan & Kelas dari Spreadsheet'
+    );
     try {
       const summary = await RelationSyncService.getInstance().recalculateAllRelations({
         backfillIds: true,
@@ -161,7 +170,8 @@ export function ModulePage<T extends { id: string }>({
         summary.updatedJurusan +
         summary.updatedKelas;
 
-      ToastManager.getInstance().show(
+      ToastManager.getInstance().update(
+        toastId,
         'Relasi Data Tersinkron',
         'success',
         totalChanges > 0
@@ -169,7 +179,8 @@ export function ModulePage<T extends { id: string }>({
           : 'Semua relasi Siswa, DUDI, Guru, Jurusan & Kelas sudah konsisten.'
       );
     } catch (err: any) {
-      ToastManager.getInstance().show(
+      ToastManager.getInstance().update(
+        toastId,
         'Gagal Sinkronisasi Relasi',
         'error',
         err?.message || 'Periksa koneksi Google Spreadsheet dan coba kembali.'
@@ -288,7 +299,9 @@ export function ModulePage<T extends { id: string }>({
         variant: 'primary',
         confirmText: 'Buat Berkas Perizinan',
         onConfirm: async () => {
-          await PengajuanService.getInstance().createPerizinanFromPengajuan(row.id);
+          await PengajuanService.getInstance().createPerizinanFromPengajuan(row.id, {
+            silentToast: true,
+          });
           ToastManager.getInstance().show(
             'Berkas Perizinan Dibuat',
             'success',
@@ -372,13 +385,26 @@ export function ModulePage<T extends { id: string }>({
     if (!actionModal.row || !actionModal.type) return;
 
     setActionModal((prev) => ({ ...prev, submitting: true }));
+    const toastTitleMap = {
+      reject_kakomli: 'Menyimpan Penolakan Pengajuan...',
+      schedule_hubin: 'Menjadwalkan Pemberangkatan...',
+      promote_to_pkl: 'Menerbitkan ke Data Siswa PKL...',
+    };
+    const toastId = ToastManager.getInstance().show(
+      toastTitleMap[actionModal.type],
+      'pending',
+      `${actionModal.row.namaSiswa} · ${actionModal.row.dudiTujuan}`
+    );
+
     try {
       if (actionModal.type === 'reject_kakomli') {
         await PengajuanService.getInstance().rejectByKakomli(
           actionModal.row.id,
-          actionModal.reason.trim()
+          actionModal.reason.trim(),
+          { silentToast: true }
         );
-        ToastManager.getInstance().show(
+        ToastManager.getInstance().update(
+          toastId,
           'Pengajuan Ditolak',
           'info',
           `Pengajuan ${actionModal.row.namaSiswa} telah diperbarui.`
@@ -390,9 +416,11 @@ export function ModulePage<T extends { id: string }>({
         await PengajuanService.getInstance().scheduleHubin(
           actionModal.row.id,
           actionModal.guruPendamping.trim(),
-          actionModal.tanggalBerangkat
+          actionModal.tanggalBerangkat,
+          { silentToast: true }
         );
-        ToastManager.getInstance().show(
+        ToastManager.getInstance().update(
+          toastId,
           'Pemberangkatan Dijadwalkan',
           'success',
           `${actionModal.row.namaSiswa} dijadwalkan dengan ${actionModal.guruPendamping}.`
@@ -405,9 +433,11 @@ export function ModulePage<T extends { id: string }>({
           actionModal.row.id,
           actionModal.guruPendamping.trim(),
           actionModal.tanggalBerangkat,
-          actionModal.tanggalRencanaTarik
+          actionModal.tanggalRencanaTarik,
+          { silentToast: true }
         );
-        ToastManager.getInstance().show(
+        ToastManager.getInstance().update(
+          toastId,
           'Resmi Diterbitkan ke Data Siswa PKL',
           'success',
           `${actionModal.row.namaSiswa} kini tercatat aktif di Data Siswa PKL.`
@@ -417,7 +447,8 @@ export function ModulePage<T extends { id: string }>({
       setActionModal((prev) => ({ ...prev, isOpen: false, submitting: false }));
       await refresh();
     } catch (err: any) {
-      ToastManager.getInstance().show(
+      ToastManager.getInstance().update(
+        toastId,
         'Gagal Memproses Tindakan',
         'error',
         err?.message || 'Periksa kembali data dan koneksi Google Spreadsheet.'
@@ -426,8 +457,44 @@ export function ModulePage<T extends { id: string }>({
     }
   };
 
+  const normalizeGradePayload = (values: T): any => {
+    const nextValues: any = { ...values };
+
+    if (metadata.id === 'monitoring') {
+      const k3 = Number(nextValues.nilaiK3lh ?? 0) || 0;
+      const ss = Number(nextValues.nilaiSoftskill ?? 0) || 0;
+      const tk = Number(nextValues.nilaiKompetensiTeknis ?? 0) || 0;
+      const ab = Number(nextValues.nilaiAlurBisnis ?? 0) || 0;
+      if (k3 > 0 && ss > 0 && tk > 0 && ab > 0) {
+        nextValues.nilaiRataRata = calculateEqualWeightedAverage(k3, ss, tk, ab);
+        nextValues.nilaiPklMuncul = true;
+        nextValues.nilaiDudiTerkumpul = true;
+      }
+    } else if (metadata.id === 'sertifikat') {
+      const k3 = Number(nextValues.nilaiK3lh ?? 0) || 0;
+      const ss = Number(nextValues.nilaiSoftskill ?? 0) || 0;
+      const tk = Number(nextValues.nilaiKompetensiTeknis ?? 0) || 0;
+      const ab = Number(nextValues.nilaiAlurBisnis ?? 0) || 0;
+      if (k3 > 0 && ss > 0 && tk > 0 && ab > 0) {
+        const rataRata = calculateEqualWeightedAverage(k3, ss, tk, ab);
+        nextValues.nilaiRataRata = rataRata;
+        nextValues.predikat = getPredikatFromScore(rataRata);
+      } else {
+        const rataRata = Number(nextValues.nilaiRataRata ?? 0) || 0;
+        if (rataRata > 0) {
+          const rounded = Math.round(rataRata * 10) / 10;
+          nextValues.nilaiRataRata = rounded;
+          nextValues.predikat = getPredikatFromScore(rounded);
+        }
+      }
+    }
+
+    return nextValues;
+  };
+
   // Form submit for Add with confirmation
   const handleCreateSubmit = (values: T) => {
+    const nextValues = normalizeGradePayload(values);
     setConfirmModal({
       isOpen: true,
       title: 'Simpan Data Baru ke Google Spreadsheet?',
@@ -435,7 +502,7 @@ export function ModulePage<T extends { id: string }>({
       variant: 'primary',
       confirmText: 'Simpan ke Spreadsheet',
       onConfirm: async () => {
-        await repository.create(values);
+        await repository.create(nextValues);
         if (metadata.id === 'siswa_pkl') {
           await RelationSyncService.getInstance()
             .syncPlacementCounts()
@@ -449,6 +516,9 @@ export function ModulePage<T extends { id: string }>({
   // Form submit for Edit with confirmation
   const handleEditSubmit = (values: T) => {
     if (!editingRow) return;
+
+    const nextValues = normalizeGradePayload(values);
+
     setConfirmModal({
       isOpen: true,
       title: 'Perbarui Data di Google Spreadsheet?',
@@ -456,7 +526,7 @@ export function ModulePage<T extends { id: string }>({
       variant: 'primary',
       confirmText: 'Perbarui di Spreadsheet',
       onConfirm: async () => {
-        await repository.update(editingRow.id, values);
+        await repository.update(editingRow.id, nextValues);
         if (metadata.id === 'siswa_pkl') {
           await RelationSyncService.getInstance()
             .syncPlacementCounts()
@@ -506,6 +576,11 @@ export function ModulePage<T extends { id: string }>({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    ToastManager.getInstance().show(
+      'Data Diekspor ke CSV',
+      'success',
+      `${selectedRows.length} baris dari ${metadata.title} berhasil diunduh.`
+    );
   };
 
   return (
@@ -714,11 +789,34 @@ export function ModulePage<T extends { id: string }>({
                   variant: 'success',
                   confirmText: 'Setujui Massal',
                   onConfirm: async () => {
-                    const pengajuanService = PengajuanService.getInstance();
-                    for (const id of selectedIds) {
-                      await pengajuanService.approveByKakomli(id);
+                    const count = selectedIds.length;
+                    const toastId = ToastManager.getInstance().show(
+                      `Menyetujui Massal ${count} Pengajuan...`,
+                      'pending',
+                      'Memperbarui status ke Google Spreadsheet [Data_Pengajuan_PKL]',
+                      'Data_Pengajuan_PKL'
+                    );
+                    try {
+                      const pengajuanService = PengajuanService.getInstance();
+                      for (const id of selectedIds) {
+                        await pengajuanService.approveByKakomli(id, undefined, { silentToast: true });
+                      }
+                      await refresh();
+                      ToastManager.getInstance().update(
+                        toastId,
+                        `${count} Pengajuan Disetujui (ACC)`,
+                        'success',
+                        'Seluruh pengajuan terpilih telah diperbarui & masuk antrean Perizinan.'
+                      );
+                    } catch (err: any) {
+                      ToastManager.getInstance().update(
+                        toastId,
+                        'Persetujuan Massal Gagal',
+                        'error',
+                        err?.message || 'Terjadi kendala saat memperbarui sebagian data.'
+                      );
+                      throw err;
                     }
-                    await refresh();
                   },
                 });
               }
