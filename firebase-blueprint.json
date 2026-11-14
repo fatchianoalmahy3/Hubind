@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "WorkspaceConfig": {
+      "title": "WorkspaceConfig",
+      "description": "Centralized multi-device Google Workspace IDs and app settings stored in Firestore (zero operational PII).",
+      "type": "object",
+      "properties": {
+        "activeYear": {
+          "type": "string",
+          "description": "Active academic year label (e.g. 2026/2027)",
+          "minLength": 4,
+          "maxLength": 20,
+          "pattern": "^[0-9]{4}/[0-9]{4}$"
+        },
+        "spreadsheetId": {
+          "type": "string",
+          "description": "Active Google Spreadsheet ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]*$"
+        },
+        "spreadsheetName": {
+          "type": "string",
+          "description": "Display title of the active Google Spreadsheet",
+          "maxLength": 200
+        },
+        "spreadsheetUrl": {
+          "type": "string",
+          "description": "Full URL of the active Google Spreadsheet",
+          "maxLength": 500
+        },
+        "driveFolderUrl": {
+          "type": "string",
+          "description": "Google Drive folder URL for PKL archives",
+          "maxLength": 500
+        },
+        "gasDeployUrl": {
+          "type": "string",
+          "description": "Google Apps Script Web App deployment URL for public portals",
+          "maxLength": 500
+        },
+        "academicYears": {
+          "type": "array",
+          "description": "Bounded list (max 20) of configured academic year spreadsheets"
+        },
+        "templates": {
+          "type": "array",
+          "description": "Bounded list (max 15) of Google Docs template configurations"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID of the admin who last updated the workspace configuration",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update"
+        }
+      },
+      "required": [
+        "activeYear",
+        "spreadsheetId",
+        "spreadsheetName",
+        "spreadsheetUrl",
+        "driveFolderUrl",
+        "gasDeployUrl",
+        "academicYears",
+        "templates",
+        "updatedBy",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized school administrator profile in Firestore",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified Google account email",
+          "maxLength": 256
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Administrator display name",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "description": "Assigned role within school management",
+          "enum": ["Hubin", "Kepsek", "Waka", "Pokja", "Kakomli"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation server timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update server timestamp"
+        }
+      },
+      "required": ["uid", "email", "displayName", "role", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/config/{configId}": {
+      "schema": { "$ref": "#/entities/WorkspaceConfig" },
+      "description": "Singleton workspace configuration document (/config/workspace) storing Spreadsheet and Google Docs IDs across devices."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized school admin records keyed by Firebase Auth UID."
+    }
+  }
+}

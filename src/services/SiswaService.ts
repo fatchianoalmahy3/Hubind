@@ -1,0 +1,36 @@
+import { BaseRepository } from '../core/BaseRepository';
+import { Siswa } from '../core/types/schema';
+import { SiswaMetadata } from '../modules/siswa.meta.ts';
+import { initialSiswa } from './InitialData';
+
+export class SiswaService extends BaseRepository<Siswa> {
+  private static instance: SiswaService;
+
+  private constructor() {
+    super('Master_Siswa_XI', SiswaMetadata, initialSiswa);
+  }
+
+  public static getInstance(): SiswaService {
+    if (!SiswaService.instance) {
+      SiswaService.instance = new SiswaService();
+    }
+    return SiswaService.instance;
+  }
+
+  public async getByNis(nis: string): Promise<Siswa | null> {
+    const list = await this.getAll();
+    return list.find((s) => s.nis === nis) || null;
+  }
+
+  public async getByJurusan(jurusan: string): Promise<Siswa[]> {
+    const list = await this.getAll();
+    return list.filter((s) => s.jurusan === jurusan);
+  }
+
+  public async updateStatusPKL(nis: string, status: Siswa['statusPKL']): Promise<void> {
+    const siswa = await this.getByNis(nis);
+    if (siswa) {
+      await this.update(siswa.id, { statusPKL: status });
+    }
+  }
+}

@@ -1,0 +1,346 @@
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Search,
+  Filter,
+  RefreshCw,
+  FileSpreadsheet,
+  Plus,
+  Layers,
+  Sparkles,
+  FileText,
+  Code2,
+  LayoutGrid,
+  Table,
+  Link2,
+  MoreHorizontal,
+  ChevronDown,
+  X,
+} from 'lucide-react';
+
+interface ToolbarProps {
+  search: string;
+  onSearchChange: (q: string) => void;
+  activeFilterCount: number;
+  onOpenFilterModal: () => void;
+  selectedCount: number;
+  onOpenBulkModal: () => void;
+  onSyncSpreadsheet: () => void;
+  syncing: boolean;
+  onOpenImportModal: () => void;
+  onOpenAddModal: () => void;
+  onOpenDocsModal?: () => void;
+  onOpenSimulatorModal?: () => void;
+  onOpenGasModal?: () => void;
+  onSyncRelations?: () => void;
+  syncingRelations?: boolean;
+  canAdd?: boolean;
+  viewMode?: 'table' | 'card';
+  onViewModeChange?: (mode: 'table' | 'card') => void;
+}
+
+export const Toolbar: React.FC<ToolbarProps> = ({
+  search,
+  onSearchChange,
+  activeFilterCount,
+  onOpenFilterModal,
+  selectedCount,
+  onOpenBulkModal,
+  onSyncSpreadsheet,
+  syncing,
+  onOpenImportModal,
+  onOpenAddModal,
+  onOpenDocsModal,
+  onOpenSimulatorModal,
+  onOpenGasModal,
+  onSyncRelations,
+  syncingRelations = false,
+  canAdd = true,
+  viewMode = 'table',
+  onViewModeChange,
+}) => {
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!toolsMenuOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(e.target as Node)) {
+        setToolsMenuOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setToolsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [toolsMenuOpen]);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+      {/* Left Zone: Search, Filter & Segmented View Switcher */}
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 flex-1 min-w-0 lg:max-w-xl">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Cari data (nama, NIS, DUDI, kelas)..."
+            className="w-full h-9 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:bg-white transition-colors placeholder:text-slate-400"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => onSearchChange('')}
+              className="w-7 h-7 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center cursor-pointer transition-colors"
+              title="Bersihkan pencarian"
+              aria-label="Bersihkan pencarian"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={onOpenFilterModal}
+          className={`h-9 px-3.5 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+            activeFilterCount > 0
+              ? 'bg-blue-50 border-blue-300 text-blue-700'
+              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+          }`}
+          title="Filter Data"
+        >
+          <Filter className="w-3.5 h-3.5 shrink-0" />
+          <span>Filter</span>
+          {activeFilterCount > 0 && (
+            <span className="ml-0.5 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold leading-none tabular-nums">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+
+        {/* Segmented View Toggle (Table / Card) */}
+        {onViewModeChange && (
+          <div
+            className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200 shrink-0"
+            role="group"
+            aria-label="Mode tampilan data"
+          >
+            <button
+              type="button"
+              onClick={() => onViewModeChange('table')}
+              className={`h-8 px-2.5 rounded-md text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                viewMode === 'table'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Tampilan Tabel"
+            >
+              <Table className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Tabel</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewModeChange('card')}
+              className={`h-8 px-2.5 rounded-md text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                viewMode === 'card'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Tampilan Kartu"
+            >
+              <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Kartu</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Right Zone: Disciplined 3-4 Controls + Overflow Tools Menu */}
+      <div className="flex items-center flex-wrap gap-2 justify-end shrink-0">
+        {selectedCount > 0 && (
+          <button
+            type="button"
+            onClick={onOpenBulkModal}
+            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40"
+          >
+            <Layers className="w-3.5 h-3.5 shrink-0" />
+            <span>Aksi Massal ({selectedCount})</span>
+          </button>
+        )}
+
+        {/* Secondary Action: Sync Active Sheet */}
+        <button
+          type="button"
+          onClick={onSyncSpreadsheet}
+          disabled={syncing}
+          className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          title="Muat ulang tab sheet aktif dari Google Spreadsheet"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 shrink-0 ${
+              syncing ? 'animate-spin text-blue-600' : 'text-slate-500'
+            }`}
+          />
+          <span>{syncing ? 'Menyinkronkan...' : 'Sync Sheet'}</span>
+        </button>
+
+        {/* Secondary Tools Overflow Dropdown */}
+        <div className="relative shrink-0" ref={toolsMenuRef}>
+          <button
+            type="button"
+            onClick={() => setToolsMenuOpen((prev) => !prev)}
+            aria-expanded={toolsMenuOpen}
+            aria-haspopup="menu"
+            className={`h-9 px-3 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+              toolsMenuOpen
+                ? 'bg-slate-100 border-slate-300 text-slate-900'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <MoreHorizontal className="w-4 h-4 text-slate-500 shrink-0" />
+            <span>Alat Lainnya</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                toolsMenuOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          {toolsMenuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-30"
+            >
+              {onSyncRelations && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={syncingRelations}
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onSyncRelations();
+                  }}
+                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 disabled:opacity-50 cursor-pointer"
+                >
+                  <Link2
+                    className={`w-4 h-4 text-blue-600 shrink-0 ${
+                      syncingRelations ? 'animate-spin' : ''
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">
+                      {syncingRelations ? 'Menghitung Relasi...' : 'Sinkronisasi Relasi Data'}
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      Hitung ulang Siswa, DUDI, Guru &amp; Kelas
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  onOpenImportModal();
+                }}
+                className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
+                  <div className="text-[11px] text-slate-500 truncate">
+                    Unggah baris massal ke Spreadsheet
+                  </div>
+                </div>
+              </button>
+
+              {onOpenDocsModal && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenDocsModal();
+                  }}
+                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                >
+                  <FileText className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">Cetak Dokumen Massal</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      Surat pengajuan, izin, pengantaran &amp; sertifikat
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {(onOpenSimulatorModal || onOpenGasModal) && (
+                <div className="my-1 border-t border-slate-100" />
+              )}
+
+              {onOpenSimulatorModal && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenSimulatorModal();
+                  }}
+                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">Simulasi GForm Siswa</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      Uji alur dropdown Jurusan → Kelas → Siswa
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {onOpenGasModal && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenGasModal();
+                  }}
+                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                >
+                  <Code2 className="w-4 h-4 text-slate-500 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">Script Otomasi (GAS)</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      Salin kode Google Apps Script sekolah
+                    </div>
+                  </div>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Single Primary CTA */}
+        {canAdd && (
+          <button
+            type="button"
+            onClick={onOpenAddModal}
+            className="h-9 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Tambah Data</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};

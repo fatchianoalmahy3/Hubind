@@ -1,0 +1,7 @@
+{
+  "name": "Hubin SMK PGRI 2 Ponorogo - Sistem Prakerin & Industri Terpadu",
+  "description": "Aplikasi administrasi pendataan prakerin dan pelaporan kegiatan industri terpadu untuk Hubin SMK PGRI 2 Ponorogo berbasis Low-code Metadata-Driven Engine dan Google Ecosystem.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

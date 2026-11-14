@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Reusable Hardened Primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSuperAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'fatchiano1@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isEmailVerified() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Helpers (Synchronized with firebase-blueprint.json)
+    function isValidWorkspaceConfig(data) {
+      return data.keys().hasAll([
+          'activeYear', 'spreadsheetId', 'spreadsheetName', 'spreadsheetUrl',
+          'driveFolderUrl', 'gasDeployUrl', 'academicYears', 'templates',
+          'updatedBy', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'activeYear', 'spreadsheetId', 'spreadsheetName', 'spreadsheetUrl',
+          'driveFolderUrl', 'gasDeployUrl', 'academicYears', 'templates',
+          'updatedBy', 'updatedAt'
+        ])
+        && data.activeYear is string
+        && data.activeYear.size() >= 4
+        && data.activeYear.size() <= 20
+        && data.activeYear.matches('^[0-9]{4}/[0-9]{4}$')
+        && data.spreadsheetId is string
+        && data.spreadsheetId.size() <= 128
+        && data.spreadsheetId.matches('^[a-zA-Z0-9_\\-]*$')
+        && data.spreadsheetName is string
+        && data.spreadsheetName.size() <= 200
+        && data.spreadsheetUrl is string
+        && data.spreadsheetUrl.size() <= 500
+        && data.driveFolderUrl is string
+        && data.driveFolderUrl.size() <= 500
+        && data.gasDeployUrl is string
+        && data.gasDeployUrl.size() <= 500
+        && data.academicYears is list
+        && data.academicYears.size() <= 20
+        && (data.academicYears.size() == 0 || data.academicYears[0] is map)
+        && data.templates is list
+        && data.templates.size() <= 15
+        && (data.templates.size() == 0 || data.templates[0] is map)
+        && data.updatedBy is string
+        && data.updatedBy.size() >= 1
+        && data.updatedBy.size() <= 128
+        && data.updatedBy == request.auth.uid
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAdminUser(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.uid is string
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == uid
+        && data.email is string
+        && data.email.size() >= 3
+        && data.email.size() <= 256
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 150
+        && data.role is string
+        && data.role in ['Hubin', 'Kepsek', 'Waka', 'Pokja', 'Kakomli']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 4. Connection Verification Document (/test/connection)
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, create, update, delete: if false;
+    }
+
+    // 5. Centralized Workspace Configuration (/config/workspace)
+    match /config/{configId} {
+      allow get: if isValidId(configId) && configId == 'workspace';
+      allow list: if false;
+      allow create: if isValidId(configId)
+        && configId == 'workspace'
+        && isAdmin()
+        && isValidWorkspaceConfig(incoming());
+      allow update: if isValidId(configId)
+        && configId == 'workspace'
+        && isAdmin()
+        && isValidWorkspaceConfig(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'activeYear', 'spreadsheetId', 'spreadsheetName', 'spreadsheetUrl',
+          'driveFolderUrl', 'gasDeployUrl', 'academicYears', 'templates',
+          'updatedBy', 'updatedAt'
+        ]);
+      allow delete: if isValidId(configId)
+        && configId == 'workspace'
+        && isSuperAdmin();
+    }
+
+    // 6. Authorized School Admins (/admins/{uid})
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isSuperAdmin()
+        && isValidAdminUser(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(uid)
+        && isSuperAdmin()
+        && isValidAdminUser(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'role', 'updatedAt']);
+      allow delete: if isValidId(uid) && isSuperAdmin();
+    }
+  }
+}
