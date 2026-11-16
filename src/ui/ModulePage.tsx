@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { ModuleMetadata } from '../core/types/metadata';
 import { BaseRepository } from '../core/BaseRepository';
 import { useDataGrid } from '../hooks/useDataGrid';
@@ -64,6 +64,7 @@ export function ModulePage<T extends { id: string }>({
     data,
     total,
     loading,
+    revalidating,
     loadError,
     page,
     pageSize,
@@ -152,7 +153,6 @@ export function ModulePage<T extends { id: string }>({
   const [guruList, setGuruList] = useState<Guru[]>([]);
   const [syncingRelations, setSyncingRelations] = useState(false);
   const [allExistingRows, setAllExistingRows] = useState<T[]>([]);
-  const autoSyncedViewsRef = useRef<Set<string>>(new Set());
 
   // Kirim WA ke DUDI modal state
   const [waModal, setWaModal] = useState<{
@@ -174,31 +174,6 @@ export function ModulePage<T extends { id: string }>({
   const isRelationalModule = ['dudi', 'guru', 'siswa_pkl', 'jurusan', 'kelas', 'siswa'].includes(
     metadata.id
   );
-
-  // Auto-recalculate Jurusan/Guru/DUDI/Kelas live counts when opening their module tabs
-  useEffect(() => {
-    const autoViewModules = new Set(['jurusan', 'guru', 'dudi', 'kelas']);
-    if (!autoViewModules.has(metadata.id)) return;
-    if (loading || loadError || data.length === 0) return;
-
-    const sessionKey = `${metadata.id}:${data.length}`;
-    if (autoSyncedViewsRef.current.has(sessionKey)) return;
-    autoSyncedViewsRef.current.add(sessionKey);
-
-    let cancelled = false;
-    RelationSyncService.getInstance()
-      .syncForModuleView(metadata.id)
-      .then((updatedCount) => {
-        if (!cancelled && updatedCount > 0) {
-          refresh();
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [metadata.id, loading, loadError, data.length]);
 
   const handleOpenAddModal = async () => {
     try {
@@ -776,7 +751,7 @@ export function ModulePage<T extends { id: string }>({
       )}
 
       {/* 1. Top 4 Statistic Cards */}
-      <StatCards configs={metadata.statCards} data={data} />
+      <StatCards configs={metadata.statCards} data={data} loading={loading && data.length === 0} />
 
       {/* 2. Middle Toolbar */}
       <Toolbar
@@ -813,6 +788,7 @@ export function ModulePage<T extends { id: string }>({
         data={data}
         total={total}
         loading={loading}
+        revalidating={revalidating || syncing || syncingRelations}
         page={page}
         pageSize={pageSize}
         onPageChange={setPage}

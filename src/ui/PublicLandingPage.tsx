@@ -55,6 +55,16 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
     };
   }, []);
 
+  const handlePrefetchStudentPortal = () => {
+    PublicPortalClient.prefetchPublicPortal('student');
+    void import('./StudentApplicationWizard');
+  };
+
+  const handlePrefetchTeacherPortal = () => {
+    PublicPortalClient.prefetchPublicPortal('teacher');
+    void import('./TeacherMonitoringPortal');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 selection:bg-blue-600 selection:text-white overflow-x-hidden">
       {/* 1. Top Bar Contract: Brand — Nav Links — Primary Action */}
@@ -150,7 +160,10 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
         {/* 2 Dominant Action Portal Cards */}
         <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           {/* Portal Card 1: Pengajuan PKL Siswa */}
-          <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group">
+          <div
+            onMouseEnter={handlePrefetchStudentPortal}
+            className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
+          >
             <div className="space-y-4">
               <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
                 <FileText className="w-6 h-6" />
@@ -183,6 +196,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             <div className="pt-6">
               <button
                 onClick={onOpenPengajuan}
+                onFocus={handlePrefetchStudentPortal}
                 className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
               >
                 <span>Buka Formulir Pengajuan Siswa</span>
@@ -192,7 +206,10 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           </div>
 
           {/* Portal Card 2: Monitoring 1-5 Guru */}
-          <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group">
+          <div
+            onMouseEnter={handlePrefetchTeacherPortal}
+            className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
+          >
             <div className="space-y-4">
               <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
                 <UserCheck className="w-6 h-6" />
@@ -225,6 +242,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             <div className="pt-6">
               <button
                 onClick={onOpenMonitoring}
+                onFocus={handlePrefetchTeacherPortal}
                 className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
               >
                 <span>Buka Portal Monitoring Guru</span>

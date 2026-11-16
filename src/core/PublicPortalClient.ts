@@ -9,6 +9,7 @@ import {
   getStageValueByNumber,
   stripStructuredTagsFromNote,
 } from './utils/monitoringHelpers';
+import { IndexedDbSheetCache } from './cache/IndexedDbSheetCache';
 import {
   safeFetchJson,
   HtmlResponseError,
@@ -20,9 +21,12 @@ import {
   isBackendProxyUnavailableError,
 } from './utils/safeFetchJson';
 
-const DIRECT_SHEET_CACHE_TTL_MS = 20_000;
+const DIRECT_SHEET_CACHE_TTL_MS = 45_000;
+const PUBLIC_SWR_SOFT_TTL_MS = 45_000;
 const directSheetCache = new Map<string, { rows: any[]; fetchedAt: number }>();
 const inFlightDirectReads = new Map<string, Promise<any[]>>();
+const publicListMemCache = new Map<string, { data: any[]; etag?: string; updatedAt: number }>();
+const inFlightPublicRevalidations = new Map<string, Promise<{ success: boolean; total: number; data: any[] }>>();
 
 function pickField(row: Record<string, any>, ...keys: string[]): string {
   for (const k of keys) {
@@ -300,39 +304,124 @@ export const PublicPortalClient = {
     };
   },
 
-  async getDudiList(): Promise<{ success: boolean; total: number; data: any[] }> {
-    return callPublicEndpoint(
-      () => safeFetchJson('/api/public/dudi-list'),
-      async () => {
-        const rows = await readSheetDirect('Master_DUDI');
-        const mapped = rows
-          .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
-          .map((d: any, idx: number) => {
-            const namaPemimpin = pickField(d, 'Nama_Pemimpin', 'namaPemimpin', 'nama_pemimpin', 'pimpinan');
-            const namaPic = pickField(d, 'Nama_PIC', 'namaPic', 'nama_pic');
-            const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
-            const noTelpDudi =
-              pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
-            return {
-              id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
-              nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
-              bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
-              alamat: pickField(d, 'Alamat', 'alamat'),
-              kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
-              kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
-              terisi: Number(d.Terisi ?? d.terisi ?? 0),
-              status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
-              nama_pemimpin: namaPemimpin,
-              nama_pic: namaPic,
-              kontak_pic: kontakPic,
-              no_telp_dudi: noTelpDudi,
-              pimpinan: namaPemimpin || namaPic,
-              telepon: noTelpDudi,
-            };
-          });
-        return { success: true, total: mapped.length, data: mapped };
-      }
+  async getDudiList(options?: {
+    forceRefresh?: boolean;
+    onUpdate?: (res: { success: boolean; total: number; data: any[] }) => void;
+  }): Promise<{ success: boolean; total: number; data: any[] }> {
+    const cfg = await ensureHydratedConfig();
+    const idbKey = IndexedDbSheetCache.buildKey(
+      cfg.spreadsheetId || 'public',
+      cfg.activeYear || 'active',
+      'public::dudi-list'
     );
+
+    const readCached = async () => {
+      const mem = publicListMemCache.get(idbKey);
+      if (mem) return mem;
+      const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
+      if (fromIdb) {
+        const entry = { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
+        publicListMemCache.set(idbKey, entry);
+        return entry;
+      }
+      return null;
+    };
+
+    const fetchFresh = async (priorEtag?: string): Promise<{ success: boolean; total: number; data: any[] }> => {
+      const inflightKey = `dudi::${idbKey}`;
+      const existing = inFlightPublicRevalidations.get(inflightKey);
+      if (existing) return existing;
+
+      const task = (async () => {
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (priorEtag && !options?.forceRefresh) {
+          headers['If-None-Match'] = priorEtag;
+        }
+
+        const res = await callPublicEndpoint(
+          async () => {
+            const fetched = await safeFetchJson('/api/public/dudi-list', { headers });
+            if (fetched.notModified) {
+              const cachedNow = await readCached();
+              if (cachedNow) {
+                const refreshed = { ...cachedNow, updatedAt: Date.now(), etag: fetched.etag || cachedNow.etag };
+                publicListMemCache.set(idbKey, refreshed);
+                IndexedDbSheetCache.getInstance().set(idbKey, refreshed.data, refreshed.etag).catch(() => {});
+                return {
+                  ok: true,
+                  status: 200,
+                  data: { success: true, total: cachedNow.data.length, data: cachedNow.data, notModified: true },
+                };
+              }
+            }
+            if (fetched.ok && fetched.data?.success && Array.isArray(fetched.data.data)) {
+              const etagVal = fetched.etag || fetched.data.etag;
+              const entry = { data: fetched.data.data, etag: etagVal, updatedAt: Date.now() };
+              publicListMemCache.set(idbKey, entry);
+              IndexedDbSheetCache.getInstance().set(idbKey, entry.data, etagVal).catch(() => {});
+            }
+            return fetched;
+          },
+          async () => {
+            const rows = await readSheetDirect('Master_DUDI', false, Boolean(options?.forceRefresh));
+            const mapped = rows
+              .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
+              .map((d: any, idx: number) => {
+                const namaPemimpin = pickField(d, 'Nama_Pemimpin', 'namaPemimpin', 'nama_pemimpin', 'pimpinan');
+                const namaPic = pickField(d, 'Nama_PIC', 'namaPic', 'nama_pic');
+                const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
+                const noTelpDudi =
+                  pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
+                return {
+                  id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
+                  nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
+                  bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
+                  alamat: pickField(d, 'Alamat', 'alamat'),
+                  kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
+                  kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
+                  terisi: Number(d.Terisi ?? d.terisi ?? 0),
+                  status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
+                  nama_pemimpin: namaPemimpin,
+                  nama_pic: namaPic,
+                  kontak_pic: kontakPic,
+                  no_telp_dudi: noTelpDudi,
+                  pimpinan: namaPemimpin || namaPic,
+                  telepon: noTelpDudi,
+                };
+              });
+            const entry = { data: mapped, updatedAt: Date.now() };
+            publicListMemCache.set(idbKey, entry);
+            IndexedDbSheetCache.getInstance().set(idbKey, mapped).catch(() => {});
+            return { success: true, total: mapped.length, data: mapped };
+          }
+        );
+        return res;
+      })().finally(() => {
+        inFlightPublicRevalidations.delete(inflightKey);
+      });
+
+      inFlightPublicRevalidations.set(inflightKey, task);
+      return task;
+    };
+
+    if (!options?.forceRefresh) {
+      const cached = await readCached();
+      if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
+        if (Date.now() - cached.updatedAt > PUBLIC_SWR_SOFT_TTL_MS) {
+          void fetchFresh(cached.etag)
+            .then((freshRes: any) => {
+              if (!freshRes?.notModified && freshRes?.success) {
+                options?.onUpdate?.({ success: true, total: freshRes.data.length, data: freshRes.data });
+              }
+            })
+            .catch(() => {});
+        }
+        return { success: true, total: cached.data.length, data: cached.data };
+      }
+    }
+
+    const res = await fetchFresh();
+    return { success: Boolean(res?.success), total: res?.total ?? res?.data?.length ?? 0, data: res?.data || [] };
   },
 
   async lookupStudentByNis(nis: string): Promise<{
@@ -541,23 +630,116 @@ export const PublicPortalClient = {
     }
   },
 
-  async getPetugasList(): Promise<{ success: boolean; total: number; data: any[] }> {
-    return callPublicEndpoint(
-      () => safeFetchJson('/api/public/petugas-list'),
-      async () => {
-        const rows = await readSheetDirect('Master_Guru_Pendamping');
-        const mapped = rows
-          .filter((g: any) => pickField(g, 'Nama_Lengkap', 'nama', 'Nama') !== '')
-          .map((g: any, idx: number) => ({
-            id: pickField(g, 'ID', 'id') || `guru_${idx + 1}`,
-            nama: pickField(g, 'Nama_Lengkap', 'nama', 'Nama'),
-            nip: pickField(g, 'NIP', 'nip') || '-',
-            peran: pickField(g, 'Peran_Utama', 'peranUtama', 'peran') || 'Guru Pendamping',
-            email: pickField(g, 'Email_Google', 'email', 'emailGoogle'),
-          }));
-        return { success: true, total: mapped.length, data: mapped };
-      }
+  async getPetugasList(options?: {
+    forceRefresh?: boolean;
+    onUpdate?: (res: { success: boolean; total: number; data: any[] }) => void;
+  }): Promise<{ success: boolean; total: number; data: any[] }> {
+    const cfg = await ensureHydratedConfig();
+    const idbKey = IndexedDbSheetCache.buildKey(
+      cfg.spreadsheetId || 'public',
+      cfg.activeYear || 'active',
+      'public::petugas-list'
     );
+
+    const readCached = async () => {
+      const mem = publicListMemCache.get(idbKey);
+      if (mem) return mem;
+      const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
+      if (fromIdb) {
+        const entry = { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
+        publicListMemCache.set(idbKey, entry);
+        return entry;
+      }
+      return null;
+    };
+
+    const fetchFresh = async (priorEtag?: string): Promise<{ success: boolean; total: number; data: any[] }> => {
+      const inflightKey = `petugas::${idbKey}`;
+      const existing = inFlightPublicRevalidations.get(inflightKey);
+      if (existing) return existing;
+
+      const task = (async () => {
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (priorEtag && !options?.forceRefresh) {
+          headers['If-None-Match'] = priorEtag;
+        }
+
+        const res = await callPublicEndpoint(
+          async () => {
+            const fetched = await safeFetchJson('/api/public/petugas-list', { headers });
+            if (fetched.notModified) {
+              const cachedNow = await readCached();
+              if (cachedNow) {
+                const refreshed = { ...cachedNow, updatedAt: Date.now(), etag: fetched.etag || cachedNow.etag };
+                publicListMemCache.set(idbKey, refreshed);
+                IndexedDbSheetCache.getInstance().set(idbKey, refreshed.data, refreshed.etag).catch(() => {});
+                return {
+                  ok: true,
+                  status: 200,
+                  data: { success: true, total: cachedNow.data.length, data: cachedNow.data, notModified: true },
+                };
+              }
+            }
+            if (fetched.ok && fetched.data?.success && Array.isArray(fetched.data.data)) {
+              const etagVal = fetched.etag || fetched.data.etag;
+              const entry = { data: fetched.data.data, etag: etagVal, updatedAt: Date.now() };
+              publicListMemCache.set(idbKey, entry);
+              IndexedDbSheetCache.getInstance().set(idbKey, entry.data, etagVal).catch(() => {});
+            }
+            return fetched;
+          },
+          async () => {
+            const rows = await readSheetDirect('Master_Guru_Pendamping', false, Boolean(options?.forceRefresh));
+            const mapped = rows
+              .filter((g: any) => pickField(g, 'Nama_Lengkap', 'nama', 'Nama') !== '')
+              .map((g: any, idx: number) => ({
+                id: pickField(g, 'ID', 'id') || `guru_${idx + 1}`,
+                nama: pickField(g, 'Nama_Lengkap', 'nama', 'Nama'),
+                nip: pickField(g, 'NIP', 'nip') || '-',
+                peran: pickField(g, 'Peran_Utama', 'peranUtama', 'peran') || 'Guru Pendamping',
+                email: pickField(g, 'Email_Google', 'email', 'emailGoogle'),
+              }));
+            const entry = { data: mapped, updatedAt: Date.now() };
+            publicListMemCache.set(idbKey, entry);
+            IndexedDbSheetCache.getInstance().set(idbKey, mapped).catch(() => {});
+            return { success: true, total: mapped.length, data: mapped };
+          }
+        );
+        return res;
+      })().finally(() => {
+        inFlightPublicRevalidations.delete(inflightKey);
+      });
+
+      inFlightPublicRevalidations.set(inflightKey, task);
+      return task;
+    };
+
+    if (!options?.forceRefresh) {
+      const cached = await readCached();
+      if (cached && Array.isArray(cached.data) && cached.data.length > 0) {
+        if (Date.now() - cached.updatedAt > PUBLIC_SWR_SOFT_TTL_MS) {
+          void fetchFresh(cached.etag)
+            .then((freshRes: any) => {
+              if (!freshRes?.notModified && freshRes?.success) {
+                options?.onUpdate?.({ success: true, total: freshRes.data.length, data: freshRes.data });
+              }
+            })
+            .catch(() => {});
+        }
+        return { success: true, total: cached.data.length, data: cached.data };
+      }
+    }
+
+    const res = await fetchFresh();
+    return { success: Boolean(res?.success), total: res?.total ?? res?.data?.length ?? 0, data: res?.data || [] };
+  },
+
+  prefetchPublicPortal(target: 'student' | 'teacher'): void {
+    if (target === 'student') {
+      void this.getDudiList().catch(() => {});
+    } else {
+      void this.getPetugasList().catch(() => {});
+    }
   },
 
   async verifyPetugasPin(params: {

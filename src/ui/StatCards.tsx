@@ -5,9 +5,10 @@ import * as Icons from 'lucide-react';
 interface StatCardsProps {
   configs: StatCardConfig[];
   data: any[];
+  loading?: boolean;
 }
 
-export const StatCards: React.FC<StatCardsProps> = ({ configs, data }) => {
+export const StatCards: React.FC<StatCardsProps> = ({ configs, data, loading = false }) => {
   const getIcon = (iconName: string) => {
     const IconComponent = (Icons as any)[iconName] || Icons.Activity;
     return <IconComponent className="w-4 h-4" />;
@@ -48,11 +49,13 @@ export const StatCards: React.FC<StatCardsProps> = ({ configs, data }) => {
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
       {configs.map((card, idx) => {
         let val: any = 0;
-        try {
-          val = card.computedValue ? card.computedValue(data) : 0;
-        } catch (e) {
-          console.warn(`[StatCards] Error calculating ${card.title}:`, e);
-          val = 0;
+        if (!loading) {
+          try {
+            val = card.computedValue ? card.computedValue(data) : 0;
+          } catch (e) {
+            console.warn(`[StatCards] Error calculating ${card.title}:`, e);
+            val = 0;
+          }
         }
         const styles = getVariantStyles(card.variant);
 
@@ -70,9 +73,13 @@ export const StatCards: React.FC<StatCardsProps> = ({ configs, data }) => {
               </div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-slate-900 tracking-tight tabular-nums leading-none">
-                {typeof val === 'number' ? val.toLocaleString('id-ID') : val}
-              </div>
+              {loading ? (
+                <div className="h-7 w-16 rounded-md skeleton-shimmer" aria-label={`Memuat ${card.title}`} />
+              ) : (
+                <div className="text-2xl font-bold text-slate-900 tracking-tight tabular-nums leading-none">
+                  {typeof val === 'number' ? val.toLocaleString('id-ID') : val}
+                </div>
+              )}
               {card.change && (
                 <p className={`mt-1.5 text-xs font-medium truncate ${styles.change}`}>
                   {card.change}

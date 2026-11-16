@@ -13,6 +13,7 @@ import {
   UserCheck,
   Phone,
   MapPin,
+  Loader2,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -76,7 +77,13 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
     setLoadingDudi(true);
     setDudiLoadError('');
     try {
-      const json = await PublicPortalClient.getDudiList();
+      const json = await PublicPortalClient.getDudiList({
+        onUpdate: (freshJson) => {
+          if (freshJson?.success && Array.isArray(freshJson.data)) {
+            setDudiList(freshJson.data);
+          }
+        },
+      });
       if (!json.success) {
         const msg = 'Gagal membaca daftar DUDI dari Cloud Server.';
         setDudiList([]);
@@ -349,6 +356,12 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
           </button>
         </div>
 
+        {(searching || loadingDudi || submitting) && (
+          <div className="progress-sweep-track shrink-0" role="progressbar" aria-label="Memproses data Cloud Server">
+            <div className="progress-sweep-bar" />
+          </div>
+        )}
+
         {/* Step Indicator */}
         {!submissionResult && (
           <div className="px-5 sm:px-6 py-3 bg-slate-50 border-b border-slate-200/70 flex items-center justify-between gap-2 text-xs font-semibold shrink-0 overflow-x-auto">
@@ -555,7 +568,10 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                         className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors shrink-0 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                       >
                         {searching ? (
-                          <span>Mencari...</span>
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Mencari di Server...</span>
+                          </>
                         ) : (
                           <>
                             <Search className="w-3.5 h-3.5" />
@@ -572,6 +588,37 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                       </div>
                     )}
                   </div>
+
+                  {searching && (
+                    <div
+                      className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl space-y-4"
+                      aria-busy="true"
+                      aria-live="polite"
+                    >
+                      <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 pb-2.5 border-b border-slate-100">
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span>Mencocokkan NIS dengan Database Siswa di Cloud Server...</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
+                          <div className="h-3 skeleton-shimmer rounded w-20" />
+                          <div className="h-4 skeleton-shimmer rounded w-40" />
+                        </div>
+                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
+                          <div className="h-3 skeleton-shimmer rounded w-14" />
+                          <div className="h-4 skeleton-shimmer rounded w-32" />
+                        </div>
+                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
+                          <div className="h-3 skeleton-shimmer rounded w-16" />
+                          <div className="h-4 skeleton-shimmer rounded w-24" />
+                        </div>
+                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
+                          <div className="h-3 skeleton-shimmer rounded w-28" />
+                          <div className="h-4 skeleton-shimmer rounded w-36" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {studentData && (
                     <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl space-y-4 shadow-2xs animate-in fade-in duration-150">
@@ -801,25 +848,32 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                       Pilih Mitra DUDI Tujuan *
                     </label>
-                    <select
-                      value={selectedDudiId}
-                      onChange={(e) => handleDudiChange(e.target.value)}
-                      disabled={loadingDudi}
-                      required
-                      className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white"
-                    >
-                      <option value="">
-                        {loadingDudi ? 'Memuat daftar DUDI...' : '-- Pilih DUDI Mitra --'}
-                      </option>
-                      {dudiList.map((d, idx) => (
-                        <option key={`${d.id || 'dudi'}_${idx}`} value={d.id}>
-                          {d.nama_dudi} ({d.bidang_usaha} - {d.kota})
+                    {loadingDudi ? (
+                      <div className="space-y-2" aria-busy="true" aria-live="polite">
+                        <div className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center gap-2.5 text-xs text-slate-600">
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                          <span>Memuat daftar mitra DUDI dari Cloud Server...</span>
+                        </div>
+                        <div className="h-3 skeleton-shimmer rounded w-2/3" />
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedDudiId}
+                        onChange={(e) => handleDudiChange(e.target.value)}
+                        required
+                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white"
+                      >
+                        <option value="">-- Pilih DUDI Mitra --</option>
+                        {dudiList.map((d, idx) => (
+                          <option key={`${d.id || 'dudi'}_${idx}`} value={d.id}>
+                            {d.nama_dudi} ({d.bidang_usaha} - {d.kota})
+                          </option>
+                        ))}
+                        <option value="unregistered" className="font-bold text-amber-700 bg-amber-50">
+                          DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)
                         </option>
-                      ))}
-                      <option value="unregistered" className="font-bold text-amber-700 bg-amber-50">
-                        DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)
-                      </option>
-                    </select>
+                      </select>
+                    )}
                   </div>
 
                   {/* Muncul Bio DUDI + Input Pemimpin, PIC, & No. Telp setelah memilih DUDI */}
@@ -978,7 +1032,10 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                       className="min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {submitting ? (
-                        <span>Mengirim ke Cloud Server...</span>
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Mengirim ke Cloud Server...</span>
+                        </>
                       ) : (
                         <>
                           <span>Kirim Formulir Pengajuan PKL</span>

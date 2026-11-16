@@ -18,6 +18,7 @@ import {
   ClipboardCheck,
   Award,
   Pencil,
+  Loader2,
 } from 'lucide-react';
 import { ToastManager } from '../core/ToastManager';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -169,7 +170,13 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     setLoadingPetugas(true);
     setPetugasLoadError('');
     try {
-      const json = await PublicPortalClient.getPetugasList();
+      const json = await PublicPortalClient.getPetugasList({
+        onUpdate: (freshJson) => {
+          if (freshJson?.success && Array.isArray(freshJson.data)) {
+            setPetugasList(freshJson.data);
+          }
+        },
+      });
       if (!json.success) {
         const errMsg = 'Gagal membaca daftar petugas dari Cloud Server.';
         setPetugasList([]);
@@ -692,6 +699,12 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           </div>
         </div>
 
+        {(loadingPetugas || verifyingPin || loadingDudi || loadingStudents || submitting || savingGradeEdit) && (
+          <div className="progress-sweep-track shrink-0" role="progressbar" aria-label="Menyinkronkan data supervisi">
+            <div className="progress-sweep-bar" />
+          </div>
+        )}
+
         {/* Step Progress Bar */}
         <div className="px-4 sm:px-6 py-2.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center justify-between text-xs font-semibold shrink-0 overflow-x-auto gap-2">
           <div
@@ -807,33 +820,41 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     Nama Petugas / Guru Pendamping:
                   </label>
-                  <select
-                    value={selectedPetugasId}
-                    disabled={loadingPetugas || petugasList.length === 0}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setSelectedPetugasId(id);
-                      const chosen = petugasList.find((p) => p.id === id);
-                      if (chosen) {
-                        setSelectedPetugasNama(chosen.nama);
-                        setSelectedPetugasNip(chosen.nip);
-                      }
-                      setPinError('');
-                    }}
-                    className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {loadingPetugas ? (
-                      <option value="">Memuat daftar guru dari Cloud Server...</option>
-                    ) : petugasList.length === 0 ? (
-                      <option value="">-- Belum ada data Guru Pendamping terdaftar --</option>
-                    ) : (
-                      petugasList.map((p, idx) => (
-                        <option key={`${p.id || 'petugas'}_${idx}`} value={p.id}>
-                          {p.nama} — {p.peran || 'Guru Pendamping'}
-                        </option>
-                      ))
-                    )}
-                  </select>
+                  {loadingPetugas ? (
+                    <div className="space-y-2" aria-busy="true" aria-live="polite">
+                      <div className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2.5 text-xs text-slate-600">
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                        <span>Memuat daftar guru dari Cloud Server...</span>
+                      </div>
+                      <div className="h-3 skeleton-shimmer rounded w-3/5" />
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedPetugasId}
+                      disabled={petugasList.length === 0}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedPetugasId(id);
+                        const chosen = petugasList.find((p) => p.id === id);
+                        if (chosen) {
+                          setSelectedPetugasNama(chosen.nama);
+                          setSelectedPetugasNip(chosen.nip);
+                        }
+                        setPinError('');
+                      }}
+                      className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {petugasList.length === 0 ? (
+                        <option value="">-- Belum ada data Guru Pendamping terdaftar --</option>
+                      ) : (
+                        petugasList.map((p, idx) => (
+                          <option key={`${p.id || 'petugas'}_${idx}`} value={p.id}>
+                            {p.nama} — {p.peran || 'Guru Pendamping'}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -857,11 +878,14 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
                 <button
                   type="submit"
-                  disabled={verifyingPin || petugasList.length === 0}
+                  disabled={verifyingPin || loadingPetugas || petugasList.length === 0}
                   className="w-full min-h-[44px] py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
                 >
                   {verifyingPin ? (
-                    <span>Memverifikasi PIN...</span>
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Memverifikasi PIN...</span>
+                    </>
                   ) : (
                     <>
                       <span>Lanjut ke DUDI Bimbingan</span>
@@ -888,8 +912,27 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               </div>
 
               {loadingDudi ? (
-                <div className="p-8 text-center text-xs text-slate-500">
-                  Memuat daftar DUDI bimbingan dari Cloud Server...
+                <div className="space-y-3.5" aria-busy="true" aria-live="polite">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2.5 text-xs font-medium text-slate-600">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                    <span>Memuat daftar DUDI bimbingan dari Cloud Server...</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {Array.from({ length: 4 }).map((_, idx) => (
+                      <div key={idx} className="p-4 rounded-2xl border border-slate-200 bg-white space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="h-3 skeleton-shimmer rounded w-24" />
+                          <div className="h-3 skeleton-shimmer rounded w-16" />
+                        </div>
+                        <div className="h-4 skeleton-shimmer rounded w-3/4" />
+                        <div className="h-3 skeleton-shimmer rounded w-full" />
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                          <div className="h-3 skeleton-shimmer rounded w-20" />
+                          <div className="h-8 skeleton-shimmer rounded-lg w-24" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : dudiError ? (
                 <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800">
@@ -979,8 +1022,32 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               </div>
 
               {loadingStudents ? (
-                <div className="p-8 text-center text-xs text-slate-500">
-                  Memuat daftar siswa &amp; riwayat tahap monitoring dari Cloud Server...
+                <div className="space-y-4" aria-busy="true" aria-live="polite">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2.5 text-xs font-medium text-slate-600">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                    <span>Memuat daftar siswa &amp; riwayat tahap monitoring dari Cloud Server...</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {Array.from({ length: 3 }).map((_, idx) => (
+                      <div key={idx} className="min-h-[64px] p-3 rounded-xl border border-slate-200 bg-white space-y-2">
+                        <div className="flex justify-between gap-2">
+                          <div className="h-3 skeleton-shimmer rounded w-16" />
+                          <div className="h-3 skeleton-shimmer rounded w-14" />
+                        </div>
+                        <div className="h-4 skeleton-shimmer rounded w-4/5" />
+                        <div className="h-3 skeleton-shimmer rounded w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-4">
+                    <div className="h-5 skeleton-shimmer rounded w-1/2" />
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {Array.from({ length: 4 }).map((_, idx) => (
+                        <div key={idx} className="h-11 skeleton-shimmer rounded-xl" />
+                      ))}
+                    </div>
+                    <div className="h-24 skeleton-shimmer rounded-xl" />
+                  </div>
                 </div>
               ) : studentsError ? (
                 <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800">
@@ -1342,7 +1409,11 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                                   onClick={handleSaveEditedGrades}
                                   className="min-h-[44px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
                                 >
-                                  <Save className="w-4 h-4" />
+                                  {savingGradeEdit ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
                                   <span>
                                     {savingGradeEdit
                                       ? 'Menyimpan Perubahan...'
@@ -1536,7 +1607,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                           className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
                         >
                           {submitting ? (
-                            <span>Menyimpan ke Cloud Server...</span>
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>Menyimpan ke Cloud Server...</span>
+                            </>
                           ) : (
                             <>
                               <Save className="w-4 h-4" />

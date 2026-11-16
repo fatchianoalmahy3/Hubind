@@ -97,7 +97,7 @@ export class GoogleSheetClient {
   private bootstrapEtag: string | null = null;
   private cacheInvalidationListeners = new Set<(sheetName?: string) => void>();
   private broadcastChannel: BroadcastChannel | null = null;
-  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 15_000;
+  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 45_000;
 
   private constructor() {
     this.initFromFirestore();

@@ -9,6 +9,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   const [data, setData] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [revalidating, setRevalidating] = useState(() => repository.getIsRevalidating());
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Pagination
@@ -61,6 +62,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       fetchData(true);
     });
     const unsubRepo = repository.onDataUpdated(() => {
+      setRevalidating(repository.getIsRevalidating());
       fetchData(true);
     });
 
@@ -198,6 +200,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     data,
     total,
     loading,
+    revalidating,
     loadError,
     page,
     pageSize,

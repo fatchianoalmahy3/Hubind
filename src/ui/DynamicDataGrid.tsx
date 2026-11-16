@@ -15,6 +15,7 @@ import {
   ChevronsRight,
   Image as ImageIcon,
   MoreVertical,
+  Loader2,
 } from 'lucide-react';
 
 export interface CustomRowAction {
@@ -29,6 +30,7 @@ interface DynamicDataGridProps<T = any> {
   data: T[];
   total: number;
   loading: boolean;
+  revalidating?: boolean;
   page: number;
   pageSize: number;
   onPageChange: (p: number) => void;
@@ -212,6 +214,7 @@ export function DynamicDataGrid<T extends { id: string }>({
   data,
   total,
   loading,
+  revalidating = false,
   page,
   pageSize,
   onPageChange,
@@ -230,6 +233,18 @@ export function DynamicDataGrid<T extends { id: string }>({
   const tableColumns = fields.filter((f) => f.isTableColumn);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const isAllSelected = data.length > 0 && selectedIds.length === data.length;
+  const [slowLoad, setSlowLoad] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setSlowLoad(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowLoad(true), 2500);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
+
+  const skeletonWidths = ['w-20', 'w-40', 'w-28', 'w-32', 'w-24'];
 
   const renderCellContent = (field: FieldConfig<T>, row: T) => {
     const val = (row as any)[field.key];
@@ -302,23 +317,59 @@ export function DynamicDataGrid<T extends { id: string }>({
     return candidate ? String(candidate) : null;
   };
 
+  const showProgressSweep = loading || revalidating;
+  const loadingMessage = slowLoad
+    ? 'Sedang mengambil data terbaru dari Cloud Server, mohon tunggu...'
+    : 'Memuat data dari Cloud Server...';
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
+      {showProgressSweep && (
+        <div
+          className="progress-sweep-track"
+          role="progressbar"
+          aria-label="Memuat atau menyinkronkan data dari Cloud Server"
+        >
+          <div className="progress-sweep-bar" />
+        </div>
+      )}
+
+      {revalidating && !loading && data.length > 0 && (
+        <div
+          className="px-4 py-1.5 bg-blue-50/70 border-b border-blue-100 flex items-center gap-2 text-[11px] font-medium text-blue-700"
+          aria-live="polite"
+        >
+          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+          <span>Menyinkronkan pembaruan dari Cloud Server...</span>
+        </div>
+      )}
+
       {/* Main Grid View: Table or Card Mode */}
       {viewMode === 'card' ? (
         <div className="p-4 min-h-[340px] bg-slate-50/60">
           {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {Array.from({ length: 6 }).map((_, idx) => (
-                <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 animate-pulse">
-                  <div className="h-4 bg-slate-200 rounded w-1/2" />
-                  <div className="h-5 bg-slate-200 rounded w-3/4" />
-                  <div className="grid grid-cols-2 gap-2 pt-2">
-                    <div className="h-3 bg-slate-100 rounded" />
-                    <div className="h-3 bg-slate-100 rounded" />
+            <div className="space-y-3.5" aria-busy="true" aria-live="polite">
+              <div className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl flex items-center gap-2.5 text-xs font-medium text-slate-600">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                <span>{loadingMessage}</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <div key={idx} className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                      <div className="h-4 skeleton-shimmer rounded w-2/5" />
+                      <div className="h-6 skeleton-shimmer rounded w-14" />
+                    </div>
+                    <div className="h-5 skeleton-shimmer rounded w-4/5" />
+                    <div className="grid grid-cols-2 gap-2.5 pt-2">
+                      <div className="h-3.5 skeleton-shimmer rounded w-full" />
+                      <div className="h-3.5 skeleton-shimmer rounded w-5/6" />
+                      <div className="h-3.5 skeleton-shimmer rounded w-4/5" />
+                      <div className="h-3.5 skeleton-shimmer rounded w-full" />
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : data.length === 0 ? (
             <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200">
@@ -469,21 +520,35 @@ export function DynamicDataGrid<T extends { id: string }>({
 
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                Array.from({ length: 5 }).map((_, rIdx) => (
-                  <tr key={rIdx} className="bg-white animate-pulse">
-                    <td className="py-3.5 px-3.5 text-center">
-                      <div className="w-4 h-4 bg-slate-200 rounded mx-auto" />
-                    </td>
-                    {tableColumns.map((col) => (
-                      <td key={String(col.key)} className="py-3.5 px-3.5">
-                        <div className="h-4 bg-slate-100 rounded w-3/4" />
-                      </td>
-                    ))}
-                    <td className="py-3.5 px-3.5 text-right">
-                      <div className="h-8 bg-slate-100 rounded w-20 ml-auto" />
+                <>
+                  <tr className="bg-blue-50/40">
+                    <td colSpan={tableColumns.length + 2} className="py-2.5 px-4">
+                      <div className="flex items-center gap-2.5 text-xs font-medium text-slate-600" aria-live="polite">
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                        <span>{loadingMessage}</span>
+                      </div>
                     </td>
                   </tr>
-                ))
+                  {Array.from({ length: 5 }).map((_, rIdx) => (
+                    <tr key={rIdx} className="bg-white">
+                      <td className="py-3.5 px-3.5 text-center">
+                        <div className="w-4 h-4 skeleton-shimmer rounded mx-auto" />
+                      </td>
+                      {tableColumns.map((col, cIdx) => (
+                        <td key={String(col.key)} className="py-3.5 px-3.5">
+                          <div
+                            className={`h-4 skeleton-shimmer rounded ${
+                              skeletonWidths[(rIdx + cIdx) % skeletonWidths.length]
+                            }`}
+                          />
+                        </td>
+                      ))}
+                      <td className="py-3.5 px-3.5 text-right">
+                        <div className="h-8 skeleton-shimmer rounded-lg w-20 ml-auto" />
+                      </td>
+                    </tr>
+                  ))}
+                </>
               ) : data.length === 0 ? (
                 <tr>
                   <td colSpan={tableColumns.length + 2} className="p-12 text-center text-slate-500">

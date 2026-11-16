@@ -41,7 +41,7 @@ app.use((req, res, next) => {
 });
 
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/v1') && req.method === 'GET') {
+  if ((req.path.startsWith('/v1') || req.path.startsWith('/public')) && req.method === 'GET') {
     res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
     res.setHeader('Vary', 'Authorization, Accept-Encoding');
   } else {
@@ -104,15 +104,18 @@ export interface WorkspaceConfig {
   templates: any[];
 }
 
-// Short in-memory caches with strict per-sheet write invalidation (SSOT stays Firestore + Google Spreadsheet)
-const CONFIG_CACHE_TTL_MS = 15_000;
-const SHEET_CACHE_TTL_MS = 20_000;
+// Short in-memory Soft-TTL + Stale-While-Revalidate caches with strict write invalidation (SSOT stays Firestore + Cloud GAS)
+const CONFIG_CACHE_TTL_MS = 30_000;
+const SHEET_CACHE_SOFT_TTL_MS = 30_000;
+const SHEET_CACHE_STALE_MAX_MS = 300_000;
+const SHEET_CACHE_TTL_MS = SHEET_CACHE_SOFT_TTL_MS;
 const GAS_FETCH_TIMEOUT_MS = 15_000;
 
 let cachedWorkspaceConfig: { config: WorkspaceConfig; fetchedAt: number } | null = null;
 let inFlightConfigFetch: Promise<WorkspaceConfig> | null = null;
 const sheetCache = new Map<string, { data: any[]; fetchedAt: number }>();
 const inFlightSheetFetches = new Map<string, Promise<{ rows: any[]; config: WorkspaceConfig }>>();
+const inFlightBackgroundRevalidations = new Set<string>();
 const siswaIndexCache = new Map<string, { byKey: Map<string, any>; fetchedAt: number }>();
 
 async function fetchWithTimeout(
@@ -341,6 +344,18 @@ function parseGasJsonSafely(rawText: string, sheetName: string, status: number):
   }
 }
 
+function triggerBackgroundSheetRefresh(sheetName: string, cacheKey: string): void {
+  if (inFlightBackgroundRevalidations.has(cacheKey) || inFlightSheetFetches.has(cacheKey)) {
+    return;
+  }
+  inFlightBackgroundRevalidations.add(cacheKey);
+  void fetchLiveSheetViaGas(sheetName, true)
+    .catch(() => {})
+    .finally(() => {
+      inFlightBackgroundRevalidations.delete(cacheKey);
+    });
+}
+
 async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Promise<{
   rows: any[];
   config: WorkspaceConfig;
@@ -358,8 +373,15 @@ async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Pr
 
   const cacheKey = `${config.spreadsheetId}::${sheetName}`;
   const cached = sheetCache.get(cacheKey);
-  if (!forceRefresh && cached && Date.now() - cached.fetchedAt < SHEET_CACHE_TTL_MS) {
-    return { rows: cached.data, config };
+  if (!forceRefresh && cached) {
+    const age = Date.now() - cached.fetchedAt;
+    if (age < SHEET_CACHE_SOFT_TTL_MS) {
+      return { rows: cached.data, config };
+    }
+    if (age < SHEET_CACHE_STALE_MAX_MS) {
+      triggerBackgroundSheetRefresh(sheetName, cacheKey);
+      return { rows: cached.data, config };
+    }
   }
 
   if (!forceRefresh) {
@@ -448,16 +470,37 @@ async function fetchBatchSheetsViaGas(
 
   const sheetsResult: Record<string, any[]> = {};
   const missingSheets: string[] = [];
+  const staleSheets: string[] = [];
   const now = Date.now();
 
   for (const name of sheetNames) {
     const cacheKey = `${config.spreadsheetId}::${name}`;
     const cached = sheetCache.get(cacheKey);
-    if (!forceRefresh && cached && now - cached.fetchedAt < SHEET_CACHE_TTL_MS) {
-      sheetsResult[name] = cached.data;
-    } else {
-      missingSheets.push(name);
+    if (!forceRefresh && cached) {
+      const age = now - cached.fetchedAt;
+      if (age < SHEET_CACHE_SOFT_TTL_MS) {
+        sheetsResult[name] = cached.data;
+        continue;
+      }
+      if (age < SHEET_CACHE_STALE_MAX_MS) {
+        sheetsResult[name] = cached.data;
+        if (!inFlightBackgroundRevalidations.has(cacheKey)) {
+          staleSheets.push(name);
+        }
+        continue;
+      }
     }
+    missingSheets.push(name);
+  }
+
+  if (staleSheets.length > 0 && !forceRefresh) {
+    const staleKeys = staleSheets.map((n) => `${config.spreadsheetId}::${n}`);
+    staleKeys.forEach((k) => inFlightBackgroundRevalidations.add(k));
+    void fetchBatchSheetsViaGas(staleSheets, optionalSheets, true)
+      .catch(() => {})
+      .finally(() => {
+        staleKeys.forEach((k) => inFlightBackgroundRevalidations.delete(k));
+      });
   }
 
   if (missingSheets.length === 0) {
@@ -1519,6 +1562,7 @@ app.post('/api/v1/relations/recalculate', async (req: Request, res: Response) =>
   try {
     await requireAdminAuth(req);
     const scope = String(req.body?.scope || 'all').toLowerCase();
+    const forceRefresh = Boolean(req.body?.forceRefresh);
 
     const neededTables = new Set<string>([
       'Master_Siswa_XI',
@@ -1534,7 +1578,7 @@ app.post('/api/v1/relations/recalculate', async (req: Request, res: Response) =>
     const { sheets } = await fetchBatchSheetsViaGas(
       Array.from(neededTables),
       new Set(['Data_Pengajuan_PKL', 'Data_Perizinan_PKL', 'Plotting_Pemberangkatan']),
-      true
+      forceRefresh
     );
 
     const siswaList = sheets['Master_Siswa_XI'] || [];
@@ -2161,10 +2205,10 @@ app.get('/api/public/student-lookup/:nis', async (req: Request, res: Response) =
   }
 });
 
-// Public DUDI List directly from Master_DUDI
-app.get('/api/public/dudi-list', async (_req: Request, res: Response) => {
+// Public DUDI List directly from Master_DUDI (with ETag 304 support)
+app.get('/api/public/dudi-list', async (req: Request, res: Response) => {
   try {
-    const { rows } = await fetchLiveSheetViaGas('Master_DUDI');
+    const { rows, config } = await fetchLiveSheetViaGas('Master_DUDI');
     const mapped = rows
       .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
       .map((d: any, idx: number) => {
@@ -2190,7 +2234,13 @@ app.get('/api/public/dudi-list', async (_req: Request, res: Response) => {
         };
       });
 
-    res.json({ success: true, total: mapped.length, data: mapped });
+    const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: 'public_dudi', mapped });
+    res.setHeader('ETag', etag);
+    if (isEtagMatched(req, etag)) {
+      return res.status(304).end();
+    }
+
+    res.json({ success: true, total: mapped.length, etag, data: mapped });
   } catch (err: any) {
     handlePortalError(res, err);
   }
@@ -2295,10 +2345,10 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
   }
 });
 
-// Public Petugas List directly from Master_Guru_Pendamping (ZERO fallback mock array)
-app.get('/api/public/petugas-list', async (_req: Request, res: Response) => {
+// Public Petugas List directly from Master_Guru_Pendamping (ZERO fallback mock array + ETag 304)
+app.get('/api/public/petugas-list', async (req: Request, res: Response) => {
   try {
-    const { rows } = await fetchLiveSheetViaGas('Master_Guru_Pendamping');
+    const { rows, config } = await fetchLiveSheetViaGas('Master_Guru_Pendamping');
     const mapped = rows
       .filter((g: any) => pickField(g, 'Nama_Lengkap', 'nama', 'Nama') !== '')
       .map((g: any, idx: number) => ({
@@ -2315,7 +2365,13 @@ app.get('/api/public/petugas-list', async (_req: Request, res: Response) => {
       new Set(['Plotting_Pemberangkatan', 'Master_DUDI'])
     ).catch(() => {});
 
-    res.json({ success: true, total: mapped.length, data: mapped });
+    const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: 'public_petugas', mapped });
+    res.setHeader('ETag', etag);
+    if (isEtagMatched(req, etag)) {
+      return res.status(304).end();
+    }
+
+    res.json({ success: true, total: mapped.length, etag, data: mapped });
   } catch (err: any) {
     handlePortalError(res, err);
   }
@@ -2500,7 +2556,13 @@ app.get('/api/public/petugas-dudi', async (req: Request, res: Response) => {
       jumlahSiswa: entry.studentNisSet.size,
     }));
 
-    res.json({ success: true, total: result.length, data: result });
+    const etag = computeWeakEtag({ k: 'petugas_dudi', petugasNama, petugasId, result });
+    res.setHeader('ETag', etag);
+    if (isEtagMatched(req, etag)) {
+      return res.status(304).end();
+    }
+
+    res.json({ success: true, total: result.length, etag, data: result });
   } catch (err: any) {
     handlePortalError(res, err);
   }

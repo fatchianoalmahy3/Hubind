@@ -22,9 +22,10 @@ export abstract class BaseRepository<T extends { id: string }> {
   protected lastError: string | null = null;
   protected lastFetchedAt: number = 0;
   private isCommittingSelf: boolean = false;
+  private isRevalidating: boolean = false;
   private revalidatingPromise: Promise<void> | null = null;
   private dataUpdateListeners = new Set<() => void>();
-  private static readonly REVALIDATE_TTL_MS = 20_000;
+  private static readonly REVALIDATE_TTL_MS = 45_000;
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
     this.tableName = tableName;
@@ -78,6 +79,10 @@ export abstract class BaseRepository<T extends { id: string }> {
 
   public hasHydratedData(): boolean {
     return this.isInitialized && this.memoryData.length > 0;
+  }
+
+  public getIsRevalidating(): boolean {
+    return this.isRevalidating;
   }
 
   public getLastError(): string | null {
@@ -135,6 +140,9 @@ export abstract class BaseRepository<T extends { id: string }> {
     const activeId = client.getSpreadsheetId();
     if (!activeId) return;
 
+    this.isRevalidating = true;
+    this.notifyDataUpdated();
+
     this.revalidatingPromise = (async () => {
       try {
         const res = await client.fetchSheetData(this.tableName, false);
@@ -145,13 +153,14 @@ export abstract class BaseRepository<T extends { id: string }> {
           this.lastError = null;
           if (!res.notModified) {
             this.memoryData = res.data as T[];
-            this.notifyDataUpdated();
           }
         }
       } catch {
         // Silent background revalidation error — keep showing cached SWR data
       } finally {
+        this.isRevalidating = false;
         this.revalidatingPromise = null;
+        this.notifyDataUpdated();
       }
     })();
   }

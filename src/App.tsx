@@ -241,12 +241,20 @@ export default function App() {
       error: undefined,
     }));
 
-    // Run single-request bootstrap & health ping in parallel without blocking initial module render
-    const [, gasRes] = await Promise.all([
-      googleClient.bootstrapAdminTables(false).catch(() => false),
-      googleClient.pingGasConnection(),
-    ]);
+    // Single-request bootstrap validates GAS connectivity & hydrates all admin tables at once.
+    // Only fall back to pingGasConnection() when bootstrap fails (e.g. static SPA hosting or diagnostics).
+    const bootstrapped = await googleClient.bootstrapAdminTables(false).catch(() => false);
+    if (bootstrapped) {
+      setVerification({
+        checking: false,
+        connected: true,
+        spreadsheetId: activeId,
+        spreadsheetTitle: configSnapshot.spreadsheetName || activeId,
+      });
+      return;
+    }
 
+    const gasRes = await googleClient.pingGasConnection();
     if (gasRes.connected) {
       setVerification({
         checking: false,
