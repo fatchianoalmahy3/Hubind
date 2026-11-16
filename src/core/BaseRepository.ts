@@ -24,7 +24,7 @@ export abstract class BaseRepository<T extends { id: string }> {
   private isCommittingSelf: boolean = false;
   private isRevalidating: boolean = false;
   private revalidatingPromise: Promise<void> | null = null;
-  private dataUpdateListeners = new Set<() => void>();
+  private dataUpdateListeners = new Set<(meta?: { revalidatingOnly?: boolean }) => void>();
   private static readonly REVALIDATE_TTL_MS = 45_000;
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
@@ -60,17 +60,17 @@ export abstract class BaseRepository<T extends { id: string }> {
     });
   }
 
-  public onDataUpdated(cb: () => void): () => void {
+  public onDataUpdated(cb: (meta?: { revalidatingOnly?: boolean }) => void): () => void {
     this.dataUpdateListeners.add(cb);
     return () => {
       this.dataUpdateListeners.delete(cb);
     };
   }
 
-  private notifyDataUpdated(): void {
+  private notifyDataUpdated(meta?: { revalidatingOnly?: boolean }): void {
     this.dataUpdateListeners.forEach((cb) => {
       try {
-        cb();
+        cb(meta);
       } catch {
         // ignore subscriber errors
       }
@@ -122,7 +122,10 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     // If we already have hydrated data for the active spreadsheet, return immediately & revalidate in background!
     if (this.isInitialized && activeId && activeId === this.loadedSpreadsheetId) {
-      if (Date.now() - this.lastFetchedAt > BaseRepository.REVALIDATE_TTL_MS) {
+      if (
+        !this.isRevalidating &&
+        Date.now() - this.lastFetchedAt > BaseRepository.REVALIDATE_TTL_MS
+      ) {
         this.revalidateInBackground();
       }
       return;
@@ -135,13 +138,13 @@ export abstract class BaseRepository<T extends { id: string }> {
   }
 
   private revalidateInBackground(): void {
-    if (this.revalidatingPromise || this.isCommittingSelf) return;
+    if (this.isRevalidating || this.revalidatingPromise || this.isCommittingSelf) return;
     const client = GoogleSheetClient.getInstance();
     const activeId = client.getSpreadsheetId();
     if (!activeId) return;
 
     this.isRevalidating = true;
-    this.notifyDataUpdated();
+    let hasNewData = false;
 
     this.revalidatingPromise = (async () => {
       try {
@@ -153,6 +156,7 @@ export abstract class BaseRepository<T extends { id: string }> {
           this.lastError = null;
           if (!res.notModified) {
             this.memoryData = res.data as T[];
+            hasNewData = true;
           }
         }
       } catch {
@@ -160,9 +164,11 @@ export abstract class BaseRepository<T extends { id: string }> {
       } finally {
         this.isRevalidating = false;
         this.revalidatingPromise = null;
-        this.notifyDataUpdated();
+        this.notifyDataUpdated({ revalidatingOnly: !hasNewData });
       }
     })();
+
+    this.notifyDataUpdated({ revalidatingOnly: true });
   }
 
   private async initData(forceFresh: boolean = false): Promise<void> {

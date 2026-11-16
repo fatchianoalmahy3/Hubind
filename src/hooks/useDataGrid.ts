@@ -61,9 +61,11 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     const unsubConfig = client.addChangeListener(() => {
       fetchData(true);
     });
-    const unsubRepo = repository.onDataUpdated(() => {
+    const unsubRepo = repository.onDataUpdated((meta) => {
       setRevalidating(repository.getIsRevalidating());
-      fetchData(true);
+      if (!meta?.revalidatingOnly) {
+        fetchData(true);
+      }
     });
 
     const onVisibilityOrFocus = () => {
