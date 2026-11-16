@@ -42,7 +42,7 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
 
   // Struktur 11 Sheet Baku Relasional (Header Kosong Siap Isi Data Resmi Sekolah)
   const sheetsConfig = [
-    { name: 'Master_Siswa_XI', headers: ['ID', 'NIS', 'NIK', 'Nama_Lengkap', 'Jenis_Kelamin', 'ID_Jurusan', 'Kelas', 'No_HP_Siswa', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_PKL'] },
+    { name: 'Master_Siswa_XI', headers: ['ID', 'NIS', 'NIK', 'Nama_Lengkap', 'Jenis_Kelamin', 'ID_Jurusan', 'Kelas', 'No_HP_Siswa', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_PKL', 'Foto_URL'] },
     { name: 'Master_Jurusan', headers: ['ID', 'Kode', 'Nama_Jurusan', 'Nama_Kakomli', 'NIP_Kakomli', 'Kontak_WA', 'Kuota_Siswa', 'Total_Terdaftar'] },
     { name: 'Master_Kelas_Walas', headers: ['ID', 'Nama_Kelas', 'Jurusan', 'Tingkat', 'Wali_Kelas', 'Kontak_Walas', 'Jumlah_Siswa'] },
     { name: 'Master_DUDI', headers: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'] },
@@ -118,6 +118,29 @@ function normalizeKey(str) {
 }
 
 const KEY_ALIASES = {
+  id: ['id', 'idperizinan', 'idpenempatan', 'idmonitoring', 'nopengajuan'],
+  idperizinan: ['idperizinan', 'noperizinan', 'id'],
+  noperizinan: ['noperizinan', 'idperizinan', 'id'],
+  nopengajuan: ['nopengajuan', 'id'],
+  idpenempatan: ['idpenempatan', 'id'],
+  idmonitoring: ['idmonitoring', 'id'],
+  tahap: ['tahap', 'tahapmonitoring'],
+  tahapmonitoring: ['tahapmonitoring', 'tahap'],
+  nohpsiswa: ['nohpsiswa', 'nohp', 'telepon'],
+  alamatdudi: ['alamatdudi', 'alamat'],
+  tglberangkat: ['tglberangkat', 'tanggalberangkat'],
+  tanggalberangkat: ['tanggalberangkat', 'tglberangkat'],
+  tglkirimsurat: ['tglkirimsurat', 'tanggalkirimsurat'],
+  tanggalkirimsurat: ['tanggalkirimsurat', 'tglkirimsurat'],
+  tglbalasan: ['tglbalasan', 'tanggalbalasan'],
+  tanggalbalasan: ['tanggalbalasan', 'tglbalasan'],
+  tglterbit: ['tglterbit', 'tanggalterbit'],
+  tanggalterbit: ['tanggalterbit', 'tglterbit'],
+  fotobuktidrive: ['fotobuktidrive', 'fotobuktiurl'],
+  fotobuktiurl: ['fotobuktiurl', 'fotobuktidrive'],
+  fotourl: ['fotourl', 'foto'],
+  noseriblangko: ['noseriblangko'],
+  passwordhash: ['passwordhash'],
   nilaisoftskills: ['nilaisoftskills', 'nilaisoftskill'],
   nilaisoftskill: ['nilaisoftskill', 'nilaisoftskills'],
   nilaihardskills: ['nilaihardskills', 'nilaikompetensiteknis'],
@@ -297,13 +320,33 @@ function doGet(e) {
 }
 
 const REQUIRED_SHEET_HEADERS = {
+  Master_Siswa_XI: ['ID', 'NIS', 'NIK', 'Nama_Lengkap', 'Jenis_Kelamin', 'ID_Jurusan', 'Kelas', 'No_HP_Siswa', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_PKL', 'Foto_URL'],
+  Master_Jurusan: ['ID', 'Kode', 'Nama_Jurusan', 'Nama_Kakomli', 'NIP_Kakomli', 'Kontak_WA', 'Kuota_Siswa', 'Total_Terdaftar'],
+  Master_Kelas_Walas: ['ID', 'Nama_Kelas', 'Jurusan', 'Tingkat', 'Wali_Kelas', 'Kontak_Walas', 'Jumlah_Siswa'],
   Master_DUDI: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'],
+  Master_Guru_Pendamping: ['ID', 'NIP', 'Nama_Lengkap', 'Kontak_WA', 'Email_Google', 'Peran_Utama', 'Jumlah_Bimbingan', 'PIN'],
   Data_Pengajuan_PKL: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'],
+  Data_Perizinan_PKL: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan'],
+  Plotting_Pemberangkatan: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'ID_DUDI', 'Nama_DUDI', 'ID_Guru_Pendamping', 'Guru_Pendamping', 'Tanggal_Berangkat', 'Tanggal_Rencana_Tarik', 'Status_Penempatan'],
   Monitoring_5_Tahap: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'],
-  Nilai_Dan_Sertifikat: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit']
+  Nilai_Dan_Sertifikat: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'],
+  Master_Akun: ['ID', 'Username', 'Password_Hash', 'Role', 'Nama_Lengkap', 'Jabatan', 'Status', 'Updated_At']
 };
 
-function ensureMissingHeaders(sheet, canonicalSheetName) {
+function canonicalizeSheetName(sheetName) {
+  if (sheetName === 'Master_Siswa') return 'Master_Siswa_XI';
+  if (
+    sheetName === 'Monitoring_6_Tahap' ||
+    sheetName === 'Monitoring_8_Tahap' ||
+    sheetName === 'Monitoring_PKL'
+  ) {
+    return 'Monitoring_5_Tahap';
+  }
+  return sheetName;
+}
+
+function ensureMissingHeaders(sheet, rawSheetName) {
+  const canonicalSheetName = canonicalizeSheetName(rawSheetName);
   const expected = REQUIRED_SHEET_HEADERS[canonicalSheetName];
   const lastCol = sheet.getLastColumn();
   if (!expected || lastCol === 0) {
@@ -692,7 +735,7 @@ function doPost(e) {
               <ol className="list-decimal list-inside space-y-0.5 text-purple-800 text-[11px] leading-relaxed">
                 <li>Buka konsol generator skrip &rarr; Klik <b>New Project</b>.</li>
                 <li>Tempelkan kode di bawah ini, lalu pilih fungsi <b>setupGoogleWorkspaceEnvironment</b>.</li>
-                <li>Klik tombol <b>Run</b> untuk menginisialisasi folder arsip, 10 tabel server, formulir, dan 5 templat dokumen.</li>
+                <li>Klik tombol <b>Run</b> untuk menginisialisasi folder arsip, 11 tabel server, formulir, dan 5 templat dokumen.</li>
               </ol>
             )}
           </div>

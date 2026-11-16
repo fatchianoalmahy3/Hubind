@@ -25,11 +25,12 @@ export class GoogleDriveSheetService {
     Nama_Lengkap: ['nama', 'namaLengkap', 'nama_lengkap', 'Nama_Lengkap'],
     Jenis_Kelamin: ['jenisKelamin', 'jenis_kelamin', 'Jenis_Kelamin'],
     ID_Jurusan: ['jurusan', 'idJurusan', 'id_jurusan', 'ID_Jurusan'],
-    No_HP_Siswa: ['noHpSiswa', 'noHp', 'no_hp_siswa', 'No_HP_Siswa', 'no_wa', 'noWa'],
+    No_HP_Siswa: ['noHpSiswa', 'noHp', 'no_hp_siswa', 'No_HP_Siswa'],
     Alamat_Domisili: ['alamatDomisili', 'alamat_domisili', 'Alamat_Domisili', 'alamat'],
     Nama_Ortu_Wali: ['namaOrtuWali', 'nama_ortu_wali', 'Nama_Ortu_Wali', 'nama_orang_tua', 'namaOrtu'],
     No_Ortu_Wali: ['noOrtuWali', 'no_ortu_wali', 'No_Ortu_Wali', 'telepon_orang_tua', 'noHpOrtu'],
     Status_PKL: ['statusPKL', 'status_pkl', 'Status_PKL'],
+    Foto_URL: ['fotoUrl', 'foto_url', 'Foto_URL'],
     NIK: ['nik', 'NIK'],
     NIS: ['nis', 'NIS'],
     Kelas: ['kelas', 'Kelas'],
@@ -40,7 +41,7 @@ export class GoogleDriveSheetService {
     Nama_Jurusan: ['nama', 'namaJurusan', 'nama_jurusan', 'Nama_Jurusan'],
     Nama_Kakomli: ['namaKakomli', 'nama_kakomli', 'Nama_Kakomli'],
     NIP_Kakomli: ['nipKakomli', 'nip_kakomli', 'NIP_Kakomli'],
-    Kontak_WA: ['kontakWA', 'kontakWa', 'kontak_wa', 'Kontak_WA', 'noWa', 'no_wa'],
+    Kontak_WA: ['kontakWA', 'kontakWa', 'kontak_wa', 'Kontak_WA'],
     Kuota_Siswa: ['kuotaSiswa', 'kuota_siswa', 'Kuota_Siswa'],
     Total_Terdaftar: ['totalTerdaftar', 'total_terdaftar', 'Total_Terdaftar'],
 
@@ -79,7 +80,7 @@ export class GoogleDriveSheetService {
     DUDI_Tujuan: ['dudiTujuan', 'dudi_tujuan', 'DUDI_Tujuan'],
     Alamat_DUDI: ['alamatDudi', 'alamat_dudi', 'Alamat_DUDI', 'alamat'],
     Bidang_Pekerjaan: ['bidangPekerjaan', 'bidang_pekerjaan', 'Bidang_Pekerjaan'],
-    No_WA: ['noWa', 'no_wa', 'No_WA', 'kontakWA'],
+    No_WA: ['noWa', 'no_wa', 'No_WA'],
     Status_Kakomli: ['statusKakomli', 'status_kakomli', 'Status_Kakomli'],
     Catatan_Kakomli: ['catatanKakomli', 'catatan_kakomli', 'Catatan_Kakomli'],
     Status_Hubin: ['statusHubin', 'status_hubin', 'Status_Hubin'],
@@ -151,6 +152,12 @@ export class GoogleDriveSheetService {
     Nilai_Dan_Sertifikat: 'ID_Penempatan',
     Master_Akun: 'ID',
   };
+
+  private static readonly BOOLEAN_HEADER_KEYS = new Set<string>([
+    'nilaipklmuncul',
+    'nilaiduditerkumpul',
+    'blangkosertifikatbawa',
+  ]);
 
   private static normalizeKey(key: string): string {
     return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -392,14 +399,20 @@ export class GoogleDriveSheetService {
       const primaryKey = aliases[0] || header.charAt(0).toLowerCase() + header.slice(1);
       const upperHeader = header.toUpperCase();
 
+      const cleanHeader = GoogleDriveSheetService.normalizeKey(header);
+      const isBooleanHeader = GoogleDriveSheetService.BOOLEAN_HEADER_KEYS.has(cleanHeader);
+
       let parsedVal: any = cellVal;
       if (typeof cellVal === 'string') {
-        const lower = cellVal.trim().toLowerCase();
-        if (lower === 'ya' || lower === 'true') parsedVal = true;
-        else if (lower === 'belum' || lower === 'false') parsedVal = false;
-        else if (
-          !isNaN(Number(cellVal)) &&
-          cellVal.trim() !== '' &&
+        const trimmed = cellVal.trim();
+        const lower = trimmed.toLowerCase();
+        if (isBooleanHeader && (lower === 'ya' || lower === 'true' || lower === 'sudah')) {
+          parsedVal = true;
+        } else if (isBooleanHeader && (lower === 'belum' || lower === 'false' || lower === 'tidak')) {
+          parsedVal = false;
+        } else if (
+          !isNaN(Number(trimmed)) &&
+          trimmed !== '' &&
           !upperHeader.includes('NIS') &&
           !upperHeader.includes('NIK') &&
           !upperHeader.includes('NO_') &&
@@ -407,9 +420,10 @@ export class GoogleDriveSheetService {
           !upperHeader.includes('HP') &&
           !upperHeader.includes('NIP') &&
           !upperHeader.includes('PIN') &&
-          !upperHeader.includes('TELEPON')
+          !upperHeader.includes('TELEPON') &&
+          !upperHeader.includes('SERI')
         ) {
-          parsedVal = Number(cellVal);
+          parsedVal = Number(trimmed);
         }
       }
 

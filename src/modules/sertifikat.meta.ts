@@ -40,6 +40,16 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
   ],
   fields: [
     {
+      key: 'idPenempatan',
+      label: 'ID Penempatan',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis (PLT-...)',
+      helperText: 'Terisi otomatis dari Data Penempatan atau sistem',
+    },
+    {
       key: 'noSeriBlangko',
       label: 'No. Seri Blangko',
       type: 'text',
@@ -59,8 +69,10 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isSearchable: true,
       isSortable: true,
       relationSource: 'siswa',
+      autocomplete: true,
       allowCustomValue: true,
       validation: { required: true },
+      placeholder: 'Ketik NIS atau Nama Siswa...',
     },
     {
       key: 'namaSiswa',
@@ -71,8 +83,10 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isSearchable: true,
       isSortable: true,
       relationSource: 'siswa',
+      autocomplete: true,
       allowCustomValue: true,
       validation: { required: true },
+      placeholder: 'Ketik Nama Siswa untuk isi otomatis...',
     },
     {
       key: 'jurusan',
@@ -96,6 +110,15 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       validation: { required: true },
     },
     {
+      key: 'kelas',
+      label: 'Kelas',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      isFilterable: true,
+      relationSource: 'kelas',
+    },
+    {
       key: 'dudiTujuan',
       label: 'Mitra DUDI',
       type: 'text',
@@ -104,7 +127,9 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isSearchable: true,
       isSortable: true,
       relationSource: 'dudi',
+      autocomplete: true,
       allowCustomValue: true,
+      placeholder: 'Ketik atau pilih nama DUDI mitra...',
     },
     {
       key: 'nilaiK3lh',
@@ -149,7 +174,9 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isTableColumn: true,
       isFormInput: true,
       isSortable: true,
+      disabled: true,
       validation: { min: 0, max: 100 },
+      helperText: 'Terhitung otomatis dari rata-rata 4 komponen nilai',
     },
     {
       key: 'predikat',
@@ -193,6 +220,14 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
         { label: 'Siap Cetak', value: 'Siap Cetak', badgeColor: 'bg-amber-100 text-amber-800' },
         { label: 'Sudah Diterbitkan', value: 'Sudah Diterbitkan', badgeColor: 'bg-emerald-100 text-emerald-800' },
       ],
+    },
+    {
+      key: 'tanggalTerbit',
+      label: 'Tanggal Terbit',
+      type: 'date',
+      isTableColumn: true,
+      isFormInput: true,
+      isSortable: true,
     },
   ],
 };

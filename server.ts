@@ -40,10 +40,15 @@ app.use((req, res, next) => {
   return jsonParser(req, res, next);
 });
 
-app.use('/api', (_req, res, next) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/v1') && req.method === 'GET') {
+    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.setHeader('Vary', 'Authorization, Accept-Encoding');
+  } else {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
   next();
 });
 
@@ -123,7 +128,7 @@ async function fetchWithTimeout(
     if (err?.name === 'AbortError') {
       throw new PortalConfigError(
         'GAS_TIMEOUT',
-        `Permintaan ke Google Apps Script melebihi batas waktu (${Math.round(timeoutMs / 1000)} detik). Silakan coba lagi.`,
+        `Permintaan ke Cloud Server melebihi batas waktu (${Math.round(timeoutMs / 1000)} detik). Silakan coba lagi.`,
         504
       );
     }
@@ -266,34 +271,34 @@ function validateGasUrl(rawUrl: string): string {
   if (!trimmed) {
     throw new PortalConfigError(
       'GAS_NOT_CONFIGURED',
-      'URL Google Apps Script Web App belum diatur oleh Admin Hubin untuk akses portal publik.'
+      'Endpoint URL Cloud Server belum diatur oleh Admin Hubin untuk akses portal publik.'
     );
   }
   if (!/^https?:\/\//i.test(trimmed)) {
     throw new PortalConfigError(
       'GAS_INVALID_URL',
-      'URL Google Apps Script tidak valid. Harus diawali https://...',
+      'Endpoint URL Cloud Server tidak valid. Harus diawali https://...',
       502
     );
   }
   if (/script\.google\.com\/home\/projects\//i.test(trimmed) || /\/edit(\?|$|#)/i.test(trimmed)) {
     throw new PortalConfigError(
       'GAS_INVALID_URL',
-      'Link yang ditempel adalah link editor Apps Script (/edit), bukan Web App URL. Klik Deploy -> New deployment -> pilih Web app -> salin URL "/exec".',
+      'Link yang ditempel adalah link editor (/edit), bukan Endpoint URL aktif. Klik Deploy -> New deployment -> pilih Web app -> salin URL "/exec".',
       502
     );
   }
   if (/\/dev(\?|$)/i.test(trimmed)) {
     throw new PortalConfigError(
       'GAS_INVALID_URL',
-      'URL Google Apps Script masih menggunakan "/dev" yang memerlukan login Google. Gunakan URL Web App deployment resmi yang berakhiran "/exec" dengan akses "Siapa saja (Anyone)".',
+      'Endpoint URL masih menggunakan "/dev" yang memerlukan login internal. Gunakan URL deployment resmi yang berakhiran "/exec" dengan akses publik.',
       502
     );
   }
   if (/script\.google\.com/i.test(trimmed) && !/\/exec(\?|$)/i.test(trimmed)) {
     throw new PortalConfigError(
       'GAS_INVALID_URL',
-      'URL Google Apps Script harus berakhiran "/exec". Salin ulang URL resmi dari dialog Deploy -> Kelola deployment.',
+      'Endpoint URL Cloud Server harus berakhiran "/exec". Salin ulang URL resmi dari Konfigurasi Server.',
       502
     );
   }
@@ -319,8 +324,8 @@ function parseGasJsonSafely(rawText: string, sheetName: string, status: number):
     throw new PortalConfigError(
       'GAS_AUTH_REQUIRED',
       isGoogleAuth
-        ? `Google Apps Script mengembalikan halaman login HTML untuk sheet [${sheetName}]. Pastikan Web App di-deploy ulang dengan akses "Who has access: Anyone (Siapa saja)" dan URL berakhiran "/exec".`
-        : `Google Apps Script mengembalikan halaman HTML error (HTTP ${status}) untuk sheet [${sheetName}]. Periksa kode doGet/doPost dan deployment Web App "/exec".`,
+        ? `Cloud Server mengembalikan halaman otorisasi untuk tabel [${sheetName}]. Pastikan endpoint server di-deploy dengan akses "Siapa saja (Anyone)" dan URL berakhiran "/exec".`
+        : `Cloud Server mengembalikan respon HTML error (HTTP ${status}) untuk tabel [${sheetName}]. Periksa deployment Endpoint Server "/exec".`,
       502
     );
   }
@@ -330,7 +335,7 @@ function parseGasJsonSafely(rawText: string, sheetName: string, status: number):
   } catch {
     throw new PortalConfigError(
       'GAS_INVALID_RESPONSE',
-      `Respon Google Apps Script untuk [${sheetName}] bukan JSON valid: ${trimmed.slice(0, 120)}`,
+      `Respon Cloud Server untuk [${sheetName}] bukan JSON valid: ${trimmed.slice(0, 120)}`,
       502
     );
   }
@@ -345,7 +350,7 @@ async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Pr
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
       'SPREADSHEET_NOT_CONFIGURED',
-      'ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.'
+      'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'
     );
   }
 
@@ -388,7 +393,7 @@ async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Pr
       if (err instanceof PortalConfigError) throw err;
       throw new PortalConfigError(
         'GAS_FETCH_FAILED',
-        `Server gagal menghubungi URL Google Apps Script (${err?.message || 'network error'}). Periksa URL "/exec" dan pastikan akses deployment adalah "Anyone (Siapa saja)".`,
+        `Server gagal menghubungi Endpoint Cloud Server (${err?.message || 'network error'}). Periksa konfigurasi URL "/exec" dan pastikan akses deployment aktif.`,
         502
       );
     }
@@ -399,7 +404,7 @@ async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Pr
       parseGasJsonSafely(rawText, sheetName, gasRes.status);
       throw new PortalConfigError(
         'GAS_FETCH_FAILED',
-        `Gagal membaca sheet [${sheetName}] dari Google Spreadsheet (HTTP ${gasRes.status}).`,
+        `Gagal membaca tabel [${sheetName}] dari Cloud Server (HTTP ${gasRes.status}).`,
         502
       );
     }
@@ -436,7 +441,7 @@ async function fetchBatchSheetsViaGas(
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
       'SPREADSHEET_NOT_CONFIGURED',
-      'ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.'
+      'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'
     );
   }
   const gasUrl = validateGasUrl(config.gasDeployUrl);
@@ -463,11 +468,12 @@ async function fetchBatchSheetsViaGas(
   if (missingSheets.length > 1) {
     try {
       const separator = gasUrl.includes('?') ? '&' : '?';
+      const freshSuffix = forceRefresh ? `&fresh=1&_ts=${Date.now()}` : '';
       const batchUrl = `${gasUrl}${separator}action=BATCH_GET&sheets=${encodeURIComponent(
         missingSheets.join(',')
       )}&year=${encodeURIComponent(config.activeYear)}&spreadsheetId=${encodeURIComponent(
         config.spreadsheetId
-      )}`;
+      )}${freshSuffix}`;
 
       const gasRes = await fetchWithTimeout(
         batchUrl,
@@ -559,7 +565,7 @@ async function writeLiveSheetViaGas(
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
       'SPREADSHEET_NOT_CONFIGURED',
-      'ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin.'
+      'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'
     );
   }
   const gasUrl = validateGasUrl(config.gasDeployUrl);
@@ -601,7 +607,7 @@ async function writeLiveSheetViaGas(
     if (err instanceof PortalConfigError) throw err;
     throw new PortalConfigError(
       'GAS_WRITE_FAILED',
-      `Server gagal mengirim data ke URL Google Apps Script (${err?.message || 'network error'}). Periksa URL "/exec" dan deployment Web App.`,
+      `Server gagal mengirim data ke Endpoint Cloud Server (${err?.message || 'network error'}). Periksa konfigurasi URL "/exec".`,
       502
     );
   }
@@ -612,7 +618,7 @@ async function writeLiveSheetViaGas(
   if (!gasRes.ok) {
     throw new PortalConfigError(
       'GAS_WRITE_FAILED',
-      `Gagal menulis ke Google Spreadsheet [${sheetName}] (HTTP ${gasRes.status}).`,
+      `Gagal menulis ke Cloud Server [${sheetName}] (HTTP ${gasRes.status}).`,
       502
     );
   }
@@ -641,7 +647,7 @@ function handlePortalError(res: Response, err: any) {
   return res.status(500).json({
     success: false,
     code: 'INTERNAL_ERROR',
-    message: err?.message || 'Terjadi kesalahan pada server saat mengakses Google Spreadsheet.',
+    message: err?.message || 'Terjadi kesalahan pada server saat mengakses Database Cloud Server.',
   });
 }
 
@@ -1221,7 +1227,7 @@ app.get('/api/admin/gas-ping', async (req: Request, res: Response) => {
     if (!targetSpreadsheetId && !customGas) {
       throw new PortalConfigError(
         'SPREADSHEET_NOT_CONFIGURED',
-        'ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.'
+        'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'
       );
     }
 
@@ -1248,7 +1254,7 @@ app.get('/api/admin/gas-ping', async (req: Request, res: Response) => {
       if (err instanceof PortalConfigError) throw err;
       throw new PortalConfigError(
         'GAS_FETCH_FAILED',
-        `Gagal menghubungi Google Apps Script (${err?.message || 'network error'}). Pastikan URL berakhiran "/exec" dan Web App di-deploy dengan akses "Siapa saja (Anyone)".`,
+        `Gagal menghubungi Endpoint Cloud Server (${err?.message || 'network error'}). Pastikan URL berakhiran "/exec" dan akses server aktif.`,
         502
       );
     }
@@ -1259,7 +1265,7 @@ app.get('/api/admin/gas-ping', async (req: Request, res: Response) => {
     if (!gasRes.ok || json?.error) {
       throw new PortalConfigError(
         'GAS_ERROR',
-        String(json?.error || `GAS PING gagal (HTTP ${gasRes.status})`),
+        String(json?.error || `Server PING gagal (HTTP ${gasRes.status})`),
         502
       );
     }
@@ -1275,15 +1281,43 @@ app.get('/api/admin/gas-ping', async (req: Request, res: Response) => {
   }
 });
 
-// Admin Proxy: Read sheet data via Cloud GAS Web App (consistent across refresh & devices)
+const ALLOWED_ADMIN_SHEETS = new Set([
+  'Master_Siswa_XI',
+  'Master_Siswa',
+  'Master_Jurusan',
+  'Master_Kelas_Walas',
+  'Master_DUDI',
+  'Master_Guru_Pendamping',
+  'Data_Pengajuan_PKL',
+  'Data_Perizinan_PKL',
+  'Plotting_Pemberangkatan',
+  'Monitoring_5_Tahap',
+  'Monitoring_6_Tahap',
+  'Monitoring_8_Tahap',
+  'Monitoring_PKL',
+  'Nilai_Dan_Sertifikat',
+  'Master_Akun',
+]);
+
+// Admin Proxy: Read table data via Cloud Server (consistent across refresh & devices)
 app.get('/api/admin/sheet', async (req: Request, res: Response) => {
   try {
-    await requireAdminAuth(req);
+    const session = await requireAdminAuth(req);
     const sheetName = String(req.query.sheet || '').trim();
     const fresh = String(req.query.fresh || '') === '1';
 
     if (!sheetName) {
-      return res.status(400).json({ success: false, message: 'Parameter sheet wajib diisi.' });
+      return res.status(400).json({ success: false, message: 'Parameter tabel wajib diisi.' });
+    }
+    if (!ALLOWED_ADMIN_SHEETS.has(sheetName)) {
+      return res.status(400).json({ success: false, message: `Tabel [${sheetName}] tidak terdaftar.` });
+    }
+    if (sheetName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Akses tabel Master_Akun hanya diperbolehkan untuk peran Admin Hubin.',
+      });
     }
 
     const { rows, config } = await fetchLiveSheetViaGas(sheetName, fresh);
@@ -1298,11 +1332,13 @@ app.get('/api/admin/sheet', async (req: Request, res: Response) => {
   }
 });
 
-// Admin Proxy: Write sheet mutations via Cloud GAS Web App + instant cache invalidation
+// Admin Proxy: Write table mutations via Cloud Server + instant cache invalidation
 app.post('/api/admin/sheet', async (req: Request, res: Response) => {
   try {
-    await requireAdminAuth(req);
+    const session = await requireAdminAuth(req);
     const { sheetName, action, data } = req.body || {};
+    const targetSheet = String(sheetName || '').trim();
+    const normalizedAction = String(action || '').toUpperCase();
     const validActions = new Set([
       'CREATE',
       'UPDATE',
@@ -1313,15 +1349,722 @@ app.post('/api/admin/sheet', async (req: Request, res: Response) => {
       'SYNC_ALL',
     ]);
 
-    if (!sheetName || !validActions.has(String(action || '').toUpperCase())) {
+    if (!targetSheet || !validActions.has(normalizedAction)) {
       return res.status(400).json({
         success: false,
-        message: 'Parameter sheetName dan action tidak valid.',
+        message: 'Parameter tabel dan aksi tidak valid.',
+      });
+    }
+    if (!ALLOWED_ADMIN_SHEETS.has(targetSheet)) {
+      return res.status(400).json({
+        success: false,
+        message: `Tabel [${targetSheet}] tidak diizinkan untuk dimodifikasi.`,
+      });
+    }
+    if (targetSheet.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Hanya Admin Hubin yang berhak mengubah data Master_Akun.',
+      });
+    }
+    if (normalizedAction === 'SYNC_ALL' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk peran Admin Hubin.',
       });
     }
 
-    await writeLiveSheetViaGas(String(sheetName), String(action).toUpperCase() as GasWriteAction, data);
+    await writeLiveSheetViaGas(targetSheet, normalizedAction as GasWriteAction, data);
     res.json({ success: true });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// ============================================================================
+// FULL RESTFUL API v1 (/api/v1/*) — Resource-Oriented + ETag 304 + Batch Bootstrap
+// ============================================================================
+
+const REST_RESOURCE_TO_SHEET: Record<string, string> = {
+  students: 'Master_Siswa_XI',
+  majors: 'Master_Jurusan',
+  classes: 'Master_Kelas_Walas',
+  dudi: 'Master_DUDI',
+  teachers: 'Master_Guru_Pendamping',
+  submissions: 'Data_Pengajuan_PKL',
+  permits: 'Data_Perizinan_PKL',
+  placements: 'Plotting_Pemberangkatan',
+  monitoring: 'Monitoring_5_Tahap',
+  certificates: 'Nilai_Dan_Sertifikat',
+  accounts: 'Master_Akun',
+};
+
+const DEFAULT_ADMIN_BOOTSTRAP_TABLES = [
+  'Master_Jurusan',
+  'Master_Kelas_Walas',
+  'Master_DUDI',
+  'Master_Guru_Pendamping',
+  'Master_Siswa_XI',
+  'Data_Pengajuan_PKL',
+  'Data_Perizinan_PKL',
+  'Plotting_Pemberangkatan',
+  'Monitoring_5_Tahap',
+  'Nilai_Dan_Sertifikat',
+];
+
+function resolveRestTableName(resourceParam: string): string | null {
+  const raw = String(resourceParam || '').trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (REST_RESOURCE_TO_SHEET[lower]) {
+    return REST_RESOURCE_TO_SHEET[lower];
+  }
+  if (ALLOWED_ADMIN_SHEETS.has(raw)) {
+    return raw;
+  }
+  return null;
+}
+
+function computeWeakEtag(payload: unknown): string {
+  const hash = crypto
+    .createHash('sha1')
+    .update(typeof payload === 'string' ? payload : JSON.stringify(payload))
+    .digest('base64url');
+  return `W/"${hash}"`;
+}
+
+function isEtagMatched(req: Request, etag: string): boolean {
+  const rawIfNoneMatch = String(req.headers['if-none-match'] || '').trim();
+  if (!rawIfNoneMatch) return false;
+  if (rawIfNoneMatch === '*') return true;
+  return rawIfNoneMatch
+    .split(',')
+    .map((tag) => tag.trim())
+    .some((tag) => tag === etag || tag.replace(/^W\//, '') === etag.replace(/^W\//, ''));
+}
+
+function matchRowById(row: Record<string, any>, targetId: string): boolean {
+  const candidates = [
+    row?.id,
+    row?.ID,
+    row?.NIS,
+    row?.nis,
+    row?.Kode,
+    row?.kode,
+    row?.ID_DUDI,
+    row?.idDudi,
+    row?.ID_Guru,
+    row?.idGuru,
+    row?.No_Pengajuan,
+    row?.noPengajuan,
+    row?.No_Perizinan,
+    row?.noPerizinan,
+    row?.ID_Penempatan,
+    row?.idPenempatan,
+    row?.ID_Monitoring,
+    row?.idMonitoring,
+  ];
+  return candidates.some((val) => val !== undefined && val !== null && String(val).trim() === targetId);
+}
+
+// 1. Single-Request Admin Bootstrap (Batch-fetches all master & operational tables in 1 roundtrip)
+app.get('/api/v1/bootstrap', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const fresh = String(req.query.fresh || '') === '1';
+    const tablesParam = String(req.query.tables || '').trim();
+
+    const requestedTables = tablesParam
+      ? tablesParam
+          .split(',')
+          .map((t) => resolveRestTableName(t) || t.trim())
+          .filter((t) => ALLOWED_ADMIN_SHEETS.has(t))
+      : DEFAULT_ADMIN_BOOTSTRAP_TABLES;
+
+    const authorizedTables = requestedTables.filter(
+      (t) => t.toLowerCase() !== 'master_akun' || session.role === 'Hubin'
+    );
+
+    const optionalSet = new Set(authorizedTables);
+    const { sheets, config } = await fetchBatchSheetsViaGas(authorizedTables, optionalSet, fresh);
+
+    const etags: Record<string, string> = {};
+    for (const table of authorizedTables) {
+      etags[table] = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, t: table, d: sheets[table] || [] });
+    }
+    const bundleEtag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, etags });
+
+    res.setHeader('ETag', bundleEtag);
+    if (!fresh && isEtagMatched(req, bundleEtag)) {
+      return res.status(304).end();
+    }
+
+    return res.json({
+      success: true,
+      spreadsheetId: config.spreadsheetId,
+      activeYear: config.activeYear,
+      etag: bundleEtag,
+      etags,
+      tables: sheets,
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// 2. Server-Side Relation Recalculation (Eliminates client-side N+1 sync waterfalls)
+app.post('/api/v1/relations/recalculate', async (req: Request, res: Response) => {
+  try {
+    await requireAdminAuth(req);
+    const scope = String(req.body?.scope || 'all').toLowerCase();
+
+    const neededTables = new Set<string>([
+      'Master_Siswa_XI',
+      'Master_DUDI',
+      'Master_Guru_Pendamping',
+      'Master_Jurusan',
+      'Master_Kelas_Walas',
+      'Data_Pengajuan_PKL',
+      'Data_Perizinan_PKL',
+      'Plotting_Pemberangkatan',
+    ]);
+
+    const { sheets } = await fetchBatchSheetsViaGas(
+      Array.from(neededTables),
+      new Set(['Data_Pengajuan_PKL', 'Data_Perizinan_PKL', 'Plotting_Pemberangkatan']),
+      true
+    );
+
+    const siswaList = sheets['Master_Siswa_XI'] || [];
+    const dudiList = sheets['Master_DUDI'] || [];
+    const guruList = sheets['Master_Guru_Pendamping'] || [];
+    const jurusanList = sheets['Master_Jurusan'] || [];
+    const kelasList = sheets['Master_Kelas_Walas'] || [];
+    const pengajuanList = sheets['Data_Pengajuan_PKL'] || [];
+    const perizinanList = sheets['Data_Perizinan_PKL'] || [];
+    const placements = sheets['Plotting_Pemberangkatan'] || [];
+
+    const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const studentIdentity = (nis?: unknown, nama?: unknown, kelas?: unknown) => {
+      const cleanNis = String(nis ?? '').trim();
+      if (cleanNis && cleanNis !== '-') return `nis:${cleanNis.toLowerCase()}`;
+      const cleanNama = norm(nama);
+      return cleanNama ? `nama:${cleanNama}|${norm(kelas)}` : '';
+    };
+
+    let updatedDudi = 0;
+    let updatedGuru = 0;
+    let updatedJurusan = 0;
+    let updatedKelas = 0;
+
+    // A. DUDI & Guru placement counters
+    if (scope === 'all' || scope === 'placements' || scope === 'dudi' || scope === 'guru' || scope === 'siswa_pkl') {
+      const activePlacements = placements.filter(
+        (p) => norm(pickField(p, 'Status_Penempatan', 'statusPenempatan')) !== 'dibatalkan'
+      );
+
+      const dudiById = new Map<string, any>();
+      const dudiByName = new Map<string, any>();
+      for (const d of dudiList) {
+        const id = pickField(d, 'ID_DUDI', 'idDudi', 'id');
+        const nama = pickField(d, 'Nama_DUDI', 'namaDudi');
+        if (id) dudiById.set(id, d);
+        if (nama) dudiByName.set(norm(nama), d);
+      }
+
+      const guruById = new Map<string, any>();
+      const guruByName = new Map<string, any>();
+      for (const g of guruList) {
+        const id = pickField(g, 'ID_Guru', 'idGuru', 'id');
+        const nama = pickField(g, 'Nama_Guru', 'namaGuru', 'nama');
+        if (id) guruById.set(id, g);
+        if (nama) guruByName.set(norm(nama), g);
+      }
+
+      const dudiCounts = new Map<string, number>();
+      const guruCounts = new Map<string, number>();
+
+      for (const p of activePlacements) {
+        const pDudiId = pickField(p, 'ID_DUDI', 'idDudi');
+        const pDudiName = pickField(p, 'Nama_DUDI', 'namaDudi', 'DUDI_Tujuan');
+        const matchedDudi = (pDudiId && dudiById.get(pDudiId)) || (pDudiName && dudiByName.get(norm(pDudiName)));
+        if (matchedDudi) {
+          const dId = pickField(matchedDudi, 'ID_DUDI', 'idDudi', 'id');
+          dudiCounts.set(dId, (dudiCounts.get(dId) || 0) + 1);
+        }
+
+        const pGuruId = pickField(p, 'ID_Guru_Pendamping', 'idGuruPendamping');
+        const pGuruName = pickField(p, 'Guru_Pendamping', 'guruPendamping');
+        const matchedGuru = (pGuruId && guruById.get(pGuruId)) || (pGuruName && guruByName.get(norm(pGuruName)));
+        if (matchedGuru) {
+          const gId = pickField(matchedGuru, 'ID_Guru', 'idGuru', 'id');
+          guruCounts.set(gId, (guruCounts.get(gId) || 0) + 1);
+        }
+      }
+
+      for (const d of dudiList) {
+        const dId = pickField(d, 'ID_DUDI', 'idDudi', 'id');
+        const nextCount = dudiCounts.get(dId) || 0;
+        const currCount = Number(d.Terisi ?? d.terisi ?? 0) || 0;
+        if (dId && currCount !== nextCount) {
+          await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
+            ...d,
+            id: dId,
+            ID_DUDI: dId,
+            Terisi: nextCount,
+            terisi: nextCount,
+          });
+          updatedDudi++;
+        }
+      }
+
+      for (const g of guruList) {
+        const gId = pickField(g, 'ID_Guru', 'idGuru', 'id');
+        const nextCount = guruCounts.get(gId) || 0;
+        const currCount = Number(g.Jumlah_Bimbingan ?? g.jumlahBimbingan ?? 0) || 0;
+        if (gId && currCount !== nextCount) {
+          await writeLiveSheetViaGas('Master_Guru_Pendamping', 'UPDATE', {
+            ...g,
+            id: gId,
+            ID_Guru: gId,
+            Jumlah_Bimbingan: nextCount,
+            jumlahBimbingan: nextCount,
+          });
+          updatedGuru++;
+        }
+      }
+    }
+
+    // B. Jurusan counters (kuotaSiswa + totalTerdaftar)
+    if (scope === 'all' || scope === 'jurusan' || scope === 'siswa' || scope === 'pengajuan' || scope === 'perizinan' || scope === 'siswa_pkl') {
+      const jurusanByKey = new Map<string, any>();
+      for (const j of jurusanList) {
+        const nama = pickField(j, 'Nama_Jurusan', 'namaJurusan', 'nama');
+        const kode = pickField(j, 'Kode_Jurusan', 'kodeJurusan', 'kode', 'id');
+        if (nama) jurusanByKey.set(norm(nama), j);
+        if (kode) jurusanByKey.set(norm(kode), j);
+      }
+
+      const siswaByNis = new Map<string, any>();
+      const siswaByName = new Map<string, any>();
+      for (const s of siswaList) {
+        const nis = pickField(s, 'NIS', 'nis');
+        const nama = pickField(s, 'Nama_Lengkap', 'namaLengkap', 'nama');
+        if (nis) siswaByNis.set(nis.toLowerCase(), s);
+        if (nama) siswaByName.set(norm(nama), s);
+      }
+
+      const kuotaCounts = new Map<string, number>();
+      const registeredSets = new Map<string, Set<string>>();
+      const addRegistered = (jurId: string, key: string) => {
+        if (!key) return;
+        let set = registeredSets.get(jurId);
+        if (!set) {
+          set = new Set<string>();
+          registeredSets.set(jurId, set);
+        }
+        set.add(key);
+      };
+
+      for (const s of siswaList) {
+        const jur = pickField(s, 'ID_Jurusan', 'jurusan', 'Jurusan');
+        const matchedJur = jur ? jurusanByKey.get(norm(jur)) : undefined;
+        if (!matchedJur) continue;
+        const jId = pickField(matchedJur, 'Kode_Jurusan', 'kode', 'id');
+        kuotaCounts.set(jId, (kuotaCounts.get(jId) || 0) + 1);
+        const statusNorm = norm(pickField(s, 'Status_PKL', 'statusPKL'));
+        if (statusNorm && statusNorm !== 'belum daftar') {
+          addRegistered(
+            jId,
+            studentIdentity(
+              pickField(s, 'NIS', 'nis'),
+              pickField(s, 'Nama_Lengkap', 'namaLengkap', 'nama'),
+              pickField(s, 'Kelas', 'kelas')
+            )
+          );
+        }
+      }
+
+      for (const reqRow of pengajuanList) {
+        if (norm(pickField(reqRow, 'Status_Kakomli', 'statusKakomli')) === 'ditolak') continue;
+        const rNis = pickField(reqRow, 'NIS', 'nis');
+        const rNama = pickField(reqRow, 'Nama_Siswa', 'namaSiswa');
+        const ms = (rNis && siswaByNis.get(rNis.toLowerCase())) || (rNama && siswaByName.get(norm(rNama)));
+        const jur = pickField(reqRow, 'Jurusan', 'jurusan') || (ms ? pickField(ms, 'ID_Jurusan', 'jurusan') : '');
+        const matchedJur = jur ? jurusanByKey.get(norm(jur)) : undefined;
+        if (!matchedJur) continue;
+        const jId = pickField(matchedJur, 'Kode_Jurusan', 'kode', 'id');
+        addRegistered(
+          jId,
+          studentIdentity(
+            rNis || (ms ? pickField(ms, 'NIS', 'nis') : ''),
+            rNama || (ms ? pickField(ms, 'Nama_Lengkap', 'nama') : ''),
+            pickField(reqRow, 'Kelas', 'kelas') || (ms ? pickField(ms, 'Kelas', 'kelas') : '')
+          )
+        );
+      }
+
+      for (const izn of perizinanList) {
+        const iNis = pickField(izn, 'NIS', 'nis');
+        const iNama = pickField(izn, 'Nama_Siswa', 'namaSiswa');
+        const ms = (iNis && siswaByNis.get(iNis.toLowerCase())) || (iNama && siswaByName.get(norm(iNama)));
+        const jur = pickField(izn, 'Jurusan', 'jurusan') || (ms ? pickField(ms, 'ID_Jurusan', 'jurusan') : '');
+        const matchedJur = jur ? jurusanByKey.get(norm(jur)) : undefined;
+        if (!matchedJur) continue;
+        const jId = pickField(matchedJur, 'Kode_Jurusan', 'kode', 'id');
+        addRegistered(
+          jId,
+          studentIdentity(
+            iNis || (ms ? pickField(ms, 'NIS', 'nis') : ''),
+            iNama || (ms ? pickField(ms, 'Nama_Lengkap', 'nama') : ''),
+            pickField(izn, 'Kelas', 'kelas') || (ms ? pickField(ms, 'Kelas', 'kelas') : '')
+          )
+        );
+      }
+
+      for (const p of placements) {
+        if (norm(pickField(p, 'Status_Penempatan', 'statusPenempatan')) === 'dibatalkan') continue;
+        const pNis = pickField(p, 'NIS', 'nis');
+        const pNama = pickField(p, 'Nama_Siswa', 'namaSiswa');
+        const ms = (pNis && siswaByNis.get(pNis.toLowerCase())) || (pNama && siswaByName.get(norm(pNama)));
+        const jur = ms ? pickField(ms, 'ID_Jurusan', 'jurusan') : '';
+        const matchedJur = jur ? jurusanByKey.get(norm(jur)) : undefined;
+        if (!matchedJur) continue;
+        const jId = pickField(matchedJur, 'Kode_Jurusan', 'kode', 'id');
+        addRegistered(
+          jId,
+          studentIdentity(
+            pNis || (ms ? pickField(ms, 'NIS', 'nis') : ''),
+            pNama || (ms ? pickField(ms, 'Nama_Lengkap', 'nama') : ''),
+            ms ? pickField(ms, 'Kelas', 'kelas') : ''
+          )
+        );
+      }
+
+      for (const j of jurusanList) {
+        const jId = pickField(j, 'Kode_Jurusan', 'kode', 'id');
+        const nextKuota = kuotaCounts.get(jId) || 0;
+        const nextTerdaftar = registeredSets.get(jId)?.size || 0;
+        const currKuota = Number(j.Target_Kuota ?? j.kuotaSiswa ?? 0) || 0;
+        const currTerdaftar = Number(j.Siswa_Terdaftar ?? j.totalTerdaftar ?? 0) || 0;
+        if (jId && (currKuota !== nextKuota || currTerdaftar !== nextTerdaftar)) {
+          await writeLiveSheetViaGas('Master_Jurusan', 'UPDATE', {
+            ...j,
+            id: jId,
+            Kode_Jurusan: jId,
+            Target_Kuota: nextKuota,
+            kuotaSiswa: nextKuota,
+            Siswa_Terdaftar: nextTerdaftar,
+            totalTerdaftar: nextTerdaftar,
+          });
+          updatedJurusan++;
+        }
+      }
+    }
+
+    // C. Kelas student counters
+    if (scope === 'all' || scope === 'kelas' || scope === 'siswa') {
+      const kelasByName = new Map<string, any>();
+      for (const k of kelasList) {
+        const nama = pickField(k, 'Nama_Kelas', 'namaKelas');
+        if (nama) kelasByName.set(norm(nama), k);
+      }
+
+      const kelasCounts = new Map<string, number>();
+      for (const s of siswaList) {
+        const kls = pickField(s, 'Kelas', 'kelas');
+        const matchedKls = kls ? kelasByName.get(norm(kls)) : undefined;
+        if (matchedKls) {
+          const kId = pickField(matchedKls, 'ID_Kelas', 'idKelas', 'id');
+          kelasCounts.set(kId, (kelasCounts.get(kId) || 0) + 1);
+        }
+      }
+
+      for (const k of kelasList) {
+        const kId = pickField(k, 'ID_Kelas', 'idKelas', 'id');
+        const nextCount = kelasCounts.get(kId) || 0;
+        const currCount = Number(k.Jumlah_Siswa ?? k.jumlahSiswa ?? 0) || 0;
+        if (kId && currCount !== nextCount) {
+          await writeLiveSheetViaGas('Master_Kelas_Walas', 'UPDATE', {
+            ...k,
+            id: kId,
+            ID_Kelas: kId,
+            Jumlah_Siswa: nextCount,
+            jumlahSiswa: nextCount,
+          });
+          updatedKelas++;
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      summary: {
+        updatedPlacements: 0,
+        updatedDudi,
+        updatedGuru,
+        updatedJurusan,
+        updatedKelas,
+      },
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// 3. REST Collection Read: GET /api/v1/:resource (?page=&limit=&q=&sort=&order=&fresh=1)
+app.get('/api/v1/:resource', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const tableName = resolveRestTableName(req.params.resource);
+    if (!tableName) {
+      return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
+    }
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Akses resource akun hanya diperbolehkan untuk peran Admin Hubin.',
+      });
+    }
+
+    const fresh = String(req.query.fresh || '') === '1';
+    const { rows, config } = await fetchLiveSheetViaGas(tableName, fresh);
+
+    let filtered = rows;
+    const q = String(req.query.q || '').trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter((row) =>
+        Object.values(row || {}).some((v) => v !== null && v !== undefined && String(v).toLowerCase().includes(q))
+      );
+    }
+
+    const sortCol = String(req.query.sort || '').trim();
+    const sortDir = String(req.query.order || 'asc').toLowerCase() === 'desc' ? -1 : 1;
+    if (sortCol) {
+      filtered = [...filtered].sort((a, b) => {
+        const va = a?.[sortCol];
+        const vb = b?.[sortCol];
+        if (va === vb) return 0;
+        if (va === null || va === undefined) return 1;
+        if (vb === null || vb === undefined) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sortDir;
+        return String(va).localeCompare(String(vb), undefined, { numeric: true }) * sortDir;
+      });
+    }
+
+    const total = filtered.length;
+    const page = Number(req.query.page || 0);
+    const limit = Number(req.query.limit || 0);
+    const isPaginated = page > 0 && limit > 0;
+    const resultData = isPaginated ? filtered.slice((page - 1) * limit, page * limit) : filtered;
+
+    const etag = computeWeakEtag({
+      s: config.spreadsheetId,
+      y: config.activeYear,
+      t: tableName,
+      q,
+      sortCol,
+      sortDir,
+      page,
+      limit,
+      data: resultData,
+    });
+
+    res.setHeader('ETag', etag);
+    if (!fresh && isEtagMatched(req, etag)) {
+      return res.status(304).end();
+    }
+
+    return res.json({
+      success: true,
+      resource: req.params.resource,
+      tableName,
+      spreadsheetId: config.spreadsheetId,
+      etag,
+      data: resultData,
+      meta: {
+        total,
+        page: isPaginated ? page : 1,
+        limit: isPaginated ? limit : total,
+        totalPages: isPaginated ? Math.max(1, Math.ceil(total / limit)) : 1,
+      },
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// 4. REST Single Item Read: GET /api/v1/:resource/:id
+app.get('/api/v1/:resource/:id', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const tableName = resolveRestTableName(req.params.resource);
+    if (!tableName) {
+      return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
+    }
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Akses resource akun hanya diperbolehkan untuk peran Admin Hubin.',
+      });
+    }
+
+    const { rows, config } = await fetchLiveSheetViaGas(tableName, false);
+    const item = rows.find((r) => matchRowById(r, String(req.params.id || '').trim()));
+    if (!item) {
+      return res.status(404).json({ success: false, message: `Data dengan ID [${req.params.id}] tidak ditemukan.` });
+    }
+
+    const etag = computeWeakEtag({ s: config.spreadsheetId, t: tableName, item });
+    res.setHeader('ETag', etag);
+    if (isEtagMatched(req, etag)) {
+      return res.status(304).end();
+    }
+
+    return res.json({
+      success: true,
+      resource: req.params.resource,
+      tableName,
+      data: item,
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// 5. REST Create: POST /api/v1/:resource
+app.post('/api/v1/:resource', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const tableName = resolveRestTableName(req.params.resource);
+    if (!tableName) {
+      return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
+    }
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Hanya Admin Hubin yang berhak menambah akun.',
+      });
+    }
+
+    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    await writeLiveSheetViaGas(tableName, 'CREATE', payload);
+    return res.status(201).json({
+      success: true,
+      resource: req.params.resource,
+      tableName,
+      data: payload,
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// 6. REST Bulk Mutation: POST /api/v1/:resource/bulk
+app.post('/api/v1/:resource/bulk', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const tableName = resolveRestTableName(req.params.resource);
+    if (!tableName) {
+      return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
+    }
+    const { action, data } = req.body || {};
+    const normalizedAction = String(action || '').toUpperCase();
+    const allowedBulk = new Set(['BULK_DELETE', 'BULK_UPDATE', 'IMPORT', 'SYNC_ALL']);
+
+    if (!allowedBulk.has(normalizedAction)) {
+      return res.status(400).json({ success: false, message: 'Aksi bulk tidak valid.' });
+    }
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Hanya Admin Hubin yang berhak mengubah data akun.',
+      });
+    }
+    if (normalizedAction === 'SYNC_ALL' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk peran Admin Hubin.',
+      });
+    }
+
+    await writeLiveSheetViaGas(tableName, normalizedAction as GasWriteAction, data);
+    return res.json({ success: true, resource: req.params.resource, tableName, action: normalizedAction });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// 7. REST Update: PUT & PATCH /api/v1/:resource/:id
+const handleRestUpdate = async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const tableName = resolveRestTableName(req.params.resource);
+    if (!tableName) {
+      return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
+    }
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Hanya Admin Hubin yang berhak mengubah data akun.',
+      });
+    }
+
+    const id = String(req.params.id || '').trim();
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const payload = { ...body, id: body.id || id };
+    await writeLiveSheetViaGas(tableName, 'UPDATE', payload);
+    return res.json({
+      success: true,
+      resource: req.params.resource,
+      tableName,
+      id,
+      data: payload,
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+};
+app.put('/api/v1/:resource/:id', handleRestUpdate);
+app.patch('/api/v1/:resource/:id', handleRestUpdate);
+
+// 8. REST Delete: DELETE /api/v1/:resource/:id
+app.delete('/api/v1/:resource/:id', async (req: Request, res: Response) => {
+  try {
+    const session = await requireAdminAuth(req);
+    const tableName = resolveRestTableName(req.params.resource);
+    if (!tableName) {
+      return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
+    }
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        message: 'Hanya Admin Hubin yang berhak menghapus data akun.',
+      });
+    }
+
+    const id = String(req.params.id || '').trim();
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    await writeLiveSheetViaGas(tableName, 'DELETE', {
+      id,
+      rawId: body.rawId || id,
+      deletedRow: body.deletedRow,
+    });
+    return res.json({
+      success: true,
+      resource: req.params.resource,
+      tableName,
+      id,
+    });
   } catch (err: any) {
     handlePortalError(res, err);
   }
@@ -1371,7 +2114,7 @@ app.get('/api/public/student-lookup/:nis', async (req: Request, res: Response) =
       return res.json({
         success: true,
         found: false,
-        message: `Siswa dengan NIS [${searchNis}] tidak ditemukan di sheet Master Siswa.`,
+        message: `Siswa dengan NIS [${searchNis}] tidak ditemukan di Database Sekolah.`,
       });
     }
 
@@ -1544,7 +2287,7 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
 
     res.json({
       success: true,
-      message: 'Pengajuan PKL berhasil disimpan langsung ke Google Spreadsheet.',
+      message: 'Pengajuan PKL berhasil disimpan langsung ke Cloud Server.',
       application: sheetRow,
     });
   } catch (err: any) {
@@ -1601,7 +2344,7 @@ app.post('/api/public/verify-petugas-pin', async (req: Request, res: Response) =
     if (!teacher) {
       return res.status(404).json({
         success: false,
-        message: 'Data petugas tidak ditemukan di sheet Master_Guru_Pendamping.',
+        message: 'Data petugas tidak ditemukan di Database Cloud Server.',
       });
     }
 
@@ -1618,7 +2361,7 @@ app.post('/api/public/verify-petugas-pin', async (req: Request, res: Response) =
       return res.status(400).json({
         success: false,
         message:
-          'Petugas belum memiliki kolom PIN, NIP, atau No. WA yang valid di Master_Guru_Pendamping untuk verifikasi.',
+          'Petugas belum memiliki PIN atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi.',
       });
     }
 
@@ -2113,7 +2856,7 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
     res.json({
       success: true,
       gradeSynced,
-      message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Google Spreadsheet.`,
+      message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Cloud Server.`,
       monitoring: sheetRow,
     });
   } catch (err: any) {
@@ -2345,7 +3088,7 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
     res.json({
       success: true,
       nilaiSynced,
-      message: `Perubahan nilai PKL ${namaSiswa} (${avgScore}) berhasil disimpan ke Google Spreadsheet.`,
+      message: `Perubahan nilai PKL ${namaSiswa} (${avgScore}) berhasil disimpan ke Cloud Server.`,
       gradeSummary: {
         monitoringId: resolvedMonId,
         k3lh,

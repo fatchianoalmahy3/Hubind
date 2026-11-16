@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FieldConfig } from '../core/types/metadata';
 import { X, Upload, FileSpreadsheet, Download, Check, AlertCircle } from 'lucide-react';
 
-import * as XLSX from 'xlsx';
+import type * as XLSXTypes from 'xlsx';
 
 interface ImportExcelModalProps<T = any> {
   isOpen: boolean;
@@ -20,7 +20,7 @@ export function ImportExcelModal<T extends Record<string, any>>({
   onImport,
 }: ImportExcelModalProps<T>) {
   const [file, setFile] = useState<File | null>(null);
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [workbook, setWorkbook] = useState<XLSXTypes.WorkBook | null>(null);
   const [availableSheets, setAvailableSheets] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [parsedRows, setParsedRows] = useState<any[]>([]);
@@ -55,11 +55,12 @@ export function ImportExcelModal<T extends Record<string, any>>({
 
   const normalizeCol = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  const parseSheetData = (wb: XLSX.WorkBook, sheetName: string) => {
+  const parseSheetData = async (wb: XLSXTypes.WorkBook, sheetName: string) => {
     try {
       const worksheet = wb.Sheets[sheetName];
       if (!worksheet) return;
 
+      const XLSX = await import('xlsx');
       const rawJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
       if (rawJson.length === 0) {
         setErrorMsg(`Sheet [${sheetName}] tidak memiliki data baris`);
@@ -122,6 +123,7 @@ export function ImportExcelModal<T extends Record<string, any>>({
     setErrorMsg(null);
 
     try {
+      const XLSX = await import('xlsx');
       const buffer = await uploadedFile.arrayBuffer();
       const wb = XLSX.read(buffer, { type: 'array' });
       setWorkbook(wb);
@@ -135,7 +137,7 @@ export function ImportExcelModal<T extends Record<string, any>>({
         ) || wb.SheetNames[0];
 
       setSelectedSheet(bestSheet);
-      parseSheetData(wb, bestSheet);
+      await parseSheetData(wb, bestSheet);
     } catch (err: any) {
       setErrorMsg('Gagal membaca file Excel (.xlsx/.csv): ' + err.message);
     }

@@ -51,22 +51,48 @@ export function useDynamicForm<T extends Record<string, any>>(
       if (!f.isFormInput) return;
       const k = String(f.key);
       const val = values[k];
+      const strVal = val === undefined || val === null ? '' : String(val).trim();
+      const isEmpty = strVal === '';
 
-      if (f.validation?.required) {
-        if (val === undefined || val === null || val === '') {
-          newErrors[k] = f.validation.customError || `${f.label} wajib diisi`;
+      if (f.validation?.required && isEmpty) {
+        newErrors[k] = f.validation.customError || `${f.label} wajib diisi`;
+        return;
+      }
+
+      if (isEmpty) return;
+
+      if (f.validation?.minLength !== undefined && strVal.length < f.validation.minLength) {
+        newErrors[k] =
+          f.validation.customError || `${f.label} minimal ${f.validation.minLength} karakter`;
+        return;
+      }
+
+      if (f.validation?.maxLength !== undefined && strVal.length > f.validation.maxLength) {
+        newErrors[k] =
+          f.validation.customError || `${f.label} maksimal ${f.validation.maxLength} karakter`;
+        return;
+      }
+
+      if (f.validation?.pattern) {
+        const regex =
+          typeof f.validation.pattern === 'string'
+            ? new RegExp(f.validation.pattern)
+            : f.validation.pattern;
+        if (!regex.test(strVal)) {
+          newErrors[k] = f.validation.customError || `Format ${f.label} tidak valid`;
+          return;
         }
       }
 
-      if (f.validation?.min !== undefined && typeof val === 'number') {
-        if (val < f.validation.min) {
-          newErrors[k] = `${f.label} minimal ${f.validation.min}`;
+      const numVal = typeof val === 'number' ? val : Number(strVal);
+      if (!isNaN(numVal)) {
+        if (f.validation?.min !== undefined && numVal < f.validation.min) {
+          newErrors[k] = f.validation.customError || `${f.label} minimal ${f.validation.min}`;
+          return;
         }
-      }
-
-      if (f.validation?.max !== undefined && typeof val === 'number') {
-        if (val > f.validation.max) {
-          newErrors[k] = `${f.label} maksimal ${f.validation.max}`;
+        if (f.validation?.max !== undefined && numVal > f.validation.max) {
+          newErrors[k] = f.validation.customError || `${f.label} maksimal ${f.validation.max}`;
+          return;
         }
       }
     });

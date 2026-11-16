@@ -157,7 +157,16 @@ export function DynamicFormModal<T extends Record<string, any>>({
       seed.tanggalKirimSurat = getTodayIsoDate();
     }
     if (formFieldKeys.has('idPenempatan') && !String(seed.idPenempatan || '').trim()) {
-      seed.idPenempatan = generateNextSequentialId('Plotting_Pemberangkatan', existingList as any);
+      seed.idPenempatan =
+        (moduleId === 'sertifikat' && String(seed.id || '').trim()) ||
+        generateNextSequentialId('Plotting_Pemberangkatan', existingList as any);
+    }
+    if (
+      moduleId === 'sertifikat' &&
+      formFieldKeys.has('tanggalTerbit') &&
+      !String(seed.tanggalTerbit || '').trim()
+    ) {
+      seed.tanggalTerbit = getTodayIsoDate();
     }
 
     resetForm(seed as Partial<T>);
@@ -634,6 +643,26 @@ export function DynamicFormModal<T extends Record<string, any>>({
           patch.alamatDudi = '';
         }
       }
+    }
+
+    if (formFieldKeys.has('daftarSiswa') && !cleanPlaceholderDash(values.daftarSiswa) && matched.nama) {
+      patch.daftarSiswa = matched.nis ? `${matched.nama} (${matched.nis})` : matched.nama;
+    }
+    if (
+      formFieldKeys.has('guruPendamping') &&
+      !cleanPlaceholderDash(values.guruPendamping) &&
+      (matched.penempatan?.guruPendamping || matched.pengajuan?.guruPendamping)
+    ) {
+      patch.guruPendamping =
+        matched.penempatan?.guruPendamping || matched.pengajuan?.guruPendamping;
+    }
+    if (
+      moduleId === 'sertifikat' &&
+      isCreateMode &&
+      formFieldKeys.has('idPenempatan') &&
+      matched.penempatan?.idPenempatan
+    ) {
+      patch.idPenempatan = matched.penempatan.idPenempatan;
     }
 
     if (

@@ -61,9 +61,9 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
     return trimmed;
   };
 
-  const handleDownloadXlsx = () => {
+  const handleDownloadXlsx = async () => {
     const fileName = `DATABASE_PKL_SMK_PGRI_2_PONOROGO_TA_${(config.activeYear || '2026_2027').replace('/', '_')}.xlsx`;
-    const success = generateAndDownloadHubinXlsx(fileName);
+    const success = await generateAndDownloadHubinXlsx(fileName);
     if (success) {
       ToastManager.getInstance().show(
         'File Master Excel (.xlsx) Diunduh!',
@@ -113,7 +113,7 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
   };
 
   const gasScriptCode = `/**
- * GOOGLE APPS SCRIPT: AUTO-GENERATE 10 SHEET & GFORM RESMI
+ * GOOGLE APPS SCRIPT: AUTO-GENERATE 11 SHEET & GFORM RESMI
  * SMK PGRI 2 PONOROGO (TA ${config.activeYear || '2026/2027'})
  */
 function autoGenerateAllSheetsAndForm() {
@@ -121,7 +121,7 @@ function autoGenerateAllSheetsAndForm() {
   const year = "${config.activeYear || '2026/2027'}";
 
   const sheetsData = [
-    { name: "Master_Siswa_XI", headers: ["ID", "NIS", "NIK", "Nama_Lengkap", "Jenis_Kelamin", "ID_Jurusan", "Kelas", "No_HP_Siswa", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_PKL"] },
+    { name: "Master_Siswa_XI", headers: ["ID", "NIS", "NIK", "Nama_Lengkap", "Jenis_Kelamin", "ID_Jurusan", "Kelas", "No_HP_Siswa", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_PKL", "Foto_URL"] },
     { name: "Master_Jurusan", headers: ["ID", "Kode", "Nama_Jurusan", "Nama_Kakomli", "NIP_Kakomli", "Kontak_WA", "Kuota_Siswa", "Total_Terdaftar"] },
     { name: "Master_Kelas_Walas", headers: ["ID", "Nama_Kelas", "Jurusan", "Tingkat", "Wali_Kelas", "Kontak_Walas", "Jumlah_Siswa"] },
     { name: "Master_DUDI", headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_Pemimpin", "Nama_PIC", "Kontak_PIC", "No_Telp_DUDI", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"] },
@@ -262,10 +262,10 @@ function autoGenerateAllSheetsAndForm() {
                     </div>
                     <div>
                       <h4 className="font-bold text-slate-900 text-sm group-hover:text-emerald-700">
-                        Opsi A: Auto-Generate 10 Tabel Baru
+                        Opsi A: Auto-Generate 11 Tabel Baru
                       </h4>
                       <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                        Belum memiliki struktur database atau ingin tahun ajaran baru? Siapkan 10 tabel server terstandar lengkap dengan kolom resmi.
+                        Belum memiliki struktur database atau ingin tahun ajaran baru? Siapkan 11 tabel server terstandar lengkap dengan kolom resmi.
                       </p>
                     </div>
                   </div>
@@ -302,7 +302,7 @@ function autoGenerateAllSheetsAndForm() {
 
               <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs space-y-1.5">
                 <span className="font-bold text-slate-700 block text-[11px]">
-                  10 Entitas Tabel Server Terkelola:
+                  11 Entitas Tabel Server Terkelola:
                 </span>
                 <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-slate-600">
                   {HUBIN_SHEETS_BLUEPRINT.map((s) => (
@@ -356,10 +356,10 @@ function autoGenerateAllSheetsAndForm() {
                       </div>
                       <div>
                         <h4 className="font-bold text-slate-800 text-sm">
-                          DATABASE_PKL_SMK_PGRI_2_PONOROGO_10_TABLES.xlsx
+                          DATABASE_PKL_SMK_PGRI_2_PONOROGO_11_TABLES.xlsx
                         </h4>
                         <p className="text-[11px] text-slate-500">
-                          File Master Excel 10 Tabel Lengkap dengan header kolom terstandar siap isi data sekolah.
+                          File Master Excel 11 Tabel Lengkap dengan header kolom terstandar siap isi data sekolah.
                         </p>
                       </div>
                     </div>

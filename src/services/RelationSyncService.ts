@@ -5,6 +5,7 @@ import { JurusanService } from './JurusanService';
 import { KelasService } from './KelasService';
 import { SiswaPklService } from './SiswaPklService';
 import { SiswaService } from './SiswaService';
+import { GoogleSheetClient } from '../core/GoogleSheetClient';
 
 export interface RelationSyncSummary {
   updatedPlacements: number;
@@ -279,6 +280,11 @@ export class RelationSyncService {
    * Lightweight automatic sync triggered after mutations on dependent modules.
    */
   public async syncAfterMutation(moduleId: string): Promise<void> {
+    const serverRes = await GoogleSheetClient.getInstance()
+      .recalculateRelationsOnServer(moduleId)
+      .catch(() => ({ handledByServer: false }));
+    if (serverRes.handledByServer) return;
+
     if (moduleId === 'siswa') {
       await Promise.all([
         this.syncJurusanCounts({ silentToast: true }),
@@ -301,6 +307,14 @@ export class RelationSyncService {
    * Automatic sync when viewing summary/master modules so counts stay live.
    */
   public async syncForModuleView(moduleId: string): Promise<number> {
+    const serverRes = await GoogleSheetClient.getInstance()
+      .recalculateRelationsOnServer(moduleId)
+      .catch(() => ({ handledByServer: false, summary: undefined }));
+    if (serverRes.handledByServer && serverRes.summary) {
+      const s = serverRes.summary;
+      return s.updatedDudi + s.updatedGuru + s.updatedJurusan + s.updatedKelas;
+    }
+
     if (moduleId === 'jurusan') {
       const { updatedJurusan } = await this.syncJurusanCounts({ silentToast: true });
       return updatedJurusan;
@@ -323,6 +337,15 @@ export class RelationSyncService {
   public async recalculateAllRelations(
     options: { backfillIds?: boolean } = {}
   ): Promise<RelationSyncSummary> {
+    if (!options.backfillIds) {
+      const serverRes = await GoogleSheetClient.getInstance()
+        .recalculateRelationsOnServer('all')
+        .catch(() => ({ handledByServer: false, summary: undefined }));
+      if (serverRes.handledByServer && serverRes.summary) {
+        return serverRes.summary;
+      }
+    }
+
     const siswaService = SiswaService.getInstance();
     const dudiService = DudiService.getInstance();
     const guruService = GuruService.getInstance();

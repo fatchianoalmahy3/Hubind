@@ -128,6 +128,15 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       validation: { required: true },
     },
     {
+      key: 'alamatDudi',
+      label: 'Alamat DUDI',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      isSearchable: true,
+      placeholder: 'Terisi otomatis saat memilih DUDI atau ketik manual',
+    },
+    {
       key: 'bidangPekerjaan',
       label: 'Bidang Pekerjaan',
       type: 'text',

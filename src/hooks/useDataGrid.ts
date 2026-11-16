@@ -28,8 +28,10 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const lastVisibleFetchRef = useRef<number>(0);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent && !repository.hasHydratedData()) {
+      setLoading(true);
+    }
     setLoadError(null);
     try {
       await repository.ensureInitialized();
@@ -56,7 +58,10 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   useEffect(() => {
     const client = GoogleSheetClient.getInstance();
     const unsubConfig = client.addChangeListener(() => {
-      fetchData();
+      fetchData(true);
+    });
+    const unsubRepo = repository.onDataUpdated(() => {
+      fetchData(true);
     });
 
     const onVisibilityOrFocus = () => {
@@ -64,7 +69,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
         (typeof document === 'undefined' || document.visibilityState === 'visible') &&
         Date.now() - lastVisibleFetchRef.current > 20_000
       ) {
-        fetchData();
+        fetchData(true);
       }
     };
     if (typeof document !== 'undefined') {
@@ -76,6 +81,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
 
     return () => {
       unsubConfig();
+      unsubRepo();
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibilityOrFocus);
       }
@@ -83,7 +89,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
         window.removeEventListener('focus', onVisibilityOrFocus);
       }
     };
-  }, [fetchData]);
+  }, [fetchData, repository]);
 
   const handleSort = (columnKey: string) => {
     setSort((prev) => {

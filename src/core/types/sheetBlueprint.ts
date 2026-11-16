@@ -30,6 +30,7 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
       'Nama_Ortu_Wali',
       'No_Ortu_Wali',
       'Status_PKL',
+      'Foto_URL',
     ],
     sampleData: [],
   },

@@ -1,16 +1,16 @@
-import * as XLSX from 'xlsx';
+import type * as XLSXTypes from 'xlsx';
 import { HUBIN_SHEETS_BLUEPRINT, SheetDefinition } from '../types/sheetBlueprint';
 
-export function generateAndDownloadHubinXlsx(
+export async function generateAndDownloadHubinXlsx(
   fileName: string = 'Template_Lengkap_Hubin_SMK_PGRI_2_Ponorogo.xlsx',
   customBlueprint: SheetDefinition[] = HUBIN_SHEETS_BLUEPRINT
-): boolean {
+): Promise<boolean> {
   try {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
 
     customBlueprint.forEach((def) => {
-      // Create worksheet from sample data or headers
-      let ws: XLSX.WorkSheet;
+      let ws: XLSXTypes.WorkSheet;
 
       if (def.sampleData && def.sampleData.length > 0) {
         ws = XLSX.utils.json_to_sheet(def.sampleData, { header: def.headers });
@@ -18,7 +18,6 @@ export function generateAndDownloadHubinXlsx(
         ws = XLSX.utils.aoa_to_sheet([def.headers]);
       }
 
-      // Calculate auto column widths
       const colWidths = def.headers.map((h) => {
         let maxLen = h.length;
         if (def.sampleData) {
@@ -31,12 +30,10 @@ export function generateAndDownloadHubinXlsx(
       });
       ws['!cols'] = colWidths;
 
-      // Add worksheet to workbook with sheetName (max 31 chars required by Excel)
       const sanitizedName = def.sheetName.substring(0, 31);
       XLSX.utils.book_append_sheet(workbook, ws, sanitizedName);
     });
 
-    // Write and trigger download in browser
     XLSX.writeFile(workbook, fileName);
     return true;
   } catch (error) {
@@ -45,11 +42,12 @@ export function generateAndDownloadHubinXlsx(
   }
 }
 
-export function downloadSingleSheetCsv(
+export async function downloadSingleSheetCsv(
   sheetName: string,
   headers: string[],
   data: any[]
-): void {
+): Promise<void> {
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.json_to_sheet(data, { header: headers });
   const csv = XLSX.utils.sheet_to_csv(ws);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

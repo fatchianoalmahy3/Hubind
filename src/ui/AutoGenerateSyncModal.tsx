@@ -67,20 +67,20 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
     }
   };
 
-  const handleDownloadXlsx = () => {
-    const fileName = `Hubin_SMK_PGRI_2_Ponorogo_10_Sheets_TA_${config.activeYear.replace('/', '_')}.xlsx`;
-    const success = generateAndDownloadHubinXlsx(fileName);
+  const handleDownloadXlsx = async () => {
+    const fileName = `Hubin_SMK_PGRI_2_Ponorogo_11_Tabel_TA_${config.activeYear.replace('/', '_')}.xlsx`;
+    const success = await generateAndDownloadHubinXlsx(fileName);
     if (success) {
       ToastManager.getInstance().show(
         'File Master Excel (.xlsx) Berhasil Diunduh!',
         'success',
-        `File ${fileName} berisi 10 tabel lengkap siap diunggah.`
+        `File ${fileName} berisi 11 tabel lengkap siap diunggah.`
       );
     }
   };
 
-  const handleDownloadSingleCsv = (def: SheetDefinition) => {
-    downloadSingleSheetCsv(def.sheetName, def.headers, def.sampleData);
+  const handleDownloadSingleCsv = async (def: SheetDefinition) => {
+    await downloadSingleSheetCsv(def.sheetName, def.headers, def.sampleData);
     ToastManager.getInstance().show(
       'File CSV Diunduh',
       'info',
@@ -90,12 +90,12 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
 
   const gasScriptCode = `/**
  * ============================================================================
- * GOOGLE APPS SCRIPT: AUTO GENERATE 10 SHEET & GOOGLE FORM TERPISAH
+ * GOOGLE APPS SCRIPT: AUTO GENERATE 11 SHEET & FORMULIR TERPISAH
  * HUBIN SMK PGRI 2 PONOROGO (TA ${config.activeYear})
  * ============================================================================
  * 
  * Jalankan fungsi "autoGenerateAllSheetsAndForm" di bawah ini satu kali:
- * 1. Buka spreadsheet Anda -> Ekstensi -> Apps Script.
+ * 1. Buka konsol Database Server Anda -> Ekstensi -> Apps Script.
  * 2. Tempelkan kode ini.
  * 3. Pilih fungsi "autoGenerateAllSheetsAndForm", lalu klik "Run".
  */
@@ -103,12 +103,12 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
 function autoGenerateAllSheetsAndForm() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const year = "${config.activeYear}";
-  Logger.log("=== MEMULAI GENERASI 10 SHEET & GFORM UNTUK TA " + year + " ===");
+  Logger.log("=== MEMULAI GENERASI 11 TABEL & FORMULIR UNTUK TA " + year + " ===");
 
   const sheetsData = [
     {
       name: "Master_Siswa_XI",
-      headers: ["ID", "NIS", "NIK", "Nama_Lengkap", "Jenis_Kelamin", "ID_Jurusan", "Kelas", "No_HP_Siswa", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_PKL"]
+      headers: ["ID", "NIS", "NIK", "Nama_Lengkap", "Jenis_Kelamin", "ID_Jurusan", "Kelas", "No_HP_Siswa", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_PKL", "Foto_URL"]
     },
     {
       name: "Master_Jurusan",
@@ -152,7 +152,7 @@ function autoGenerateAllSheetsAndForm() {
     }
   ];
 
-  // 1. Buat / Format 10 Sheet Terpisah
+  // 1. Buat / Format 11 Tabel Terpisah
   sheetsData.forEach(function(item, index) {
     let sheet = ss.getSheetByName(item.name);
     if (!sheet) {
@@ -198,7 +198,7 @@ function autoGenerateAllSheetsAndForm() {
   form.addTextItem().setTitle("Bidang Pekerjaan / Usaha").setRequired(true);
   form.addTextItem().setTitle("No. WhatsApp Aktif Siswa").setRequired(true);
 
-  Logger.log("SUKSES: 10 Sheet dan Google Form siap digunakan!");
+  Logger.log("SUKSES: 11 Tabel dan Formulir siap digunakan!");
   Logger.log("Link Form Siswa: " + form.getPublishedUrl());
 }
 `;
@@ -229,7 +229,7 @@ function autoGenerateAllSheetsAndForm() {
                   Inisialisasi &amp; Blueprint Struktur Server
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  10 Tabel Server
+                  11 Tabel Server
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -276,7 +276,7 @@ function autoGenerateAllSheetsAndForm() {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            3. Blueprint 10 Tabel Server
+            3. Blueprint 11 Tabel Server
           </button>
           <button
             onClick={() => setActiveTab('script')}
@@ -298,10 +298,10 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-200/80 rounded-2xl text-xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Otomatisasi Struktur 10 Tabel Cloud Server:</span>
+                  <span>Otomatisasi Struktur 11 Tabel Cloud Server:</span>
                 </div>
                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                  Fitur ini secara instan menyiapkan seluruh skema Database Cloud Server ke dalam <b>10 entitas tabel terpisah</b>, menata struktur kolom terstandar, dan menyiapkan entitas pengajuan PKL siswa agar tersinkronisasi penuh.
+                  Fitur ini secara instan menyiapkan seluruh skema Database Cloud Server ke dalam <b>11 entitas tabel terpisah</b>, menata struktur kolom terstandar, dan menyiapkan entitas pengajuan PKL siswa agar tersinkronisasi penuh.
                 </p>
               </div>
 
@@ -409,7 +409,7 @@ function autoGenerateAllSheetsAndForm() {
               {/* Summary of 10 Server Tables */}
               <div className="border border-slate-200 rounded-2xl p-4 bg-white space-y-2 text-xs">
                 <div className="font-bold text-slate-800">
-                  Daftar 10 Tabel Server yang Digenerate:
+                  Daftar 11 Tabel Server yang Digenerate:
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                   {HUBIN_SHEETS_BLUEPRINT.map((s, idx) => (
@@ -439,13 +439,13 @@ function autoGenerateAllSheetsAndForm() {
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
                     <span className="font-bold text-emerald-700 block">Cara 1 (Template Excel):</span>
                     <p className="text-slate-500">
-                      Buka tab <b>&quot;Download File Master Excel (.xlsx)&quot;</b>, unduh file 10 tabel lengkap, lalu impor ke node database server Anda.
+                      Buka tab <b>&quot;Download File Master Excel (.xlsx)&quot;</b>, unduh file 11 tabel lengkap, lalu impor ke node database server Anda.
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
                     <span className="font-bold text-blue-700 block">Cara 2 (Otomatisasi ID Server):</span>
                     <p className="text-slate-500">
-                      Tempelkan ID Database Server kosong Anda ke kolom di atas, lalu klik <b>&quot;Inisialisasi Server Sekarang&quot;</b> untuk menyiapkan 10 tabel secara otomatis.
+                      Tempelkan ID Database Server kosong Anda ke kolom di atas, lalu klik <b>&quot;Inisialisasi Server Sekarang&quot;</b> untuk menyiapkan 11 tabel secara otomatis.
                     </p>
                   </div>
                 </div>
@@ -459,10 +459,10 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-2 text-blue-900">
                 <div className="font-bold flex items-center gap-1.5 text-sm">
                   <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                  <span>Download File Master Excel (.xlsx) Lengkap 10 Tabel:</span>
+                  <span>Download File Master Excel (.xlsx) Lengkap 11 Tabel:</span>
                 </div>
                 <p className="text-[11px] text-blue-800 leading-relaxed">
-                  Unduh file master Excel <b>.xlsx</b> ini apabila ingin mengimpor struktur 10 tabel terstandar sekaligus ke node database server Anda.
+                  Unduh file master Excel <b>.xlsx</b> ini apabila ingin mengimpor struktur 11 tabel terstandar sekaligus ke node database server Anda.
                 </p>
               </div>
 
@@ -476,7 +476,7 @@ function autoGenerateAllSheetsAndForm() {
                       Template_Lengkap_Hubin_SMK_PGRI_2_Ponorogo.xlsx
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      File Master Excel 10 Tabel • Format Kolom Auto-Width • Data Master 9 Jurusan &amp; Mitra DUDI
+                      File Master Excel 11 Tabel • Format Kolom Auto-Width • Data Master 9 Jurusan &amp; Mitra DUDI
                     </p>
                   </div>
                 </div>
@@ -498,19 +498,19 @@ function autoGenerateAllSheetsAndForm() {
                   <li>Unduh file Master Excel <code>.xlsx</code> di atas.</li>
                   <li>Buka panel database server Anda pada menu Konfigurasi Server.</li>
                   <li>Pilih menu <b>File</b> &rarr; <b>Impor (Import)</b> &rarr; <b>Upload</b> &rarr; pilih file <code>.xlsx</code> tadi.</li>
-                  <li>Pilih opsi ganti / sisipkan tabel agar 10 struktur tabel baku langsung terbentuk.</li>
-                  <li>Selesai! 10 entitas tabel server langsung siap dipakai seluruh pengguna.</li>
+                  <li>Pilih opsi ganti / sisipkan tabel agar 11 struktur tabel baku langsung terbentuk.</li>
+                  <li>Selesai! 11 entitas tabel server langsung siap dipakai seluruh pengguna.</li>
                 </ol>
               </div>
             </div>
           )}
 
-          {/* TAB 3: BLUEPRINT 10 TABEL SERVER */}
+          {/* TAB 3: BLUEPRINT 11 TABEL SERVER */}
           {activeTab === 'blueprint' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Rincian spesifikasi 10 tabel server beserta struktur kolom bakunya:</span>
-                <span className="font-bold text-emerald-700">10 Tabel Baku</span>
+                <span>Rincian spesifikasi 11 tabel server beserta struktur kolom bakunya:</span>
+                <span className="font-bold text-emerald-700">11 Tabel Baku</span>
               </div>
 
               <div className="space-y-2.5">

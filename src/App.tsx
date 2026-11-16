@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -45,23 +45,51 @@ import { SiswaPklService } from './services/SiswaPklService';
 import { MonitoringService } from './services/MonitoringService';
 import { SertifikatService } from './services/SertifikatService';
 
-// Modals & Apple Components
-import { StudentGFormSimulatorModal } from './ui/StudentGFormSimulatorModal';
-import { GoogleDocsPreviewModal } from './ui/GoogleDocsPreviewModal';
-import { GasScriptModal } from './ui/GasScriptModal';
-import { SpreadsheetConfigModal } from './ui/SpreadsheetConfigModal';
-import { AutoGenerateSyncModal } from './ui/AutoGenerateSyncModal';
-import { SetupWizardModal } from './ui/SetupWizardModal';
 import { AppleToastContainer } from './ui/AppleToastContainer';
-import { WorkspaceHubPage } from './ui/WorkspaceHubPage';
 import { PublicLandingPage } from './ui/PublicLandingPage';
-import { LoginModal } from './ui/LoginModal';
-import { StudentApplicationWizard } from './ui/StudentApplicationWizard';
-import { TeacherMonitoringPortal } from './ui/TeacherMonitoringPortal';
-import { GoogleDocsTemplateManagerModal } from './ui/GoogleDocsTemplateManagerModal';
-import { DocumentHubPage, DocumentHubKey } from './ui/DocumentHubPage';
-import { AccountManagementModal } from './ui/AccountManagementModal';
+import type { DocumentHubKey } from './ui/DocumentHubPage';
 import { ToastManager } from './core/ToastManager';
+
+// Code-split heavy modals & secondary views for instant initial load
+const StudentGFormSimulatorModal = lazy(() =>
+  import('./ui/StudentGFormSimulatorModal').then((m) => ({ default: m.StudentGFormSimulatorModal }))
+);
+const GoogleDocsPreviewModal = lazy(() =>
+  import('./ui/GoogleDocsPreviewModal').then((m) => ({ default: m.GoogleDocsPreviewModal }))
+);
+const GasScriptModal = lazy(() =>
+  import('./ui/GasScriptModal').then((m) => ({ default: m.GasScriptModal }))
+);
+const SpreadsheetConfigModal = lazy(() =>
+  import('./ui/SpreadsheetConfigModal').then((m) => ({ default: m.SpreadsheetConfigModal }))
+);
+const AutoGenerateSyncModal = lazy(() =>
+  import('./ui/AutoGenerateSyncModal').then((m) => ({ default: m.AutoGenerateSyncModal }))
+);
+const SetupWizardModal = lazy(() =>
+  import('./ui/SetupWizardModal').then((m) => ({ default: m.SetupWizardModal }))
+);
+const WorkspaceHubPage = lazy(() =>
+  import('./ui/WorkspaceHubPage').then((m) => ({ default: m.WorkspaceHubPage }))
+);
+const LoginModal = lazy(() =>
+  import('./ui/LoginModal').then((m) => ({ default: m.LoginModal }))
+);
+const StudentApplicationWizard = lazy(() =>
+  import('./ui/StudentApplicationWizard').then((m) => ({ default: m.StudentApplicationWizard }))
+);
+const TeacherMonitoringPortal = lazy(() =>
+  import('./ui/TeacherMonitoringPortal').then((m) => ({ default: m.TeacherMonitoringPortal }))
+);
+const GoogleDocsTemplateManagerModal = lazy(() =>
+  import('./ui/GoogleDocsTemplateManagerModal').then((m) => ({ default: m.GoogleDocsTemplateManagerModal }))
+);
+const DocumentHubPage = lazy(() =>
+  import('./ui/DocumentHubPage').then((m) => ({ default: m.DocumentHubPage }))
+);
+const AccountManagementModal = lazy(() =>
+  import('./ui/AccountManagementModal').then((m) => ({ default: m.AccountManagementModal }))
+);
 
 const UI_SESSION_KEY = 'hubin_ui_session';
 
@@ -205,9 +233,20 @@ export default function App() {
       return;
     }
 
-    setVerification((prev) => ({ ...prev, checking: true, spreadsheetId: activeId }));
+    setVerification((prev) => ({
+      ...prev,
+      checking: true,
+      connected: true, // Non-blocking optimistic connection while background health check runs
+      spreadsheetId: activeId,
+      error: undefined,
+    }));
 
-    const gasRes = await googleClient.pingGasConnection();
+    // Run single-request bootstrap & health ping in parallel without blocking initial module render
+    const [, gasRes] = await Promise.all([
+      googleClient.bootstrapAdminTables(false).catch(() => false),
+      googleClient.pingGasConnection(),
+    ]);
+
     if (gasRes.connected) {
       setVerification({
         checking: false,
@@ -280,7 +319,10 @@ export default function App() {
   const handleSyncAll = async () => {
     setGlobalSyncing(true);
     try {
-      await runConnectionVerification();
+      await Promise.all([
+        runConnectionVerification(),
+        googleClient.bootstrapAdminTables(true),
+      ]);
       if (currentModule.startsWith('doc_')) {
         await Promise.all([
           DudiService.getInstance().reloadFromSpreadsheet().catch(() => null),
@@ -531,18 +573,27 @@ export default function App() {
   const renderActiveModule = () => {
     if (currentModule === 'workspace' && userRole === 'Hubin') {
       return (
-        <WorkspaceHubPage
-          onOpenGasModal={() => setIsGasOpen(true)}
-          onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          onOpenAutoGenerate={() => setIsAutoGenerateOpen(true)}
-          onOpenWizard={() => setIsWizardOpen(true)}
-          onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
-        />
+        <Suspense
+          fallback={
+            <div className="py-12 flex items-center justify-center text-xs text-slate-500">
+              Memuat Pusat Berkas &amp; Konfigurasi Server...
+            </div>
+          }
+        >
+          <WorkspaceHubPage
+            onOpenGasModal={() => setIsGasOpen(true)}
+            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
+            onOpenAutoGenerate={() => setIsAutoGenerateOpen(true)}
+            onOpenWizard={() => setIsWizardOpen(true)}
+            onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
+          />
+        </Suspense>
       );
     }
 
-    // Enforce Cloud Server Connection Gate for operational modules
-    if (!verification.connected) {
+    // Non-blocking startup: only show Connection Gate if config is missing or background check explicitly failed
+    const hasConfiguredServer = Boolean(configSnapshot.spreadsheetId && configSnapshot.gasDeployUrl);
+    if (!hasConfiguredServer || (!verification.checking && !verification.connected)) {
       return renderConnectionGate();
     }
 
@@ -671,12 +722,20 @@ export default function App() {
       case 'doc_monitoring':
       case 'doc_penarikan':
         return (
-          <DocumentHubPage
-            key={`${currentModule}_${configSnapshot.spreadsheetId}`}
-            activeDocKey={currentModule as DocumentHubKey}
-            onSelectDocKey={(k) => setCurrentModule(k)}
-            onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
-          />
+          <Suspense
+            fallback={
+              <div className="py-12 flex items-center justify-center text-xs text-slate-500">
+                Memuat Pusat Dokumen...
+              </div>
+            }
+          >
+            <DocumentHubPage
+              key={`${currentModule}_${configSnapshot.spreadsheetId}`}
+              activeDocKey={currentModule as DocumentHubKey}
+              onSelectDocKey={(k) => setCurrentModule(k)}
+              onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
+            />
+          </Suspense>
         );
       case 'pengajuan':
       default:
@@ -847,90 +906,114 @@ export default function App() {
         </>
       )}
 
-      {/* Global Interactive Portals & Modals */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
-      />
+      {/* Global Interactive Portals & Modals (Lazy-loaded on demand) */}
+      <Suspense fallback={null}>
+        {isLoginModalOpen && (
+          <LoginModal
+            isOpen={isLoginModalOpen}
+            onClose={() => setIsLoginModalOpen(false)}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        )}
 
-      <StudentApplicationWizard
-        isOpen={isStudentWizardOpen}
-        onClose={() => setIsStudentWizardOpen(false)}
-        onSuccessOpenDocs={(submitted) => {
-          openDocsForStudent(submitted);
-        }}
-      />
+        {isStudentWizardOpen && (
+          <StudentApplicationWizard
+            isOpen={isStudentWizardOpen}
+            onClose={() => setIsStudentWizardOpen(false)}
+            onSuccessOpenDocs={(submitted) => {
+              openDocsForStudent(submitted);
+            }}
+          />
+        )}
 
-      <TeacherMonitoringPortal
-        isOpen={isTeacherMonitoringOpen}
-        onClose={() => setIsTeacherMonitoringOpen(false)}
-        onSuccess={() => setRefreshState((prev) => prev + 1)}
-      />
+        {isTeacherMonitoringOpen && (
+          <TeacherMonitoringPortal
+            isOpen={isTeacherMonitoringOpen}
+            onClose={() => setIsTeacherMonitoringOpen(false)}
+            onSuccess={() => setRefreshState((prev) => prev + 1)}
+          />
+        )}
 
-      <GoogleDocsTemplateManagerModal
-        isOpen={isTemplateManagerOpen}
-        onClose={() => setIsTemplateManagerOpen(false)}
-        onUpdated={() => setRefreshState((prev) => prev + 1)}
-      />
+        {isTemplateManagerOpen && (
+          <GoogleDocsTemplateManagerModal
+            isOpen={isTemplateManagerOpen}
+            onClose={() => setIsTemplateManagerOpen(false)}
+            onUpdated={() => setRefreshState((prev) => prev + 1)}
+          />
+        )}
 
-      <SetupWizardModal
-        isOpen={isWizardOpen}
-        onClose={() => setIsWizardOpen(false)}
-        onConfigured={() => {
-          runConnectionVerification();
-          setRefreshState((prev) => prev + 1);
-        }}
-      />
+        {isWizardOpen && (
+          <SetupWizardModal
+            isOpen={isWizardOpen}
+            onClose={() => setIsWizardOpen(false)}
+            onConfigured={() => {
+              runConnectionVerification();
+              setRefreshState((prev) => prev + 1);
+            }}
+          />
+        )}
 
-      <StudentGFormSimulatorModal
-        isOpen={isSimulatorOpen}
-        onClose={() => setIsSimulatorOpen(false)}
-        onFormSubmitted={() => {
-          setCurrentModule('pengajuan');
-        }}
-      />
+        {isSimulatorOpen && (
+          <StudentGFormSimulatorModal
+            isOpen={isSimulatorOpen}
+            onClose={() => setIsSimulatorOpen(false)}
+            onFormSubmitted={() => {
+              setCurrentModule('pengajuan');
+            }}
+          />
+        )}
 
-      <GoogleDocsPreviewModal
-        isOpen={isDocsOpen}
-        onClose={() => setIsDocsOpen(false)}
-        selectedStudent={selectedStudentForDocs}
-        selectedStudents={selectedStudentsListForDocs}
-        allStudents={allStudentsListForDocs}
-      />
+        {isDocsOpen && (
+          <GoogleDocsPreviewModal
+            isOpen={isDocsOpen}
+            onClose={() => setIsDocsOpen(false)}
+            selectedStudent={selectedStudentForDocs}
+            selectedStudents={selectedStudentsListForDocs}
+            allStudents={allStudentsListForDocs}
+          />
+        )}
 
-      <GasScriptModal
-        isOpen={isGasOpen}
-        onClose={() => setIsGasOpen(false)}
-      />
+        {isGasOpen && (
+          <GasScriptModal
+            isOpen={isGasOpen}
+            onClose={() => setIsGasOpen(false)}
+          />
+        )}
 
-      <SpreadsheetConfigModal
-        isOpen={isSheetConfigOpen}
-        onClose={() => setIsSheetConfigOpen(false)}
-        onConfigUpdated={() => {
-          runConnectionVerification();
-          setRefreshState((prev) => prev + 1);
-        }}
-      />
+        {isSheetConfigOpen && (
+          <SpreadsheetConfigModal
+            isOpen={isSheetConfigOpen}
+            onClose={() => setIsSheetConfigOpen(false)}
+            onConfigUpdated={() => {
+              runConnectionVerification();
+              setRefreshState((prev) => prev + 1);
+            }}
+          />
+        )}
 
-      <AutoGenerateSyncModal
-        isOpen={isAutoGenerateOpen}
-        onClose={() => setIsAutoGenerateOpen(false)}
-        onSuccess={() => {
-          runConnectionVerification();
-          setRefreshState((prev) => prev + 1);
-        }}
-      />
+        {isAutoGenerateOpen && (
+          <AutoGenerateSyncModal
+            isOpen={isAutoGenerateOpen}
+            onClose={() => setIsAutoGenerateOpen(false)}
+            onSuccess={() => {
+              runConnectionVerification();
+              setRefreshState((prev) => prev + 1);
+            }}
+          />
+        )}
 
-      <AccountManagementModal
-        isOpen={isAccountModalOpen}
-        onClose={() => setIsAccountModalOpen(false)}
-        currentUser={currentUser}
-        onCurrentUserUpdated={(updatedUser) => {
-          setCurrentUser(updatedUser);
-          setUserRole(updatedUser.role);
-        }}
-      />
+        {isAccountModalOpen && (
+          <AccountManagementModal
+            isOpen={isAccountModalOpen}
+            onClose={() => setIsAccountModalOpen(false)}
+            currentUser={currentUser}
+            onCurrentUserUpdated={(updatedUser) => {
+              setCurrentUser(updatedUser);
+              setUserRole(updatedUser.role);
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

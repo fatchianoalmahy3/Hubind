@@ -16,6 +16,25 @@ import {
   formatGasNetworkError,
   isBackendProxyUnavailableError,
 } from './utils/safeFetchJson';
+import { IndexedDbSheetCache } from './cache/IndexedDbSheetCache';
+
+const SHEET_TO_REST_RESOURCE: Record<string, string> = {
+  Master_Siswa_XI: 'students',
+  Master_Siswa: 'students',
+  Master_Jurusan: 'majors',
+  Master_Kelas_Walas: 'classes',
+  Master_DUDI: 'dudi',
+  Master_Guru_Pendamping: 'teachers',
+  Data_Pengajuan_PKL: 'submissions',
+  Data_Perizinan_PKL: 'permits',
+  Plotting_Pemberangkatan: 'placements',
+  Monitoring_5_Tahap: 'monitoring',
+  Monitoring_6_Tahap: 'monitoring',
+  Monitoring_8_Tahap: 'monitoring',
+  Monitoring_PKL: 'monitoring',
+  Nilai_Dan_Sertifikat: 'certificates',
+  Master_Akun: 'accounts',
+};
 
 export interface AcademicYearConfig {
   year: string;
@@ -73,7 +92,9 @@ export class GoogleSheetClient {
     string,
     Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string }>
   >();
-  private clientSheetCache = new Map<string, { data: any[]; fetchedAt: number }>();
+  private clientSheetCache = new Map<string, { data: any[]; fetchedAt: number; etag?: string }>();
+  private bootstrapPromise: Promise<boolean> | null = null;
+  private bootstrapEtag: string | null = null;
   private cacheInvalidationListeners = new Set<(sheetName?: string) => void>();
   private broadcastChannel: BroadcastChannel | null = null;
   private static readonly CLIENT_SHEET_CACHE_TTL_MS = 15_000;
@@ -823,14 +844,59 @@ export class GoogleSheetClient {
     };
   }
 
+  public async getCachedSnapshot(
+    sheetName: string
+  ): Promise<{ data: any[]; etag?: string; updatedAt: number } | null> {
+    if (!this.spreadsheetId) return null;
+    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
+    const inMem = this.clientSheetCache.get(cacheKey);
+    if (inMem) {
+      return { data: inMem.data, etag: inMem.etag, updatedAt: inMem.fetchedAt };
+    }
+    const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
+    const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
+    if (fromIdb) {
+      this.clientSheetCache.set(cacheKey, {
+        data: fromIdb.data,
+        fetchedAt: fromIdb.updatedAt,
+        etag: fromIdb.etag,
+      });
+      return { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
+    }
+    return null;
+  }
+
+  public async saveCachedSnapshot(
+    sheetName: string,
+    rows: any[],
+    etag?: string
+  ): Promise<void> {
+    if (!this.spreadsheetId) return;
+    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
+    const now = Date.now();
+    this.clientSheetCache.set(cacheKey, { data: rows, fetchedAt: now, etag });
+    const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
+    await IndexedDbSheetCache.getInstance().set(idbKey, rows, etag).catch(() => {});
+  }
+
   public invalidateClientSheetCache(sheetName?: string, fromBroadcast: boolean = false): void {
+    const idb = IndexedDbSheetCache.getInstance();
     if (!sheetName) {
       this.clientSheetCache.clear();
+      this.bootstrapEtag = null;
+      idb.clearAll().catch(() => {});
     } else {
       this.clientSheetCache.delete(`${this.spreadsheetId}::${sheetName}`);
+      this.bootstrapEtag = null;
+      if (this.spreadsheetId) {
+        idb.delete(IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName)).catch(() => {});
+      }
       if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
         this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa_XI`);
         this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa`);
+        if (this.spreadsheetId) {
+          idb.delete(IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, 'Master_Siswa_XI')).catch(() => {});
+        }
       }
     }
 
@@ -852,13 +918,84 @@ export class GoogleSheetClient {
   }
 
   /**
-   * 100% SSOT Fetch directly from Google Spreadsheet via Server Proxy / Cloud GAS Web App
-   * Uses in-flight request deduplication and short client cache to keep navigation snappy & cross-device fresh.
+   * Single-request Admin Bootstrap via GET /api/v1/bootstrap.
+   * Pre-warms RAM and IndexedDB for all active master & operational tables in 1 HTTP call.
+   */
+  public async bootstrapAdminTables(forceFresh: boolean = false): Promise<boolean> {
+    if (!this.spreadsheetId || !this.gasDeployUrl || !this.isOnline) {
+      return false;
+    }
+    if (!forceFresh && this.bootstrapPromise) {
+      return this.bootstrapPromise;
+    }
+
+    this.bootstrapPromise = (async () => {
+      const bearerToken = await this.resolveAuthBearerToken();
+      if (!bearerToken) return false;
+
+      try {
+        const headers: Record<string, string> = {
+          Accept: 'application/json',
+          Authorization: `Bearer ${bearerToken}`,
+        };
+        if (!forceFresh && this.bootstrapEtag) {
+          headers['If-None-Match'] = this.bootstrapEtag;
+        }
+
+        const qs = forceFresh ? `?fresh=1&_ts=${Date.now()}` : '';
+        const res = await safeFetchJson(`/api/v1/bootstrap${qs}`, {
+          method: 'GET',
+          timeoutMs: 18_000,
+          headers,
+        });
+
+        if (res.notModified) {
+          const now = Date.now();
+          for (const [k, entry] of this.clientSheetCache.entries()) {
+            if (k.startsWith(`${this.spreadsheetId}::`)) {
+              this.clientSheetCache.set(k, { ...entry, fetchedAt: now });
+            }
+          }
+          return true;
+        }
+
+        const json = res.data;
+        if (res.ok && json?.success && json?.tables && typeof json.tables === 'object') {
+          if (res.etag || json.etag) {
+            this.bootstrapEtag = res.etag || json.etag;
+          }
+          const normalizer = GoogleDriveSheetService.getInstance();
+          const etagsMap: Record<string, string> = json.etags || {};
+
+          await Promise.all(
+            Object.entries(json.tables).map(async ([tableName, rawRows]) => {
+              if (!Array.isArray(rawRows)) return;
+              const normalized = normalizer.normalizeExternalRows(tableName, rawRows);
+              await this.saveCachedSnapshot(tableName, normalized, etagsMap[tableName]);
+            })
+          );
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    })();
+
+    try {
+      return await this.bootstrapPromise;
+    } finally {
+      this.bootstrapPromise = null;
+    }
+  }
+
+  /**
+   * 100% SSOT Fetch via Full REST API (/api/v1/:resource) with ETag 304 + IndexedDB persistence
    */
   public async fetchSheetData(
     sheetName: string,
     forceFresh: boolean = false
-  ): Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string }> {
+  ): Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string; notModified?: boolean }> {
     if (!this.spreadsheetId) {
       return {
         data: [],
@@ -868,6 +1005,10 @@ export class GoogleSheetClient {
     }
 
     if (!this.isOnline) {
+      const offlineSnapshot = await this.getCachedSnapshot(sheetName);
+      if (offlineSnapshot) {
+        return { data: offlineSnapshot.data, fromSpreadsheet: true };
+      }
       return {
         data: [],
         fromSpreadsheet: false,
@@ -899,32 +1040,50 @@ export class GoogleSheetClient {
 
     const runFetch = (async () => {
       const normalizer = GoogleDriveSheetService.getInstance();
+      const priorSnapshot = !forceFresh ? await this.getCachedSnapshot(sheetName) : null;
 
-      // 1. Server-side GAS Proxy (cached & CORS-free)
+      // 1. Full REST API v1 (/api/v1/:resource) with ETag / If-None-Match 304 revalidation
       const bearerToken = await this.resolveAuthBearerToken();
       if (bearerToken) {
+        const restSlug = SHEET_TO_REST_RESOURCE[sheetName] || sheetName;
         try {
-          const bustParam = forceFresh ? `&_ts=${Date.now()}` : '';
-          const { ok, status, data: json } = await safeFetchJson(
-            `/api/admin/sheet?sheet=${encodeURIComponent(sheetName)}&fresh=${forceFresh ? '1' : '0'}${bustParam}`,
+          const bustParam = forceFresh ? `?fresh=1&_ts=${Date.now()}` : '';
+          const headers: Record<string, string> = {
+            Accept: 'application/json',
+            Authorization: `Bearer ${bearerToken}`,
+          };
+          if (!forceFresh && priorSnapshot?.etag) {
+            headers['If-None-Match'] = priorSnapshot.etag;
+          }
+
+          const { ok, status, notModified, etag, data: json } = await safeFetchJson(
+            `/api/v1/${encodeURIComponent(restSlug)}${bustParam}`,
             {
               method: 'GET',
-              cache: 'no-store',
               timeoutMs: 16_000,
-              headers: {
-                Accept: 'application/json',
-                Authorization: `Bearer ${bearerToken}`,
-              },
+              headers,
             }
           );
+
+          if (notModified && priorSnapshot) {
+            await this.saveCachedSnapshot(sheetName, priorSnapshot.data, etag || priorSnapshot.etag);
+            return {
+              data: priorSnapshot.data,
+              fromSpreadsheet: true,
+              notModified: true,
+            };
+          }
+
           if (ok && json?.success && Array.isArray(json.data)) {
             const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
-            this.clientSheetCache.set(cacheKey, { data: normalized, fetchedAt: Date.now() });
+            await this.saveCachedSnapshot(sheetName, normalized, etag || json.etag);
             return {
               data: normalized,
               fromSpreadsheet: true,
+              notModified: false,
             };
           }
+
           if (json?.message && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 404) {
             throw new Error(json.message);
           }
@@ -955,7 +1114,7 @@ export class GoogleSheetClient {
         }
         if ((json.status === 'success' || json.success) && Array.isArray(json.data)) {
           const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
-          this.clientSheetCache.set(cacheKey, { data: normalized, fetchedAt: Date.now() });
+          await this.saveCachedSnapshot(sheetName, normalized);
           return {
             data: normalized,
             fromSpreadsheet: true,
@@ -1011,19 +1170,48 @@ export class GoogleSheetClient {
 
     const bearerToken = await this.resolveAuthBearerToken();
     if (bearerToken) {
+      const restSlug = SHEET_TO_REST_RESOURCE[sheetName] || sheetName;
+      const rawId =
+        preparedPayload && typeof preparedPayload === 'object' && !Array.isArray(preparedPayload)
+          ? preparedPayload.id || preparedPayload.deletedRow?.id || preparedPayload.updatedRow?.id || ''
+          : '';
+      const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(rawId);
+      const targetId = encodeURIComponent(String(cleanId || rawId || 'unknown'));
+
+      let endpoint = `/api/v1/${encodeURIComponent(restSlug)}`;
+      let method: 'POST' | 'PATCH' | 'DELETE' = 'POST';
+      let requestBody: any = preparedPayload;
+
+      if (action === 'CREATE') {
+        endpoint = `/api/v1/${encodeURIComponent(restSlug)}`;
+        method = 'POST';
+        requestBody = preparedPayload;
+      } else if (action === 'UPDATE') {
+        endpoint = `/api/v1/${encodeURIComponent(restSlug)}/${targetId}`;
+        method = 'PATCH';
+        requestBody = preparedPayload;
+      } else if (action === 'DELETE') {
+        endpoint = `/api/v1/${encodeURIComponent(restSlug)}/${targetId}`;
+        method = 'DELETE';
+        requestBody = preparedPayload;
+      } else {
+        endpoint = `/api/v1/${encodeURIComponent(restSlug)}/bulk`;
+        method = 'POST';
+        requestBody = {
+          action,
+          data: preparedPayload,
+        };
+      }
+
       try {
-        const { ok, status, data: json } = await safeFetchJson('/api/admin/sheet', {
-          method: 'POST',
+        const { ok, status, data: json } = await safeFetchJson(endpoint, {
+          method,
           timeoutMs: 20_000,
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${bearerToken}`,
           },
-          body: JSON.stringify({
-            sheetName,
-            action,
-            data: preparedPayload,
-          }),
+          body: JSON.stringify(requestBody),
         });
         if (ok && json?.success) {
           return;
@@ -1079,6 +1267,47 @@ export class GoogleSheetClient {
       }).catch(() => {});
     } catch (err: any) {
       throw new Error(formatGasNetworkError(err, gasUrl));
+    }
+  }
+
+  public async recalculateRelationsOnServer(scope: string = 'all'): Promise<{
+    handledByServer: boolean;
+    summary?: {
+      updatedPlacements: number;
+      updatedDudi: number;
+      updatedGuru: number;
+      updatedJurusan: number;
+      updatedKelas: number;
+    };
+  }> {
+    const bearerToken = await this.resolveAuthBearerToken();
+    if (!bearerToken) return { handledByServer: false };
+
+    try {
+      const { ok, data: json } = await safeFetchJson('/api/v1/relations/recalculate', {
+        method: 'POST',
+        timeoutMs: 22_000,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify({ scope }),
+      });
+
+      if (ok && json?.success && json?.summary) {
+        for (const tbl of [
+          'Master_DUDI',
+          'Master_Guru_Pendamping',
+          'Master_Jurusan',
+          'Master_Kelas_Walas',
+        ]) {
+          this.invalidateClientSheetCache(tbl);
+        }
+        return { handledByServer: true, summary: json.summary };
+      }
+      return { handledByServer: false };
+    } catch {
+      return { handledByServer: false };
     }
   }
 

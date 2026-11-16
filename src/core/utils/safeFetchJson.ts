@@ -2,6 +2,8 @@ export interface SafeFetchResult<T = any> {
   ok: boolean;
   status: number;
   data: T;
+  notModified?: boolean;
+  etag?: string | null;
 }
 
 export class HtmlResponseError extends Error {
@@ -239,6 +241,18 @@ export async function safeFetchJson<T = any>(
     if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
   }
 
+  const responseEtag = res.headers.get('etag');
+
+  if (res.status === 304) {
+    return {
+      ok: true,
+      status: 304,
+      notModified: true,
+      etag: responseEtag,
+      data: null as T,
+    };
+  }
+
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
   const trimmed = rawText.trim();
 
@@ -251,7 +265,7 @@ export async function safeFetchJson<T = any>(
         ''
       );
     }
-    return { ok: res.ok, status: res.status, data: {} as T };
+    return { ok: res.ok, status: res.status, etag: responseEtag, data: {} as T };
   }
 
   const looksLikeHtml =
@@ -282,7 +296,7 @@ export async function safeFetchJson<T = any>(
 
   try {
     const parsed = JSON.parse(trimmed) as T;
-    return { ok: res.ok, status: res.status, data: parsed };
+    return { ok: res.ok, status: res.status, etag: responseEtag, data: parsed };
   } catch {
     const hint = contentType ? ` (${contentType})` : '';
     const snippet = trimmed.slice(0, 120);
