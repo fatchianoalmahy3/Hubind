@@ -108,7 +108,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
     },
     {
       key: 'nilaiK3lh',
-      label: 'K3LH (DUDI)',
+      label: 'K3LH',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -117,7 +117,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
     },
     {
       key: 'nilaiSoftskill',
-      label: 'Softskill (DUDI)',
+      label: 'Softskills',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -126,7 +126,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
     },
     {
       key: 'nilaiKompetensiTeknis',
-      label: 'Kompetensi Teknis (DUDI)',
+      label: 'Hardskills',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -135,7 +135,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
     },
     {
       key: 'nilaiAlurBisnis',
-      label: 'Alur Bisnis Dunia Kerja (DUDI)',
+      label: 'Alur Bisnis Dunia Kerja',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -144,7 +144,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
     },
     {
       key: 'nilaiRataRata',
-      label: 'Rata-rata Nilai DUDI',
+      label: 'Rata-rata Nilai',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,

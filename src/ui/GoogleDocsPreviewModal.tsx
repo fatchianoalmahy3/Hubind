@@ -737,7 +737,7 @@ function renderDocContent(
           <div className="border-2 border-amber-300 bg-amber-50/50 p-2.5 rounded-lg">
             <div className="font-bold text-amber-900">Tahap 5: Monitoring 4 (Cek Pengambilan Nilai PKL)</div>
             <div className="text-slate-700 text-[11px]">
-              Input 4 kategori nilai (K3LH, Softskill, Kompetensi Teknis, Alur Bisnis) · No. Seri Blangko: <b>{student.noSeriBlangko || '(Belum Dialokasikan)'}</b>
+              Input 4 kategori nilai (K3LH, Softskills, Hardskills, Alur Bisnis Dunia Kerja) · No. Seri Blangko: <b>{student.noSeriBlangko || '(Belum Dialokasikan)'}</b>
             </div>
           </div>
           <div className="border border-slate-200 p-2 rounded-lg">
@@ -759,11 +759,14 @@ function renderDocContent(
 
   if (docType === 'nilai') {
     const k3lhVal = student.nilaiK3lh ?? student.Nilai_K3LH ?? '-';
-    const softskillVal = student.nilaiSoftskill ?? student.Nilai_Softskill ?? '-';
-    const teknisVal = student.nilaiKompetensiTeknis ?? student.Nilai_Kompetensi_Teknis ?? '-';
-    const alurBisnisVal = student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis ?? '-';
+    const softskillVal = student.nilaiSoftskill ?? student.Nilai_Softskills ?? student.Nilai_Softskill ?? '-';
+    const teknisVal =
+      student.nilaiKompetensiTeknis ?? student.Nilai_Hardskills ?? student.Nilai_Kompetensi_Teknis ?? '-';
+    const alurBisnisVal =
+      student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis_Dunia_Kerja ?? student.Nilai_Alur_Bisnis ?? '-';
     const rataRataVal =
       student.nilaiRataRata ??
+      student.Nilai_rata_rata ??
       student.Nilai_Rata_Rata ??
       student.nilaiDudi ??
       student.Nilai_DUDI ??
@@ -800,7 +803,7 @@ function renderDocContent(
             <tr>
               <td className="border p-2 text-center">2</td>
               <td className="border p-2">
-                <div className="font-semibold">Softskill</div>
+                <div className="font-semibold">Softskills</div>
                 <div className="text-[10px] text-slate-500">Etos Kerja, Kedisiplinan, Komunikasi &amp; Kerjasama Tim</div>
               </td>
               <td className="border p-2 text-center font-bold font-mono">{softskillVal}</td>
@@ -808,8 +811,8 @@ function renderDocContent(
             <tr>
               <td className="border p-2 text-center">3</td>
               <td className="border p-2">
-                <div className="font-semibold">Kompetensi Teknis</div>
-                <div className="text-[10px] text-slate-500">Keterampilan Kejuruan, Kualitas Hasil Kerja &amp; Kesesuaian SOP</div>
+                <div className="font-semibold">Hardskills</div>
+                <div className="text-[10px] text-slate-500">Kompetensi Teknis Kejuruan, Kualitas Hasil Kerja &amp; Kesesuaian SOP</div>
               </td>
               <td className="border p-2 text-center font-bold font-mono">{teknisVal}</td>
             </tr>
@@ -1014,6 +1017,7 @@ function renderDocContent(
         Telah menyelesaikan Praktik Kerja Industri (Prakerin) di <b>{dudiName}</b> dengan Rata-rata Nilai DUDI:{' '}
         <b className="text-emerald-700 text-sm">
           {student.nilaiRataRata ??
+            student.Nilai_rata_rata ??
             student.Nilai_Rata_Rata ??
             student.nilaiDudi ??
             student.Nilai_DUDI ??
@@ -1023,9 +1027,9 @@ function renderDocContent(
         (Predikat: <b>{student.predikat || '-'}</b>).
         <div className="mt-2 pt-2 border-t border-amber-200/70 text-[11px] text-slate-600 grid grid-cols-2 sm:grid-cols-4 gap-1.5 font-mono">
           <span>K3LH: <b>{student.nilaiK3lh ?? student.Nilai_K3LH ?? '-'}</b></span>
-          <span>Softskill: <b>{student.nilaiSoftskill ?? student.Nilai_Softskill ?? '-'}</b></span>
-          <span>Teknis: <b>{student.nilaiKompetensiTeknis ?? student.Nilai_Kompetensi_Teknis ?? '-'}</b></span>
-          <span>Alur Bisnis: <b>{student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis ?? '-'}</b></span>
+          <span>Softskills: <b>{student.nilaiSoftskill ?? student.Nilai_Softskills ?? student.Nilai_Softskill ?? '-'}</b></span>
+          <span>Hardskills: <b>{student.nilaiKompetensiTeknis ?? student.Nilai_Hardskills ?? student.Nilai_Kompetensi_Teknis ?? '-'}</b></span>
+          <span>Alur Bisnis: <b>{student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis_Dunia_Kerja ?? student.Nilai_Alur_Bisnis ?? '-'}</b></span>
         </div>
       </div>
 

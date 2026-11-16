@@ -460,31 +460,52 @@ export function ModulePage<T extends { id: string }>({
   const normalizeGradePayload = (values: T): any => {
     const nextValues: any = { ...values };
 
-    if (metadata.id === 'monitoring') {
-      const k3 = Number(nextValues.nilaiK3lh ?? 0) || 0;
-      const ss = Number(nextValues.nilaiSoftskill ?? 0) || 0;
-      const tk = Number(nextValues.nilaiKompetensiTeknis ?? 0) || 0;
-      const ab = Number(nextValues.nilaiAlurBisnis ?? 0) || 0;
-      if (k3 > 0 && ss > 0 && tk > 0 && ab > 0) {
-        nextValues.nilaiRataRata = calculateEqualWeightedAverage(k3, ss, tk, ab);
-        nextValues.nilaiPklMuncul = true;
-        nextValues.nilaiDudiTerkumpul = true;
-      }
-    } else if (metadata.id === 'sertifikat') {
-      const k3 = Number(nextValues.nilaiK3lh ?? 0) || 0;
-      const ss = Number(nextValues.nilaiSoftskill ?? 0) || 0;
-      const tk = Number(nextValues.nilaiKompetensiTeknis ?? 0) || 0;
-      const ab = Number(nextValues.nilaiAlurBisnis ?? 0) || 0;
-      if (k3 > 0 && ss > 0 && tk > 0 && ab > 0) {
-        const rataRata = calculateEqualWeightedAverage(k3, ss, tk, ab);
-        nextValues.nilaiRataRata = rataRata;
-        nextValues.predikat = getPredikatFromScore(rataRata);
-      } else {
+    if (metadata.id === 'monitoring' || metadata.id === 'sertifikat') {
+      const scoreKeys = [
+        'nilaiK3lh',
+        'nilaiSoftskill',
+        'nilaiKompetensiTeknis',
+        'nilaiAlurBisnis',
+      ];
+      const enteredScores = scoreKeys
+        .map((k) => nextValues[k])
+        .filter((v) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
+        .map((v) => Math.min(100, Math.max(0, Number(v))));
+
+      if (enteredScores.length === 4) {
+        const avg = calculateEqualWeightedAverage(
+          enteredScores[0],
+          enteredScores[1],
+          enteredScores[2],
+          enteredScores[3]
+        );
+        nextValues.nilaiRataRata = avg;
+        if (metadata.id === 'monitoring') {
+          nextValues.nilaiPklMuncul = true;
+          nextValues.nilaiDudiTerkumpul = true;
+        } else {
+          nextValues.predikat = getPredikatFromScore(avg);
+        }
+      } else if (enteredScores.length > 0 && enteredScores.some((s) => s > 0)) {
+        const avg =
+          Math.round(
+            (enteredScores.reduce((acc, s) => acc + s, 0) / enteredScores.length) * 10
+          ) / 10;
+        nextValues.nilaiRataRata = avg;
+        if (metadata.id === 'monitoring') {
+          nextValues.nilaiPklMuncul = true;
+          nextValues.nilaiDudiTerkumpul = true;
+        } else if (!nextValues.predikat || avg > 0) {
+          nextValues.predikat = getPredikatFromScore(avg);
+        }
+      } else if (metadata.id === 'sertifikat') {
         const rataRata = Number(nextValues.nilaiRataRata ?? 0) || 0;
         if (rataRata > 0) {
           const rounded = Math.round(rataRata * 10) / 10;
           nextValues.nilaiRataRata = rounded;
-          nextValues.predikat = getPredikatFromScore(rounded);
+          if (!nextValues.predikat) {
+            nextValues.predikat = getPredikatFromScore(rounded);
+          }
         }
       }
     }

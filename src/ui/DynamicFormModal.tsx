@@ -7,6 +7,7 @@ import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
 import { KelasService } from '../services/KelasService';
 import { SiswaService } from '../services/SiswaService';
+import { getPredikatFromScore } from '../core/utils/monitoringHelpers';
 import { X, Save, Upload, AlertCircle, Link2 } from 'lucide-react';
 
 interface DynamicFormModalProps<T = any> {
@@ -295,17 +296,55 @@ export function DynamicFormModal<T extends Record<string, any>>({
       }
     }
 
+    const handleFieldChange = (fieldKey: string, nextVal: any) => {
+      const gradeKeys = new Set([
+        'nilaiK3lh',
+        'nilaiSoftskill',
+        'nilaiKompetensiTeknis',
+        'nilaiAlurBisnis',
+      ]);
+      if (gradeKeys.has(fieldKey) && formFieldKeys.has('nilaiRataRata')) {
+        const mergedGrades: Record<string, any> = {
+          nilaiK3lh: fieldKey === 'nilaiK3lh' ? nextVal : values.nilaiK3lh,
+          nilaiSoftskill: fieldKey === 'nilaiSoftskill' ? nextVal : values.nilaiSoftskill,
+          nilaiKompetensiTeknis:
+            fieldKey === 'nilaiKompetensiTeknis' ? nextVal : values.nilaiKompetensiTeknis,
+          nilaiAlurBisnis: fieldKey === 'nilaiAlurBisnis' ? nextVal : values.nilaiAlurBisnis,
+        };
+        const nums = Object.values(mergedGrades)
+          .filter((v) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
+          .map((v) => Math.min(100, Math.max(0, Number(v))));
+        const patch: Record<string, any> = { [fieldKey]: nextVal };
+        if (nums.length > 0) {
+          const avg = Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10;
+          patch.nilaiRataRata = avg;
+          if (formFieldKeys.has('predikat')) {
+            patch.predikat = getPredikatFromScore(avg);
+          }
+        }
+        setMultipleValues(patch);
+        return;
+      }
+      setValue(fieldKey, nextVal);
+    };
+
     switch (field.type) {
-      case 'select':
+      case 'select': {
+        const currentStr = String(val ?? '').trim();
+        const hasMatch =
+          !currentStr || (field.options || []).some((opt) => String(opt.value) === currentStr);
         return (
           <select
             value={val ?? ''}
-            onChange={(e) => setValue(key, e.target.value)}
+            onChange={(e) => handleFieldChange(key, e.target.value)}
             className={`w-full h-10 px-3 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
               err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
             }`}
           >
             <option value="">-- Pilih {field.label} --</option>
+            {!hasMatch && (
+              <option value={currentStr}>{currentStr} (Data Saat Ini)</option>
+            )}
             {field.options?.map((opt) => (
               <option key={String(opt.value)} value={opt.value}>
                 {opt.label}
@@ -313,13 +352,14 @@ export function DynamicFormModal<T extends Record<string, any>>({
             ))}
           </select>
         );
+      }
 
       case 'textarea':
         return (
           <textarea
             rows={3}
             value={val ?? ''}
-            onChange={(e) => setValue(key, e.target.value)}
+            onChange={(e) => handleFieldChange(key, e.target.value)}
             placeholder={field.placeholder || `Masukkan ${field.label}...`}
             className={`w-full px-3 py-2 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
               err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
@@ -332,7 +372,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
           <input
             type="number"
             value={val ?? ''}
-            onChange={(e) => setValue(key, e.target.value === '' ? '' : Number(e.target.value))}
+            onChange={(e) => handleFieldChange(key, e.target.value === '' ? '' : Number(e.target.value))}
             placeholder={field.placeholder}
             className={`w-full h-10 px-3 bg-white border rounded-lg text-sm text-slate-800 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
               err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'

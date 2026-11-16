@@ -50,8 +50,8 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
     { name: 'Data_Pengajuan_PKL', headers: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'] },
     { name: 'Data_Perizinan_PKL', headers: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan'] },
     { name: 'Plotting_Pemberangkatan', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'ID_DUDI', 'Nama_DUDI', 'ID_Guru_Pendamping', 'Guru_Pendamping', 'Tanggal_Berangkat', 'Tanggal_Rencana_Tarik', 'Status_Penempatan'] },
-    { name: 'Monitoring_5_Tahap', headers: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'] },
-    { name: 'Nilai_Dan_Sertifikat', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'] },
+    { name: 'Monitoring_5_Tahap', headers: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'] },
+    { name: 'Nilai_Dan_Sertifikat', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'] },
     { name: 'Master_Akun', headers: ['ID', 'Username', 'Password_Hash', 'Role', 'Nama_Lengkap', 'Jabatan', 'Status', 'Updated_At'] }
   ];
 
@@ -117,16 +117,51 @@ function normalizeKey(str) {
   return String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+const KEY_ALIASES = {
+  nilaisoftskills: ['nilaisoftskills', 'nilaisoftskill'],
+  nilaisoftskill: ['nilaisoftskill', 'nilaisoftskills'],
+  nilaihardskills: ['nilaihardskills', 'nilaikompetensiteknis'],
+  nilaikompetensiteknis: ['nilaikompetensiteknis', 'nilaihardskills'],
+  nilaialurbisnisduniakerja: ['nilaialurbisnisduniakerja', 'nilaialurbisnis'],
+  nilaialurbisnis: ['nilaialurbisnis', 'nilaialurbisnisduniakerja'],
+  nilairatarata: ['nilairatarata', 'nilaidudi', 'nilaiakhir'],
+  nilaidudi: ['nilaidudi', 'nilairatarata', 'nilaiakhir'],
+  idjurusan: ['idjurusan', 'jurusan'],
+  jurusan: ['jurusan', 'idjurusan'],
+  namalengkap: ['namalengkap', 'nama', 'namasiswa'],
+  namasiswa: ['namasiswa', 'nama', 'namalengkap']
+};
+
 function getNormalizedValue(rowObj, header) {
-  if (rowObj[header] !== undefined) return rowObj[header];
+  if (!rowObj || typeof rowObj !== 'object') return undefined;
   const target = normalizeKey(header);
-  const keys = Object.keys(rowObj || {});
-  for (let i = 0; i < keys.length; i++) {
-    if (normalizeKey(keys[i]) === target) {
-      return rowObj[keys[i]];
+  const candidateTargets = KEY_ALIASES[target] || [target];
+  const keys = Object.keys(rowObj);
+
+  let firstDefined = undefined;
+  if (rowObj[header] !== undefined) {
+    if (String(rowObj[header] === null ? '' : rowObj[header]).trim() !== '') {
+      return rowObj[header];
+    }
+    firstDefined = rowObj[header];
+  }
+
+  for (let c = 0; c < candidateTargets.length; c++) {
+    const wanted = candidateTargets[c];
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i] === '_sheetRowNumber') continue;
+      if (normalizeKey(keys[i]) === wanted) {
+        const val = rowObj[keys[i]];
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          return val;
+        }
+        if (firstDefined === undefined && val !== undefined) {
+          firstDefined = val;
+        }
+      }
     }
   }
-  return '';
+  return firstDefined;
 }
 
 function getGasSheetCacheVersion(ssId) {
@@ -145,17 +180,19 @@ function bumpGasSheetCacheVersion(ssId) {
   }
 }
 
-function readSheetRowsFast(ss, sheetName, ssId, ver) {
+function readSheetRowsFast(ss, sheetName, ssId, ver, bypassCache) {
   const cacheKey = 'sh_' + ver + '_' + ssId + '_' + sheetName;
   let scriptCache = null;
-  try {
-    scriptCache = CacheService.getScriptCache();
-    const cached = scriptCache.get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached);
+  if (!bypassCache) {
+    try {
+      scriptCache = CacheService.getScriptCache();
+      const cached = scriptCache.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      // ignore cache miss
     }
-  } catch (e) {
-    // ignore cache miss
   }
 
   const sheet = resolveSheetAlias(ss, sheetName);
@@ -180,19 +217,21 @@ function readSheetRowsFast(ss, sheetName, ssId, ver) {
       row[headers[j]] = data[i][j];
       if (String(data[i][j] || '').trim() !== '') hasValue = true;
     }
-    if (hasValue) rows.push(row);
+    if (hasValue) {
+      row._sheetRowNumber = i + 1;
+      rows.push(row);
+    }
   }
 
   const result = { rows: rows };
-  if (scriptCache) {
-    try {
-      const serialized = JSON.stringify(result);
-      if (serialized.length < 90000) {
-        scriptCache.put(cacheKey, serialized, 90);
-      }
-    } catch (e) {
-      // ignore CacheService 100KB limit
+  try {
+    scriptCache = scriptCache || CacheService.getScriptCache();
+    const serialized = JSON.stringify(result);
+    if (serialized.length < 90000) {
+      scriptCache.put(cacheKey, serialized, 90);
     }
+  } catch (e) {
+    // ignore CacheService 100KB limit
   }
   return result;
 }
@@ -201,6 +240,7 @@ function doGet(e) {
   try {
     const params = (e && e.parameter) ? e.parameter : {};
     const action = String(params.action || '').toUpperCase();
+    const bypassCache = String(params.fresh || '') === '1';
     const spreadsheetId = String(params.spreadsheetId || '').trim();
     const ss = spreadsheetId ? SpreadsheetApp.openById(spreadsheetId) : SpreadsheetApp.getActiveSpreadsheet();
 
@@ -229,7 +269,7 @@ function doGet(e) {
       const sheetsPayload = {};
       for (let i = 0; i < requested.length; i++) {
         const name = requested[i];
-        const res = readSheetRowsFast(ss, name, ssId, ver);
+        const res = readSheetRowsFast(ss, name, ssId, ver, bypassCache);
         sheetsPayload[name] = res.error ? [] : (res.rows || []);
       }
       return ContentService.createTextOutput(JSON.stringify({
@@ -239,7 +279,7 @@ function doGet(e) {
     }
 
     const sheetName = params.sheet || 'Master_Jurusan';
-    const res = readSheetRowsFast(ss, sheetName, ssId, ver);
+    const res = readSheetRowsFast(ss, sheetName, ssId, ver, bypassCache);
     if (res.error) {
       return ContentService.createTextOutput(JSON.stringify({ error: res.error }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -259,8 +299,8 @@ function doGet(e) {
 const REQUIRED_SHEET_HEADERS = {
   Master_DUDI: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'],
   Data_Pengajuan_PKL: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'],
-  Monitoring_5_Tahap: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'],
-  Nilai_Dan_Sertifikat: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskill', 'Nilai_Kompetensi_Teknis', 'Nilai_Alur_Bisnis', 'Nilai_Rata_Rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit']
+  Monitoring_5_Tahap: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'],
+  Nilai_Dan_Sertifikat: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit']
 };
 
 function ensureMissingHeaders(sheet, canonicalSheetName) {
@@ -276,7 +316,10 @@ function ensureMissingHeaders(sheet, canonicalSheetName) {
   }
   const missing = [];
   for (let j = 0; j < expected.length; j++) {
-    if (!existingNorms[normalizeKey(expected[j])]) {
+    const expNorm = normalizeKey(expected[j]);
+    const aliases = KEY_ALIASES[expNorm] || [expNorm];
+    const hasMatch = aliases.some(function(a) { return Boolean(existingNorms[a]); });
+    if (!hasMatch) {
       missing.push(expected[j]);
     }
   }
@@ -319,6 +362,19 @@ function resolveSheetAlias(ss, sheetName) {
   return sheet;
 }
 
+function parseRowHintFromId(rawId) {
+  const str = String(rawId || '').trim();
+  const hashMatch = str.match(/^(.*)#r(\d+)$/);
+  if (hashMatch) {
+    return { cleanId: hashMatch[1].trim(), rowNum: Number(hashMatch[2]) };
+  }
+  const placeholderMatch = str.match(/^row_(\d+)$/);
+  if (placeholderMatch) {
+    return { cleanId: '', rowNum: Number(placeholderMatch[1]) };
+  }
+  return { cleanId: str, rowNum: 0 };
+}
+
 function extractRecordId(obj) {
   if (!obj || typeof obj !== 'object') return '';
   return String(
@@ -336,23 +392,84 @@ function extractRecordId(obj) {
   ).trim();
 }
 
-function findRowIndexById(values, headers, targetId) {
-  if (!targetId) return -1;
-  let idColIdx = 0;
+function findColumnIndex(headers, candidatesNorm) {
   for (let c = 0; c < headers.length; c++) {
     const k = normalizeKey(headers[c]);
-    if (k === 'id' || k === 'nopengajuan' || k === 'idperizinan' || k === 'idpenempatan' || k === 'idmonitoring') {
-      idColIdx = c;
-      break;
+    if (candidatesNorm.indexOf(k) !== -1) {
+      return c;
     }
   }
-  for (let r = 1; r < values.length; r++) {
-    const colVal = String(values[r][idColIdx] || '').trim();
-    const firstColVal = String(values[r][0] || '').trim();
-    if (colVal === targetId || firstColVal === targetId) {
-      return r;
+  return -1;
+}
+
+function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum) {
+  const parsed = parseRowHintFromId(targetId);
+  const cleanId = parsed.cleanId;
+  const rowNumHint = Number(explicitRowNum || (rowObj && rowObj._sheetRowNumber) || parsed.rowNum || 0);
+
+  let idColIdx = findColumnIndex(headers, ['id', 'nopengajuan', 'idperizinan', 'idpenempatan', 'idmonitoring']);
+  if (idColIdx === -1) idColIdx = 0;
+
+  const nisColIdx = findColumnIndex(headers, ['nis']);
+  const userColIdx = findColumnIndex(headers, ['username']);
+  const namaColIdx = findColumnIndex(headers, ['namasiswa', 'namalengkap', 'namadudi']);
+
+  // 1. If explicit physical row number hint exists, verify it first
+  if (rowNumHint >= 2 && rowNumHint <= values.length) {
+    const idx = rowNumHint - 1;
+    const cellId = String(values[idx][idColIdx] || '').trim();
+    const nisWanted = String((rowObj && (rowObj.NIS || rowObj.nis)) || '').trim();
+    const cellNis = nisColIdx !== -1 ? String(values[idx][nisColIdx] || '').trim() : '';
+
+    if (
+      (cleanId && cellId === cleanId) ||
+      (!cellId && (!nisWanted || !cellNis || cellNis === nisWanted)) ||
+      (nisWanted && cellNis === nisWanted)
+    ) {
+      return idx;
     }
   }
+
+  // 2. Match exact primary ID column
+  if (cleanId) {
+    for (let r = 1; r < values.length; r++) {
+      const colVal = String(values[r][idColIdx] || '').trim();
+      const firstColVal = String(values[r][0] || '').trim();
+      if (colVal === cleanId || firstColVal === cleanId) {
+        return r;
+      }
+    }
+  }
+
+  // 3. Fallback secondary unique key match (NIS / Username / Nama) when ID_Penempatan/ID is blank or missing
+  const nisWanted = String((rowObj && (rowObj.NIS || rowObj.nis)) || '').trim() ||
+    ((sheetName === 'Nilai_Dan_Sertifikat' || sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') ? cleanId : '');
+  if (nisWanted && nisColIdx !== -1) {
+    for (let r2 = 1; r2 < values.length; r2++) {
+      if (String(values[r2][nisColIdx] || '').trim() === nisWanted) {
+        return r2;
+      }
+    }
+  }
+
+  const userWanted = String((rowObj && (rowObj.Username || rowObj.username)) || '').trim();
+  if (userWanted && userColIdx !== -1) {
+    for (let r3 = 1; r3 < values.length; r3++) {
+      if (String(values[r3][userColIdx] || '').trim().toLowerCase() === userWanted.toLowerCase()) {
+        return r3;
+      }
+    }
+  }
+
+  const namaWanted = String((rowObj && (rowObj.Nama_Siswa || rowObj.namaSiswa || rowObj.Nama_Lengkap || rowObj.Nama_DUDI)) || '').trim();
+  if (namaWanted && namaColIdx !== -1 && (rowNumHint >= 2 || !cleanId)) {
+    for (let r4 = 1; r4 < values.length; r4++) {
+      if (String(values[r4][namaColIdx] || '').trim().toLowerCase() === namaWanted.toLowerCase()) {
+        return r4;
+      }
+    }
+  }
+
   return -1;
 }
 
@@ -387,13 +504,19 @@ function doPost(e) {
 
     if (action === 'CREATE') {
       const rowObj = body.data || {};
-      const newRow = headers.map(function(h) { return getNormalizedValue(rowObj, h); });
+      const newRow = headers.map(function(h) {
+        const val = getNormalizedValue(rowObj, h);
+        return val !== undefined ? val : '';
+      });
       sheet.appendRow(newRow);
     } else if (action === 'IMPORT') {
       const items = Array.isArray(body.data) ? body.data : [];
       if (items.length > 0) {
         const matrix = items.map(function(item) {
-          return headers.map(function(h) { return getNormalizedValue(item, h); });
+          return headers.map(function(h) {
+            const val = getNormalizedValue(item, h);
+            return val !== undefined ? val : '';
+          });
         });
         const startRow = sheet.getLastRow() + 1;
         sheet.getRange(startRow, 1, matrix.length, headers.length).setValues(matrix);
@@ -401,21 +524,25 @@ function doPost(e) {
     } else if (action === 'UPDATE') {
       const rowObj = body.data || {};
       const targetId = String(body.id || extractRecordId(rowObj)).trim();
+      const explicitRowNum = Number(body.sheetRowNumber || rowObj._sheetRowNumber || 0);
       const values = sheet.getDataRange().getValues();
-      const rowIdx = findRowIndexById(values, headers, targetId);
-      if (rowIdx !== -1) {
-        const updatedRow = headers.map(function(h, colIdx) {
-          const val = getNormalizedValue(rowObj, h);
-          return val !== undefined ? val : values[rowIdx][colIdx];
-        });
-        sheet.getRange(rowIdx + 1, 1, 1, headers.length).setValues([updatedRow]);
+      const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum);
+      if (rowIdx === -1) {
+        return ContentService.createTextOutput(JSON.stringify({
+          error: 'Baris data dengan ID "' + targetId + '" tidak ditemukan di sheet "' + sheetName + '". Segarkan tabel terlebih dahulu lalu coba simpan ulang.'
+        })).setMimeType(ContentService.MimeType.JSON);
       }
+      const updatedRow = headers.map(function(h, colIdx) {
+        const val = getNormalizedValue(rowObj, h);
+        return val !== undefined ? val : values[rowIdx][colIdx];
+      });
+      sheet.getRange(rowIdx + 1, 1, 1, headers.length).setValues([updatedRow]);
     } else if (action === 'BULK_UPDATE') {
       const updatedRows = (body.data && Array.isArray(body.data.updatedRows)) ? body.data.updatedRows : [];
       const values = sheet.getDataRange().getValues();
       updatedRows.forEach(function(rowObj) {
         const targetId = extractRecordId(rowObj);
-        const rowIdx = findRowIndexById(values, headers, targetId);
+        const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, rowObj && rowObj._sheetRowNumber);
         if (rowIdx !== -1) {
           const updatedRow = headers.map(function(h, colIdx) {
             const val = getNormalizedValue(rowObj, h);
@@ -426,31 +553,35 @@ function doPost(e) {
       });
     } else if (action === 'DELETE') {
       const payload = body.data || {};
-      const targetId = String(body.id || extractRecordId(payload) || extractRecordId(payload.deletedRow)).trim();
+      const deletedRowObj = payload.deletedRow || payload;
+      const targetId = String(body.id || extractRecordId(payload) || extractRecordId(deletedRowObj)).trim();
+      const explicitRowNum = Number(body.sheetRowNumber || deletedRowObj._sheetRowNumber || 0);
       const values = sheet.getDataRange().getValues();
-      const rowIdx = findRowIndexById(values, headers, targetId);
-      if (rowIdx !== -1) {
-        sheet.deleteRow(rowIdx + 1);
+      const rowIdx = findRowIndexById(values, headers, targetId, deletedRowObj, sheetName, explicitRowNum);
+      if (rowIdx === -1) {
+        return ContentService.createTextOutput(JSON.stringify({
+          error: 'Baris data yang akan dihapus (ID: "' + targetId + '") tidak ditemukan di sheet "' + sheetName + '".'
+        })).setMimeType(ContentService.MimeType.JSON);
       }
+      sheet.deleteRow(rowIdx + 1);
     } else if (action === 'BULK_DELETE') {
-      const ids = (body.data && Array.isArray(body.data.ids)) ? body.data.ids.map(function(x) { return String(x).trim(); }) : [];
-      if (ids.length > 0) {
-        let idColIdx = 0;
-        for (let c = 0; c < headers.length; c++) {
-          const k = normalizeKey(headers[c]);
-          if (k === 'id' || k === 'nopengajuan' || k === 'idperizinan' || k === 'idpenempatan' || k === 'idmonitoring') {
-            idColIdx = c;
-            break;
-          }
-        }
-        const values = sheet.getDataRange().getValues();
-        for (let r = values.length - 1; r >= 1; r--) {
-          const cellId = String(values[r][idColIdx] || '').trim();
-          const firstCellId = String(values[r][0] || '').trim();
-          if (ids.indexOf(cellId) !== -1 || ids.indexOf(firstCellId) !== -1) {
-            sheet.deleteRow(r + 1);
-          }
-        }
+      const ids = (body.data && Array.isArray(body.data.ids)) ? body.data.ids : [];
+      const deletedRows = (body.data && Array.isArray(body.data.deletedRows)) ? body.data.deletedRows : [];
+      const values = sheet.getDataRange().getValues();
+      const rowsToDelete = {};
+
+      deletedRows.forEach(function(rowObj) {
+        const idx = findRowIndexById(values, headers, extractRecordId(rowObj), rowObj, sheetName, rowObj && rowObj._sheetRowNumber);
+        if (idx >= 1) rowsToDelete[idx] = true;
+      });
+      ids.forEach(function(rawId) {
+        const idx = findRowIndexById(values, headers, String(rawId), null, sheetName, 0);
+        if (idx >= 1) rowsToDelete[idx] = true;
+      });
+
+      const sortedDesc = Object.keys(rowsToDelete).map(Number).sort(function(a, b) { return b - a; });
+      for (let d = 0; d < sortedDesc.length; d++) {
+        sheet.deleteRow(sortedDesc[d] + 1);
       }
     } else if (action === 'SYNC_ALL') {
       const rows = body.data;
@@ -461,7 +592,10 @@ function doPost(e) {
         }
         if (rows.length > 0) {
           const matrix = rows.map(function(r) {
-            return headers.map(function(h) { return getNormalizedValue(r, h); });
+            return headers.map(function(h) {
+              const val = getNormalizedValue(r, h);
+              return val !== undefined ? val : '';
+            });
           });
           sheet.getRange(2, 1, matrix.length, headers.length).setValues(matrix);
         }

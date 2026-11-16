@@ -74,12 +74,26 @@ export class GoogleSheetClient {
     Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string }>
   >();
   private clientSheetCache = new Map<string, { data: any[]; fetchedAt: number }>();
-  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 90_000;
+  private cacheInvalidationListeners = new Set<(sheetName?: string) => void>();
+  private broadcastChannel: BroadcastChannel | null = null;
+  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 15_000;
 
   private constructor() {
     this.initFromFirestore();
 
     if (typeof window !== 'undefined') {
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          this.broadcastChannel = new BroadcastChannel('hubin_ssot_sync');
+          this.broadcastChannel.onmessage = (ev) => {
+            const sheetName = typeof ev?.data?.sheetName === 'string' ? ev.data.sheetName : undefined;
+            this.invalidateClientSheetCache(sheetName, true);
+          };
+        } catch {
+          this.broadcastChannel = null;
+        }
+      }
+
       window.addEventListener('online', () => {
         this.isOnline = true;
         ToastManager.getInstance().show(
@@ -116,6 +130,13 @@ export class GoogleSheetClient {
     };
   }
 
+  public onSheetCacheInvalidate(cb: (sheetName?: string) => void): () => void {
+    this.cacheInvalidationListeners.add(cb);
+    return () => {
+      this.cacheInvalidationListeners.delete(cb);
+    };
+  }
+
   private notifyChange() {
     this.listeners.forEach((fn) => {
       try {
@@ -128,6 +149,8 @@ export class GoogleSheetClient {
 
   private applyConfig(cfg: PersistedWorkspaceConfig) {
     const prevSpreadsheetId = this.spreadsheetId;
+    const prevGasUrl = this.gasDeployUrl;
+    const prevActiveYear = this.activeYear;
 
     this.activeYear = cfg.activeYear || '2026/2027';
     this.gasDeployUrl = normalizeGasUrl(cfg.gasDeployUrl || '');
@@ -148,9 +171,13 @@ export class GoogleSheetClient {
       currentYearObj?.spreadsheetUrl ||
       (this.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}` : '');
 
-    if (prevSpreadsheetId !== this.spreadsheetId) {
+    if (
+      prevSpreadsheetId !== this.spreadsheetId ||
+      prevGasUrl !== this.gasDeployUrl ||
+      prevActiveYear !== this.activeYear
+    ) {
       GoogleDriveSheetService.getInstance().clearSheetIdCache(prevSpreadsheetId);
-      this.clientSheetCache.clear();
+      this.invalidateClientSheetCache(undefined, true);
       this.inFlightSheetFetches.clear();
     }
 
@@ -796,21 +823,37 @@ export class GoogleSheetClient {
     };
   }
 
-  public invalidateClientSheetCache(sheetName?: string): void {
+  public invalidateClientSheetCache(sheetName?: string, fromBroadcast: boolean = false): void {
     if (!sheetName) {
       this.clientSheetCache.clear();
-      return;
+    } else {
+      this.clientSheetCache.delete(`${this.spreadsheetId}::${sheetName}`);
+      if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
+        this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa_XI`);
+        this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa`);
+      }
     }
-    this.clientSheetCache.delete(`${this.spreadsheetId}::${sheetName}`);
-    if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
-      this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa_XI`);
-      this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa`);
+
+    this.cacheInvalidationListeners.forEach((cb) => {
+      try {
+        cb(sheetName);
+      } catch {
+        // ignore listener failure
+      }
+    });
+
+    if (!fromBroadcast && this.broadcastChannel) {
+      try {
+        this.broadcastChannel.postMessage({ sheetName: sheetName || null, ts: Date.now() });
+      } catch {
+        // ignore closed channel
+      }
     }
   }
 
   /**
    * 100% SSOT Fetch directly from Google Spreadsheet via Server Proxy / Cloud GAS Web App
-   * Uses in-flight request deduplication and short client cache to keep navigation snappy.
+   * Uses in-flight request deduplication and short client cache to keep navigation snappy & cross-device fresh.
    */
   public async fetchSheetData(
     sheetName: string,
@@ -851,7 +894,7 @@ export class GoogleSheetClient {
         return existingFlight;
       }
     } else {
-      this.invalidateClientSheetCache(sheetName);
+      this.clientSheetCache.delete(cacheKey);
     }
 
     const runFetch = (async () => {
@@ -861,10 +904,12 @@ export class GoogleSheetClient {
       const bearerToken = await this.resolveAuthBearerToken();
       if (bearerToken) {
         try {
+          const bustParam = forceFresh ? `&_ts=${Date.now()}` : '';
           const { ok, status, data: json } = await safeFetchJson(
-            `/api/admin/sheet?sheet=${encodeURIComponent(sheetName)}&fresh=${forceFresh ? '1' : '0'}`,
+            `/api/admin/sheet?sheet=${encodeURIComponent(sheetName)}&fresh=${forceFresh ? '1' : '0'}${bustParam}`,
             {
               method: 'GET',
+              cache: 'no-store',
               timeoutMs: 16_000,
               headers: {
                 Accept: 'application/json',
@@ -900,12 +945,13 @@ export class GoogleSheetClient {
       }
       const gasUrl = validation.normalizedUrl;
       const sep = gasUrl.includes('?') ? '&' : '?';
+      const freshParams = forceFresh ? `&fresh=1&_ts=${Date.now()}` : '';
       try {
         const { ok, status, data: json } = await safeFetchJson(
           `${gasUrl}${sep}sheet=${encodeURIComponent(sheetName)}&year=${encodeURIComponent(
             this.activeYear
-          )}&spreadsheetId=${encodeURIComponent(this.spreadsheetId)}`,
-          { method: 'GET', redirect: 'follow', timeoutMs: 18_000 }
+          )}&spreadsheetId=${encodeURIComponent(this.spreadsheetId)}${freshParams}`,
+          { method: 'GET', redirect: 'follow', cache: 'no-store', timeoutMs: 18_000 }
         );
         if (!ok) {
           throw new Error(`GAS Web App gagal membaca sheet [${sheetName}] (${status})`);
@@ -932,12 +978,39 @@ export class GoogleSheetClient {
     }
   }
 
+  private normalizeOutgoingPayload(
+    sheetName: string,
+    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT' | 'SYNC_ALL',
+    payload: any
+  ): any {
+    const normalizer = GoogleDriveSheetService.getInstance();
+
+    if (action === 'CREATE' || action === 'UPDATE') {
+      return normalizer.prepareOutgoingRecord(sheetName, payload);
+    }
+    if (action === 'IMPORT' || action === 'SYNC_ALL') {
+      return Array.isArray(payload)
+        ? payload.map((row) => normalizer.prepareOutgoingRecord(sheetName, row))
+        : payload;
+    }
+    if (action === 'BULK_UPDATE' && payload && typeof payload === 'object') {
+      return {
+        ...payload,
+        updatedRows: Array.isArray(payload.updatedRows)
+          ? payload.updatedRows.map((row: any) => normalizer.prepareOutgoingRecord(sheetName, row))
+          : [],
+      };
+    }
+    return payload;
+  }
+
   private async postViaServerOrDirectGas(
     sheetName: string,
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT' | 'SYNC_ALL',
     payload: any
   ): Promise<void> {
     this.invalidateClientSheetCache(sheetName);
+    const preparedPayload = this.normalizeOutgoingPayload(sheetName, action, payload);
 
     const bearerToken = await this.resolveAuthBearerToken();
     if (bearerToken) {
@@ -952,7 +1025,7 @@ export class GoogleSheetClient {
           body: JSON.stringify({
             sheetName,
             action,
-            data: payload,
+            data: preparedPayload,
           }),
         });
         if (ok && json?.success) {
@@ -976,10 +1049,11 @@ export class GoogleSheetClient {
       throw new Error(validation.error || 'URL Web App GAS tidak valid.');
     }
     const gasUrl = validation.normalizedUrl;
-    const resolvedId =
-      payload && typeof payload === 'object' && !Array.isArray(payload)
-        ? payload.id || payload.deletedRow?.id || payload.updatedRow?.id || ''
+    const rawId =
+      preparedPayload && typeof preparedPayload === 'object' && !Array.isArray(preparedPayload)
+        ? preparedPayload.id || preparedPayload.deletedRow?.id || preparedPayload.updatedRow?.id || ''
         : '';
+    const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(rawId);
 
     try {
       const { ok, status, data: json } = await safeFetchJson(gasUrl, {
@@ -992,8 +1066,12 @@ export class GoogleSheetClient {
           sheetName,
           year: this.activeYear,
           spreadsheetId: this.spreadsheetId,
-          id: resolvedId,
-          data: payload,
+          id: cleanId || rawId,
+          sheetRowNumber:
+            preparedPayload?._sheetRowNumber ||
+            preparedPayload?.deletedRow?._sheetRowNumber ||
+            undefined,
+          data: preparedPayload,
           timestamp: new Date().toISOString(),
         }),
       });
@@ -1001,7 +1079,10 @@ export class GoogleSheetClient {
       if (!ok || json?.error) {
         throw new Error(json?.error || `GAS Web App mengembalikan status ${status}`);
       }
-      fetch(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, { method: 'POST' }).catch(() => {});
+      await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
+        method: 'POST',
+        timeoutMs: 2_500,
+      }).catch(() => {});
     } catch (err: any) {
       throw new Error(formatGasNetworkError(err, gasUrl));
     }

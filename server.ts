@@ -19,6 +19,12 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // Load Firebase project/database config cleanly (zero hardcoded fallback)
 interface FirebaseAppletConfig {
@@ -52,9 +58,9 @@ export interface WorkspaceConfig {
   templates: any[];
 }
 
-// In-memory caches with strict per-sheet write invalidation (SSOT stays Firestore + Google Spreadsheet)
-const CONFIG_CACHE_TTL_MS = 60_000;
-const SHEET_CACHE_TTL_MS = 120_000;
+// Short in-memory caches with strict per-sheet write invalidation (SSOT stays Firestore + Google Spreadsheet)
+const CONFIG_CACHE_TTL_MS = 15_000;
+const SHEET_CACHE_TTL_MS = 20_000;
 const GAS_FETCH_TIMEOUT_MS = 15_000;
 
 let cachedWorkspaceConfig: { config: WorkspaceConfig; fetchedAt: number } | null = null;
@@ -319,11 +325,12 @@ async function fetchLiveSheetViaGas(sheetName: string, forceRefresh = false): Pr
 
   const fetchPromise = (async (): Promise<{ rows: any[]; config: WorkspaceConfig }> => {
     const separator = gasUrl.includes('?') ? '&' : '?';
+    const freshSuffix = forceRefresh ? `&fresh=1&_ts=${Date.now()}` : '';
     const targetUrl = `${gasUrl}${separator}sheet=${encodeURIComponent(
       sheetName
     )}&year=${encodeURIComponent(config.activeYear)}&spreadsheetId=${encodeURIComponent(
       config.spreadsheetId
-    )}`;
+    )}${freshSuffix}`;
 
     let gasRes: globalThis.Response;
     try {
@@ -516,10 +523,17 @@ async function writeLiveSheetViaGas(
   }
   const gasUrl = validateGasUrl(config.gasDeployUrl);
 
-  const resolvedId =
+  const rawId =
     payload && typeof payload === 'object' && !Array.isArray(payload)
       ? payload.id || payload.deletedRow?.id || payload.updatedRow?.id || ''
       : '';
+  const hashMatch = String(rawId || '').trim().match(/^(.*)#r(\d+)$/);
+  const cleanId = hashMatch ? hashMatch[1].trim() : String(rawId || '').trim();
+  const sheetRowNumber =
+    (payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? Number(payload._sheetRowNumber || payload.deletedRow?._sheetRowNumber || payload.updatedRow?._sheetRowNumber || 0)
+      : 0) ||
+    (hashMatch ? Number(hashMatch[2]) : 0);
 
   let gasRes: globalThis.Response;
   try {
@@ -534,7 +548,8 @@ async function writeLiveSheetViaGas(
           sheetName,
           year: config.activeYear,
           spreadsheetId: config.spreadsheetId,
-          id: resolvedId,
+          id: cleanId || rawId,
+          sheetRowNumber: sheetRowNumber >= 2 ? sheetRowNumber : undefined,
           data: payload,
           timestamp: new Date().toISOString(),
         }),
@@ -900,8 +915,15 @@ app.post('/api/admin/login', async (req: Request, res: Response) => {
       });
     }
 
-    const { accounts } = await fetchMasterAkunFromGasOrDefaults(false);
-    const matched = accounts.find((a) => a.username.toLowerCase() === username);
+    let { accounts } = await fetchMasterAkunFromGasOrDefaults(false);
+    let matched = accounts.find((a) => a.username.toLowerCase() === username);
+
+    // If not matched on cached Master_Akun, force-refresh from Sheet once so cross-device password changes work immediately
+    if (!matched || !verifyPasswordServer(password, matched.passwordHash)) {
+      const freshRes = await fetchMasterAkunFromGasOrDefaults(true);
+      accounts = freshRes.accounts;
+      matched = accounts.find((a) => a.username.toLowerCase() === username);
+    }
 
     if (!matched) {
       return res.status(401).json({
@@ -1928,12 +1950,16 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
       nilaiPklMuncul: nilaiMuncul,
       Nilai_K3LH: nilaiMuncul ? k3lh : '',
       nilaiK3lh: nilaiMuncul ? k3lh : '',
+      Nilai_Softskills: nilaiMuncul ? softskill : '',
       Nilai_Softskill: nilaiMuncul ? softskill : '',
       nilaiSoftskill: nilaiMuncul ? softskill : '',
+      Nilai_Hardskills: nilaiMuncul ? teknis : '',
       Nilai_Kompetensi_Teknis: nilaiMuncul ? teknis : '',
       nilaiKompetensiTeknis: nilaiMuncul ? teknis : '',
+      Nilai_Alur_Bisnis_Dunia_Kerja: nilaiMuncul ? alurBisnis : '',
       Nilai_Alur_Bisnis: nilaiMuncul ? alurBisnis : '',
       nilaiAlurBisnis: nilaiMuncul ? alurBisnis : '',
+      Nilai_rata_rata: nilaiMuncul ? avgScore : '',
       Nilai_Rata_Rata: nilaiMuncul ? avgScore : '',
       nilaiRataRata: nilaiMuncul ? avgScore : '',
       Catatan_Kunjungan: noteCombined,
@@ -1974,12 +2000,16 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
               String(payload.id_penempatan || `PLT-${payload.nis}`),
             Nilai_K3LH: k3lh,
             nilaiK3lh: k3lh,
+            Nilai_Softskills: softskill,
             Nilai_Softskill: softskill,
             nilaiSoftskill: softskill,
+            Nilai_Hardskills: teknis,
             Nilai_Kompetensi_Teknis: teknis,
             nilaiKompetensiTeknis: teknis,
+            Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
             Nilai_Alur_Bisnis: alurBisnis,
             nilaiAlurBisnis: alurBisnis,
+            Nilai_rata_rata: roundedDudi,
             Nilai_Rata_Rata: roundedDudi,
             nilaiRataRata: roundedDudi,
             Nilai_DUDI: roundedDudi,
@@ -2007,12 +2037,16 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
             dudiTujuan: String(payload.nama_dudi || ''),
             Nilai_K3LH: k3lh,
             nilaiK3lh: k3lh,
+            Nilai_Softskills: softskill,
             Nilai_Softskill: softskill,
             nilaiSoftskill: softskill,
+            Nilai_Hardskills: teknis,
             Nilai_Kompetensi_Teknis: teknis,
             nilaiKompetensiTeknis: teknis,
+            Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
             Nilai_Alur_Bisnis: alurBisnis,
             nilaiAlurBisnis: alurBisnis,
+            Nilai_rata_rata: roundedDudi,
             Nilai_Rata_Rata: roundedDudi,
             nilaiRataRata: roundedDudi,
             Nilai_DUDI: roundedDudi,
@@ -2088,7 +2122,7 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
         : undefined) ||
       [...matchedRows].reverse().find((r: any) => {
         const flag = normalizeStr(pickField(r, 'Nilai_DUDI_Terkumpul', 'nilaiDudiTerkumpul'));
-        const avg = Number(r.Nilai_Rata_Rata ?? r.nilaiRataRata ?? 0);
+        const avg = Number(r.Nilai_rata_rata ?? r.Nilai_Rata_Rata ?? r.nilaiRataRata ?? 0);
         return flag === 'ya' || flag === 'true' || avg > 0;
       }) ||
       matchedRows[matchedRows.length - 1];
@@ -2122,12 +2156,16 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
         nilaiPklMuncul: true,
         Nilai_K3LH: k3lh,
         nilaiK3lh: k3lh,
+        Nilai_Softskills: softskill,
         Nilai_Softskill: softskill,
         nilaiSoftskill: softskill,
+        Nilai_Hardskills: teknis,
         Nilai_Kompetensi_Teknis: teknis,
         nilaiKompetensiTeknis: teknis,
+        Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
         Nilai_Alur_Bisnis: alurBisnis,
         nilaiAlurBisnis: alurBisnis,
+        Nilai_rata_rata: avgScore,
         Nilai_Rata_Rata: avgScore,
         nilaiRataRata: avgScore,
         Nilai_DUDI_Terkumpul: 'Ya',
@@ -2161,9 +2199,13 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
         Alpha: 0,
         Nilai_PKL_Muncul: 'Ya',
         Nilai_K3LH: k3lh,
+        Nilai_Softskills: softskill,
         Nilai_Softskill: softskill,
+        Nilai_Hardskills: teknis,
         Nilai_Kompetensi_Teknis: teknis,
+        Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
         Nilai_Alur_Bisnis: alurBisnis,
+        Nilai_rata_rata: avgScore,
         Nilai_Rata_Rata: avgScore,
         Catatan_Kunjungan: noteCombined,
         Nilai_DUDI_Terkumpul: 'Ya',
@@ -2192,12 +2234,16 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
           ID_Penempatan: existingId,
           Nilai_K3LH: k3lh,
           nilaiK3lh: k3lh,
+          Nilai_Softskills: softskill,
           Nilai_Softskill: softskill,
           nilaiSoftskill: softskill,
+          Nilai_Hardskills: teknis,
           Nilai_Kompetensi_Teknis: teknis,
           nilaiKompetensiTeknis: teknis,
+          Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
           Nilai_Alur_Bisnis: alurBisnis,
           nilaiAlurBisnis: alurBisnis,
+          Nilai_rata_rata: roundedDudi,
           Nilai_Rata_Rata: roundedDudi,
           nilaiRataRata: roundedDudi,
           Nilai_DUDI: roundedDudi,
@@ -2224,12 +2270,16 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
           dudiTujuan: String(payload.nama_dudi || ''),
           Nilai_K3LH: k3lh,
           nilaiK3lh: k3lh,
+          Nilai_Softskills: softskill,
           Nilai_Softskill: softskill,
           nilaiSoftskill: softskill,
+          Nilai_Hardskills: teknis,
           Nilai_Kompetensi_Teknis: teknis,
           nilaiKompetensiTeknis: teknis,
+          Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
           Nilai_Alur_Bisnis: alurBisnis,
           nilaiAlurBisnis: alurBisnis,
+          Nilai_rata_rata: roundedDudi,
           Nilai_Rata_Rata: roundedDudi,
           nilaiRataRata: roundedDudi,
           Nilai_DUDI: roundedDudi,

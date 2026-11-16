@@ -72,13 +72,13 @@ const GRADE_CATEGORIES: Array<{
   },
   {
     field: 'nilaiSoftskill',
-    title: '2. Softskill',
+    title: '2. Softskills',
     subtitle: 'Etos Kerja, Kedisiplinan, Komunikasi & Kerjasama Tim',
   },
   {
     field: 'nilaiKompetensiTeknis',
-    title: '3. Kompetensi Teknis',
-    subtitle: 'Keterampilan Kejuruan, Kualitas Hasil Kerja & Kesesuaian SOP',
+    title: '3. Hardskills',
+    subtitle: 'Kompetensi Teknis Kejuruan, Kualitas Hasil Kerja & Kesesuaian SOP',
   },
   {
     field: 'nilaiAlurBisnis',
@@ -1215,15 +1215,15 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                                       <b>{activeStudent.submittedGradeSummary.k3lh}</b>
                                     </div>
                                     <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
-                                      <span className="text-slate-500 block font-sans">Softskill</span>
+                                      <span className="text-slate-500 block font-sans">Softskills</span>
                                       <b>{activeStudent.submittedGradeSummary.softskill}</b>
                                     </div>
                                     <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
-                                      <span className="text-slate-500 block font-sans">Teknis</span>
+                                      <span className="text-slate-500 block font-sans">Hardskills</span>
                                       <b>{activeStudent.submittedGradeSummary.teknis}</b>
                                     </div>
                                     <div className="p-2 bg-white/80 rounded-lg border border-emerald-200/70">
-                                      <span className="text-slate-500 block font-sans">Alur Bisnis</span>
+                                      <span className="text-slate-500 block font-sans">Alur Bisnis Dunia Kerja</span>
                                       <b>{activeStudent.submittedGradeSummary.alurBisnis}</b>
                                     </div>
                                   </div>

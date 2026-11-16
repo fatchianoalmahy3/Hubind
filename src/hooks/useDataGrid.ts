@@ -3,6 +3,8 @@ import { BaseRepository } from '../core/BaseRepository';
 import { FilterState, SortState } from '../core/types/metadata';
 import { ToastManager } from '../core/ToastManager';
 
+import { GoogleSheetClient } from '../core/GoogleSheetClient';
+
 export function useDataGrid<T extends { id: string }>(repository: BaseRepository<T>) {
   const [data, setData] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -52,18 +54,35 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   }, [fetchData]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const onVisibilityChange = () => {
-      // Only revalidate on focus return if data is older than 2 minutes
+    const client = GoogleSheetClient.getInstance();
+    const unsubConfig = client.addChangeListener(() => {
+      fetchData();
+    });
+
+    const onVisibilityOrFocus = () => {
       if (
-        document.visibilityState === 'visible' &&
-        Date.now() - lastVisibleFetchRef.current > 120_000
+        (typeof document === 'undefined' || document.visibilityState === 'visible') &&
+        Date.now() - lastVisibleFetchRef.current > 20_000
       ) {
         fetchData();
       }
     };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onVisibilityOrFocus);
+    }
+
+    return () => {
+      unsubConfig();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onVisibilityOrFocus);
+      }
+    };
   }, [fetchData]);
 
   const handleSort = (columnKey: string) => {

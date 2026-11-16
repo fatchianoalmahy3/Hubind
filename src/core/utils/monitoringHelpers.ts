@@ -133,12 +133,28 @@ export function stripStructuredTagsFromNote(noteRaw: any): string {
 export function parseGradesFromMonitoringRow(row: Record<string, any>): ParsedGradeSummary | null {
   const monitoringId = String(row.ID_Monitoring ?? row.idMonitoring ?? row.id ?? '').trim() || undefined;
   const k3lhCol = toSafeScore(row.Nilai_K3LH ?? row.nilaiK3lh ?? row.nilai_k3lh);
-  const softCol = toSafeScore(row.Nilai_Softskill ?? row.nilaiSoftskill ?? row.nilai_softskill);
-  const tekCol = toSafeScore(
-    row.Nilai_Kompetensi_Teknis ?? row.nilaiKompetensiTeknis ?? row.nilai_kompetensi_teknis
+  const softCol = toSafeScore(
+    row.Nilai_Softskills ?? row.Nilai_Softskill ?? row.nilaiSoftskills ?? row.nilaiSoftskill ?? row.nilai_softskills ?? row.nilai_softskill
   );
-  const bisnisCol = toSafeScore(row.Nilai_Alur_Bisnis ?? row.nilaiAlurBisnis ?? row.nilai_alur_bisnis);
-  const avgCol = toSafeScore(row.Nilai_Rata_Rata ?? row.nilaiRataRata ?? row.nilai_rata_rata);
+  const tekCol = toSafeScore(
+    row.Nilai_Hardskills ??
+      row.Nilai_Kompetensi_Teknis ??
+      row.nilaiHardskills ??
+      row.nilaiKompetensiTeknis ??
+      row.nilai_hardskills ??
+      row.nilai_kompetensi_teknis
+  );
+  const bisnisCol = toSafeScore(
+    row.Nilai_Alur_Bisnis_Dunia_Kerja ??
+      row.Nilai_Alur_Bisnis ??
+      row.nilaiAlurBisnisDuniaKerja ??
+      row.nilaiAlurBisnis ??
+      row.nilai_alur_bisnis_dunia_kerja ??
+      row.nilai_alur_bisnis
+  );
+  const avgCol = toSafeScore(
+    row.Nilai_rata_rata ?? row.Nilai_Rata_Rata ?? row.nilaiRataRata ?? row.nilai_rata_rata
+  );
 
   if (k3lhCol !== null && softCol !== null && tekCol !== null && bisnisCol !== null) {
     return {
@@ -279,11 +295,12 @@ export function buildStudentMonitoringSummary(
       const rowPlt = String(n.ID_Penempatan ?? n.idPenempatan ?? '').trim();
       const rowNama = norm(n.Nama_Siswa ?? n.namaSiswa ?? '');
       const k3 = Number(n.Nilai_K3LH ?? n.nilaiK3lh ?? 0) || 0;
-      const ss = Number(n.Nilai_Softskill ?? n.nilaiSoftskill ?? 0) || 0;
-      const tk = Number(n.Nilai_Kompetensi_Teknis ?? n.nilaiKompetensiTeknis ?? 0) || 0;
-      const ab = Number(n.Nilai_Alur_Bisnis ?? n.nilaiAlurBisnis ?? 0) || 0;
+      const ss = Number(n.Nilai_Softskills ?? n.Nilai_Softskill ?? n.nilaiSoftskills ?? n.nilaiSoftskill ?? 0) || 0;
+      const tk = Number(n.Nilai_Hardskills ?? n.Nilai_Kompetensi_Teknis ?? n.nilaiHardskills ?? n.nilaiKompetensiTeknis ?? 0) || 0;
+      const ab = Number(n.Nilai_Alur_Bisnis_Dunia_Kerja ?? n.Nilai_Alur_Bisnis ?? n.nilaiAlurBisnisDuniaKerja ?? n.nilaiAlurBisnis ?? 0) || 0;
       const rawAvg = Number(
-        n.Nilai_Rata_Rata ??
+        n.Nilai_rata_rata ??
+          n.Nilai_Rata_Rata ??
           n.nilaiRataRata ??
           n.Nilai_DUDI ??
           n.nilaiDudi ??
@@ -299,13 +316,18 @@ export function buildStudentMonitoringSummary(
 
     if (matchedNilai) {
       const k3lh = toSafeScore(matchedNilai.Nilai_K3LH ?? matchedNilai.nilaiK3lh);
-      const softskill = toSafeScore(matchedNilai.Nilai_Softskill ?? matchedNilai.nilaiSoftskill);
-      const teknis = toSafeScore(
-        matchedNilai.Nilai_Kompetensi_Teknis ?? matchedNilai.nilaiKompetensiTeknis
+      const softskill = toSafeScore(
+        matchedNilai.Nilai_Softskills ?? matchedNilai.Nilai_Softskill ?? matchedNilai.nilaiSoftskills ?? matchedNilai.nilaiSoftskill
       );
-      const alurBisnis = toSafeScore(matchedNilai.Nilai_Alur_Bisnis ?? matchedNilai.nilaiAlurBisnis);
+      const teknis = toSafeScore(
+        matchedNilai.Nilai_Hardskills ?? matchedNilai.Nilai_Kompetensi_Teknis ?? matchedNilai.nilaiHardskills ?? matchedNilai.nilaiKompetensiTeknis
+      );
+      const alurBisnis = toSafeScore(
+        matchedNilai.Nilai_Alur_Bisnis_Dunia_Kerja ?? matchedNilai.Nilai_Alur_Bisnis ?? matchedNilai.nilaiAlurBisnisDuniaKerja ?? matchedNilai.nilaiAlurBisnis
+      );
       const avgRaw = toSafeScore(
-        matchedNilai.Nilai_Rata_Rata ??
+        matchedNilai.Nilai_rata_rata ??
+          matchedNilai.Nilai_Rata_Rata ??
           matchedNilai.nilaiRataRata ??
           matchedNilai.Nilai_DUDI ??
           matchedNilai.nilaiDudi ??

@@ -188,7 +188,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'nilaiK3lh',
-      label: 'K3LH (DUDI)',
+      label: 'K3LH',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -196,7 +196,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'nilaiSoftskill',
-      label: 'Softskill (DUDI)',
+      label: 'Softskills',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -204,7 +204,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'nilaiKompetensiTeknis',
-      label: 'Kompetensi Teknis (DUDI)',
+      label: 'Hardskills',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -212,7 +212,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'nilaiAlurBisnis',
-      label: 'Alur Bisnis Dunia Kerja (DUDI)',
+      label: 'Alur Bisnis Dunia Kerja',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,
@@ -220,7 +220,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'nilaiRataRata',
-      label: 'Rata-rata Nilai DUDI',
+      label: 'Rata-rata Nilai',
       type: 'number',
       isTableColumn: true,
       isFormInput: true,

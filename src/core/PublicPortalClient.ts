@@ -1,4 +1,5 @@
 import { GoogleSheetClient } from './GoogleSheetClient';
+import { GoogleDriveSheetService } from './GoogleDriveSheetService';
 import { ToastManager } from './ToastManager';
 import {
   buildStudentMonitoringSummary,
@@ -18,7 +19,7 @@ import {
   isNetworkFetchError,
 } from './utils/safeFetchJson';
 
-const DIRECT_SHEET_CACHE_TTL_MS = 90_000;
+const DIRECT_SHEET_CACHE_TTL_MS = 20_000;
 const directSheetCache = new Map<string, { rows: any[]; fetchedAt: number }>();
 const inFlightDirectReads = new Map<string, Promise<any[]>>();
 
@@ -62,7 +63,11 @@ async function ensureHydratedConfig() {
   };
 }
 
-async function fetchGasGet(sheetName: string, cfg: Awaited<ReturnType<typeof ensureHydratedConfig>>): Promise<any[]> {
+async function fetchGasGet(
+  sheetName: string,
+  cfg: Awaited<ReturnType<typeof ensureHydratedConfig>>,
+  forceRefresh = false
+): Promise<any[]> {
   if (!cfg.spreadsheetId) {
     throw new Error('ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.');
   }
@@ -76,13 +81,15 @@ async function fetchGasGet(sheetName: string, cfg: Awaited<ReturnType<typeof ens
   const gasUrl = validation.normalizedUrl;
 
   const sep = gasUrl.includes('?') ? '&' : '?';
+  const freshSuffix = forceRefresh ? `&fresh=1&_ts=${Date.now()}` : '';
   const targetUrl = `${gasUrl}${sep}sheet=${encodeURIComponent(sheetName)}&year=${encodeURIComponent(
     cfg.activeYear
-  )}&spreadsheetId=${encodeURIComponent(cfg.spreadsheetId)}`;
+  )}&spreadsheetId=${encodeURIComponent(cfg.spreadsheetId)}${freshSuffix}`;
 
   try {
     const { ok, status, data: json } = await safeFetchJson(targetUrl, {
       method: 'GET',
+      cache: 'no-store',
       redirect: 'follow',
       timeoutMs: 16_000,
     });
@@ -120,6 +127,9 @@ async function fetchGasPost(
     );
   }
   const gasUrl = validation.normalizedUrl;
+  const preparedPayload = GoogleDriveSheetService.getInstance().prepareOutgoingRecord(sheetName, payload);
+  const rawId = preparedPayload?.id || preparedPayload?.ID_Monitoring || preparedPayload?.ID_Penempatan || '';
+  const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(rawId);
 
   try {
     // Use text/plain;charset=utf-8 to avoid browser CORS OPTIONS preflight against script.google.com
@@ -133,8 +143,9 @@ async function fetchGasPost(
         sheetName,
         year: cfg.activeYear,
         spreadsheetId: cfg.spreadsheetId,
-        id: payload?.id || payload?.ID_Monitoring || payload?.ID_Penempatan || '',
-        data: payload,
+        id: cleanId || rawId,
+        sheetRowNumber: preparedPayload?._sheetRowNumber,
+        data: preparedPayload,
         timestamp: new Date().toISOString(),
       }),
     });
@@ -174,7 +185,7 @@ async function readSheetDirect(sheetName: string, optional = false, forceRefresh
     }
   }
 
-  const readPromise = fetchGasGet(sheetName, cfg).then((rows) => {
+  const readPromise = fetchGasGet(sheetName, cfg, forceRefresh).then((rows) => {
     directSheetCache.set(cacheKey, { rows, fetchedAt: Date.now() });
     return rows;
   });
@@ -213,6 +224,10 @@ async function writeSheetDirect(sheetName: string, action: 'CREATE' | 'UPDATE', 
   await fetchGasPost(sheetName, action, payload, cfg);
   directSheetCache.delete(`${cfg.spreadsheetId}::${sheetName}`);
   GoogleSheetClient.getInstance().invalidateClientSheetCache(sheetName);
+  await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
+    method: 'POST',
+    timeoutMs: 2_500,
+  }).catch(() => {});
 }
 
 /**
@@ -503,6 +518,7 @@ export const PublicPortalClient = {
       );
 
       if (result?.success) {
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
         ToastManager.getInstance().update(
           toastId,
           'Tersimpan di Google Spreadsheet!',
@@ -981,12 +997,16 @@ export const PublicPortalClient = {
             nilaiPklMuncul: nilaiMuncul,
             Nilai_K3LH: nilaiMuncul ? k3lh : '',
             nilaiK3lh: nilaiMuncul ? k3lh : '',
+            Nilai_Softskills: nilaiMuncul ? softskill : '',
             Nilai_Softskill: nilaiMuncul ? softskill : '',
             nilaiSoftskill: nilaiMuncul ? softskill : '',
+            Nilai_Hardskills: nilaiMuncul ? teknis : '',
             Nilai_Kompetensi_Teknis: nilaiMuncul ? teknis : '',
             nilaiKompetensiTeknis: nilaiMuncul ? teknis : '',
+            Nilai_Alur_Bisnis_Dunia_Kerja: nilaiMuncul ? alurBisnis : '',
             Nilai_Alur_Bisnis: nilaiMuncul ? alurBisnis : '',
             nilaiAlurBisnis: nilaiMuncul ? alurBisnis : '',
+            Nilai_rata_rata: nilaiMuncul ? avgScore : '',
             Nilai_Rata_Rata: nilaiMuncul ? avgScore : '',
             nilaiRataRata: nilaiMuncul ? avgScore : '',
             Catatan_Kunjungan: noteCombined,
@@ -1006,7 +1026,7 @@ export const PublicPortalClient = {
           let gradeSynced = false;
           if (nilaiMuncul && avgScore > 0) {
             try {
-              const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true);
+              const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true, true);
               const existingNilai = nilaiRows.find((n: any) => {
                 const rowNis = pickField(n, 'NIS', 'nis');
                 const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
@@ -1026,12 +1046,16 @@ export const PublicPortalClient = {
                     String(payload.id_penempatan || `PLT-${payload.nis}`),
                   Nilai_K3LH: k3lh,
                   nilaiK3lh: k3lh,
+                  Nilai_Softskills: softskill,
                   Nilai_Softskill: softskill,
                   nilaiSoftskill: softskill,
+                  Nilai_Hardskills: teknis,
                   Nilai_Kompetensi_Teknis: teknis,
                   nilaiKompetensiTeknis: teknis,
+                  Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
                   Nilai_Alur_Bisnis: alurBisnis,
                   nilaiAlurBisnis: alurBisnis,
+                  Nilai_rata_rata: roundedDudi,
                   Nilai_Rata_Rata: roundedDudi,
                   nilaiRataRata: roundedDudi,
                   Nilai_DUDI: roundedDudi,
@@ -1059,12 +1083,16 @@ export const PublicPortalClient = {
                   dudiTujuan: String(payload.nama_dudi || ''),
                   Nilai_K3LH: k3lh,
                   nilaiK3lh: k3lh,
+                  Nilai_Softskills: softskill,
                   Nilai_Softskill: softskill,
                   nilaiSoftskill: softskill,
+                  Nilai_Hardskills: teknis,
                   Nilai_Kompetensi_Teknis: teknis,
                   nilaiKompetensiTeknis: teknis,
+                  Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
                   Nilai_Alur_Bisnis: alurBisnis,
                   nilaiAlurBisnis: alurBisnis,
+                  Nilai_rata_rata: roundedDudi,
                   Nilai_Rata_Rata: roundedDudi,
                   nilaiRataRata: roundedDudi,
                   Nilai_DUDI: roundedDudi,
@@ -1097,8 +1125,12 @@ export const PublicPortalClient = {
       );
 
       if (res?.success) {
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
+        if (res.gradeSynced) {
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
+        }
         const nilaiSuffix = res.gradeSynced
-          ? ` · Nilai DUDI (${res.monitoring?.Nilai_Rata_Rata ?? payload.nilai_rata_rata}) tersinkron ke Nilai_Dan_Sertifikat`
+          ? ` · Nilai DUDI (${res.monitoring?.Nilai_rata_rata ?? res.monitoring?.Nilai_Rata_Rata ?? payload.nilai_rata_rata}) tersinkron ke Nilai_Dan_Sertifikat`
           : '';
         ToastManager.getInstance().update(
           toastId,
@@ -1192,7 +1224,7 @@ export const PublicPortalClient = {
           const predikat = getPredikatFromScore(avgScore);
           const tglVal = String(payload.tanggal || new Date().toISOString().split('T')[0]);
 
-          const monRows = await readSheetDirect('Monitoring_5_Tahap', true);
+          const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true);
           const targetMonId = String(payload.monitoring_id || '').trim();
           const matchedRows = monRows.filter((r: any) => {
             const rMonId = pickField(r, 'ID_Monitoring', 'idMonitoring', 'id');
@@ -1210,7 +1242,7 @@ export const PublicPortalClient = {
               : undefined) ||
             [...matchedRows].reverse().find((r: any) => {
               const flag = normalizeStr(pickField(r, 'Nilai_DUDI_Terkumpul', 'nilaiDudiTerkumpul'));
-              const avg = Number(r.Nilai_Rata_Rata ?? r.nilaiRataRata ?? 0);
+              const avg = Number(r.Nilai_rata_rata ?? r.Nilai_Rata_Rata ?? r.nilaiRataRata ?? 0);
               return flag === 'ya' || flag === 'true' || avg > 0;
             }) ||
             matchedRows[matchedRows.length - 1];
@@ -1244,12 +1276,16 @@ export const PublicPortalClient = {
               nilaiPklMuncul: true,
               Nilai_K3LH: k3lh,
               nilaiK3lh: k3lh,
+              Nilai_Softskills: softskill,
               Nilai_Softskill: softskill,
               nilaiSoftskill: softskill,
+              Nilai_Hardskills: teknis,
               Nilai_Kompetensi_Teknis: teknis,
               nilaiKompetensiTeknis: teknis,
+              Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
               Nilai_Alur_Bisnis: alurBisnis,
               nilaiAlurBisnis: alurBisnis,
+              Nilai_rata_rata: avgScore,
               Nilai_Rata_Rata: avgScore,
               nilaiRataRata: avgScore,
               Nilai_DUDI_Terkumpul: 'Ya',
@@ -1282,9 +1318,13 @@ export const PublicPortalClient = {
               Alpha: 0,
               Nilai_PKL_Muncul: 'Ya',
               Nilai_K3LH: k3lh,
+              Nilai_Softskills: softskill,
               Nilai_Softskill: softskill,
+              Nilai_Hardskills: teknis,
               Nilai_Kompetensi_Teknis: teknis,
+              Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
               Nilai_Alur_Bisnis: alurBisnis,
+              Nilai_rata_rata: avgScore,
               Nilai_Rata_Rata: avgScore,
               Catatan_Kunjungan: noteCombined,
               Nilai_DUDI_Terkumpul: 'Ya',
@@ -1295,7 +1335,7 @@ export const PublicPortalClient = {
 
           let nilaiSynced = false;
           try {
-            const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true);
+            const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true, true);
             const existingNilai = nilaiRows.find((n: any) => {
               const rowNis = pickField(n, 'NIS', 'nis');
               const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
@@ -1312,12 +1352,16 @@ export const PublicPortalClient = {
                 ID_Penempatan: existingId,
                 Nilai_K3LH: k3lh,
                 nilaiK3lh: k3lh,
+                Nilai_Softskills: softskill,
                 Nilai_Softskill: softskill,
                 nilaiSoftskill: softskill,
+                Nilai_Hardskills: teknis,
                 Nilai_Kompetensi_Teknis: teknis,
                 nilaiKompetensiTeknis: teknis,
+                Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
                 Nilai_Alur_Bisnis: alurBisnis,
                 nilaiAlurBisnis: alurBisnis,
+                Nilai_rata_rata: roundedDudi,
                 Nilai_Rata_Rata: roundedDudi,
                 nilaiRataRata: roundedDudi,
                 Nilai_DUDI: roundedDudi,
@@ -1344,12 +1388,16 @@ export const PublicPortalClient = {
                 dudiTujuan: String(payload.nama_dudi || ''),
                 Nilai_K3LH: k3lh,
                 nilaiK3lh: k3lh,
+                Nilai_Softskills: softskill,
                 Nilai_Softskill: softskill,
                 nilaiSoftskill: softskill,
+                Nilai_Hardskills: teknis,
                 Nilai_Kompetensi_Teknis: teknis,
                 nilaiKompetensiTeknis: teknis,
+                Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
                 Nilai_Alur_Bisnis: alurBisnis,
                 nilaiAlurBisnis: alurBisnis,
+                Nilai_rata_rata: roundedDudi,
                 Nilai_Rata_Rata: roundedDudi,
                 nilaiRataRata: roundedDudi,
                 Nilai_DUDI: roundedDudi,
@@ -1391,6 +1439,10 @@ export const PublicPortalClient = {
       );
 
       if (res?.success) {
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
+        if (res.nilaiSynced) {
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
+        }
         ToastManager.getInstance().update(
           toastId,
           'Perubahan Nilai Tersimpan di Spreadsheet!',

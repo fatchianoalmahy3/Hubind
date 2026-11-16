@@ -115,10 +115,14 @@ export class GoogleDriveSheetService {
     Nilai_PKL_Muncul: ['nilaiPklMuncul', 'nilai_pkl_muncul', 'Nilai_PKL_Muncul'],
     // Monitoring & Sertifikat Nilai (4 Kategori DUDI + Rata-rata)
     Nilai_K3LH: ['nilaiK3lh', 'nilai_k3lh', 'Nilai_K3LH'],
-    Nilai_Softskill: ['nilaiSoftskill', 'nilai_softskill', 'Nilai_Softskill'],
-    Nilai_Kompetensi_Teknis: ['nilaiKompetensiTeknis', 'nilai_kompetensi_teknis', 'Nilai_Kompetensi_Teknis'],
-    Nilai_Alur_Bisnis: ['nilaiAlurBisnis', 'nilai_alur_bisnis', 'Nilai_Alur_Bisnis'],
-    Nilai_Rata_Rata: ['nilaiRataRata', 'nilaiDudi', 'nilaiAkhir', 'nilai_rata_rata', 'Nilai_Rata_Rata', 'Nilai_DUDI', 'Nilai_Akhir'],
+    Nilai_Softskills: ['nilaiSoftskill', 'nilaiSoftskills', 'nilai_softskills', 'nilai_softskill', 'Nilai_Softskills', 'Nilai_Softskill'],
+    Nilai_Softskill: ['nilaiSoftskill', 'nilaiSoftskills', 'nilai_softskill', 'nilai_softskills', 'Nilai_Softskill', 'Nilai_Softskills'],
+    Nilai_Hardskills: ['nilaiKompetensiTeknis', 'nilaiHardskills', 'nilai_hardskills', 'nilai_kompetensi_teknis', 'Nilai_Hardskills', 'Nilai_Kompetensi_Teknis'],
+    Nilai_Kompetensi_Teknis: ['nilaiKompetensiTeknis', 'nilaiHardskills', 'nilai_kompetensi_teknis', 'nilai_hardskills', 'Nilai_Kompetensi_Teknis', 'Nilai_Hardskills'],
+    Nilai_Alur_Bisnis_Dunia_Kerja: ['nilaiAlurBisnis', 'nilaiAlurBisnisDuniaKerja', 'nilai_alur_bisnis_dunia_kerja', 'nilai_alur_bisnis', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_Alur_Bisnis'],
+    Nilai_Alur_Bisnis: ['nilaiAlurBisnis', 'nilaiAlurBisnisDuniaKerja', 'nilai_alur_bisnis', 'nilai_alur_bisnis_dunia_kerja', 'Nilai_Alur_Bisnis', 'Nilai_Alur_Bisnis_Dunia_Kerja'],
+    Nilai_rata_rata: ['nilaiRataRata', 'nilaiDudi', 'nilaiAkhir', 'nilai_rata_rata', 'Nilai_rata_rata', 'Nilai_Rata_Rata', 'Nilai_DUDI', 'Nilai_Akhir'],
+    Nilai_Rata_Rata: ['nilaiRataRata', 'nilaiDudi', 'nilaiAkhir', 'nilai_rata_rata', 'Nilai_Rata_Rata', 'Nilai_rata_rata', 'Nilai_DUDI', 'Nilai_Akhir'],
     Catatan_Kunjungan: ['catatanKunjungan', 'catatan_kunjungan', 'Catatan_Kunjungan'],
     Foto_Bukti_Drive: ['fotoBuktiUrl', 'fotoBuktiDrive', 'foto_bukti_drive', 'Foto_Bukti_Drive'],
     Nilai_DUDI_Terkumpul: ['nilaiDudiTerkumpul', 'nilai_dudi_terkumpul', 'Nilai_DUDI_Terkumpul'],
@@ -132,6 +136,48 @@ export class GoogleDriveSheetService {
     Status_Raport: ['statusRaport', 'status_raport', 'Status_Raport'],
     Tgl_Terbit: ['tanggalTerbit', 'tglTerbit', 'tgl_terbit', 'Tgl_Terbit'],
   };
+
+  private static readonly PRIMARY_ID_HEADER_BY_SHEET: Record<string, string> = {
+    Master_Siswa_XI: 'ID',
+    Master_Siswa: 'ID',
+    Master_Jurusan: 'ID',
+    Master_Kelas_Walas: 'ID',
+    Master_DUDI: 'ID',
+    Master_Guru_Pendamping: 'ID',
+    Data_Pengajuan_PKL: 'No_Pengajuan',
+    Data_Perizinan_PKL: 'ID_Perizinan',
+    Plotting_Pemberangkatan: 'ID_Penempatan',
+    Monitoring_5_Tahap: 'ID_Monitoring',
+    Nilai_Dan_Sertifikat: 'ID_Penempatan',
+    Master_Akun: 'ID',
+  };
+
+  private static normalizeKey(key: string): string {
+    return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  public static stripSyntheticRowSuffix(rawId: unknown): { cleanId: string; hintedRowNumber?: number } {
+    const str = String(rawId ?? '').trim();
+    if (!str) return { cleanId: '' };
+
+    const hashMatch = str.match(/^(.*)#r(\d+)$/);
+    if (hashMatch) {
+      return {
+        cleanId: hashMatch[1].trim(),
+        hintedRowNumber: Number(hashMatch[2]),
+      };
+    }
+
+    const rowPlaceholder = str.match(/^row_(\d+)$/);
+    if (rowPlaceholder) {
+      return {
+        cleanId: '',
+        hintedRowNumber: Number(rowPlaceholder[1]),
+      };
+    }
+
+    return { cleanId: str };
+  }
 
   public getHeadersForSheet(sheetName: string): string[] {
     const blueprint = HUBIN_SHEETS_BLUEPRINT.find((b) => b.sheetName === sheetName);
@@ -148,9 +194,167 @@ export class GoogleDriveSheetService {
       return val ? 'Ya' : 'Belum';
     }
     if (typeof val === 'number') {
-      return val;
+      return Number.isFinite(val) ? val : '';
     }
     return String(val ?? '');
+  }
+
+  /**
+   * Synchronizes canonical spreadsheet column keys (from blueprint headers)
+   * with camelCase / aliased domain keys so GAS always reads the latest edited values
+   * instead of stale raw column properties copied from memoryData.
+   */
+  public prepareOutgoingRecord(
+    sheetName: string,
+    record: Record<string, any>,
+    updatedKeys?: Iterable<string>
+  ): Record<string, any> {
+    if (!record || typeof record !== 'object') return record;
+
+    const out: Record<string, any> = { ...record };
+    const { cleanId, hintedRowNumber } = GoogleDriveSheetService.stripSyntheticRowSuffix(out.id);
+    const sheetRowNumber =
+      typeof out._sheetRowNumber === 'number' && out._sheetRowNumber >= 2
+        ? out._sheetRowNumber
+        : hintedRowNumber;
+
+    if (sheetRowNumber && sheetRowNumber >= 2) {
+      out._sheetRowNumber = sheetRowNumber;
+    }
+
+    const updatedNormalized = new Set<string>();
+    if (updatedKeys) {
+      for (const k of updatedKeys) {
+        if (k === 'id' || k === '_sheetRowNumber') continue;
+        updatedNormalized.add(GoogleDriveSheetService.normalizeKey(k));
+        // Add any header aliases whose camelCase matches k
+        for (const [header, aliases] of Object.entries(GoogleDriveSheetService.FIELD_ALIASES)) {
+          const allForms = [header, ...aliases].map((f) => GoogleDriveSheetService.normalizeKey(f));
+          if (allForms.includes(GoogleDriveSheetService.normalizeKey(k))) {
+            allForms.forEach((f) => updatedNormalized.add(f));
+          }
+        }
+      }
+    }
+
+    const blueprintHeaders = this.getHeadersForSheet(sheetName);
+    const allRecordKeys = Object.keys(out);
+
+    for (const header of blueprintHeaders) {
+      const aliases = GoogleDriveSheetService.FIELD_ALIASES[header] || [];
+      const cleanHeader = GoogleDriveSheetService.normalizeKey(header);
+      const isFieldUpdated = updatedNormalized.has(cleanHeader);
+
+      let chosenVal: any = undefined;
+      if (isFieldUpdated) {
+        // When a field is in `updates`, prefer camelCase/alias keys over stale raw header key first
+        for (const alias of aliases) {
+          if (out[alias] !== undefined && out[alias] !== null) {
+            chosenVal = out[alias];
+            break;
+          }
+        }
+        if (chosenVal === undefined) {
+          for (const recKey of allRecordKeys) {
+            if (
+              recKey !== header &&
+              GoogleDriveSheetService.normalizeKey(recKey) === cleanHeader &&
+              out[recKey] !== undefined &&
+              out[recKey] !== null
+            ) {
+              chosenVal = out[recKey];
+              break;
+            }
+          }
+        }
+        if (chosenVal === undefined && out[header] !== undefined) {
+          chosenVal = out[header];
+        }
+      } else {
+        // Not explicitly in `updates`: prefer non-empty across aliases or raw header
+        const candidates = [header, ...aliases];
+        for (const keyName of candidates) {
+          const v = out[keyName];
+          if (v !== undefined && v !== null && String(v).trim() !== '') {
+            chosenVal = v;
+            break;
+          }
+        }
+        if (chosenVal === undefined) {
+          for (const keyName of candidates) {
+            if (out[keyName] !== undefined && out[keyName] !== null) {
+              chosenVal = out[keyName];
+              break;
+            }
+          }
+        }
+      }
+
+      if (chosenVal !== undefined) {
+        const formatted = this.formatCellValue(chosenVal);
+        out[header] = formatted;
+        // Also keep legacy/variant header aliases in sync so older/custom sheet headers receive updates too
+        for (const alias of aliases) {
+          if (alias.includes('_')) {
+            out[alias] = formatted;
+          }
+        }
+      }
+    }
+
+    const primaryIdHeader = GoogleDriveSheetService.PRIMARY_ID_HEADER_BY_SHEET[sheetName] || 'ID';
+    if (cleanId && (!out[primaryIdHeader] || String(out[primaryIdHeader]).includes('#r'))) {
+      out[primaryIdHeader] = cleanId;
+    }
+
+    return out;
+  }
+
+  /**
+   * Merges partial updates into an existing base record while stripping conflicting
+   * raw spreadsheet header keys so updated domain values always win.
+   */
+  public applyUpdatesAndPrepareRecord(
+    sheetName: string,
+    baseRecord: Record<string, any>,
+    updates: Record<string, any>
+  ): Record<string, any> {
+    const cleanBase: Record<string, any> = { ...baseRecord };
+    const updatedKeys = Object.keys(updates || {});
+    const updatedNorms = new Set<string>();
+
+    for (const k of updatedKeys) {
+      updatedNorms.add(GoogleDriveSheetService.normalizeKey(k));
+      for (const [header, aliases] of Object.entries(GoogleDriveSheetService.FIELD_ALIASES)) {
+        const forms = [header, ...aliases].map((f) => GoogleDriveSheetService.normalizeKey(f));
+        if (forms.includes(GoogleDriveSheetService.normalizeKey(k))) {
+          forms.forEach((f) => updatedNorms.add(f));
+        }
+      }
+    }
+
+    // Remove old raw/aliased keys belonging to any updated field before merging
+    for (const baseKey of Object.keys(cleanBase)) {
+      if (baseKey === 'id' || baseKey === '_sheetRowNumber') continue;
+      if (updatedNorms.has(GoogleDriveSheetService.normalizeKey(baseKey))) {
+        delete cleanBase[baseKey];
+      }
+    }
+
+    const merged = {
+      ...cleanBase,
+      ...updates,
+    };
+
+    // Preserve original internal row locator and unique client row id
+    if (baseRecord._sheetRowNumber && !merged._sheetRowNumber) {
+      merged._sheetRowNumber = baseRecord._sheetRowNumber;
+    }
+    if (baseRecord.id && !updates.id) {
+      merged.id = baseRecord.id;
+    }
+
+    return this.prepareOutgoingRecord(sheetName, merged, updatedKeys);
   }
 
   public recordToRow(headers: string[], record: any): any[] {
@@ -182,6 +386,7 @@ export class GoogleDriveSheetService {
     const record: any = {};
 
     headers.forEach((header, idx) => {
+      if (header === '_sheetRowNumber') return;
       const cellVal = rowValues[idx] !== undefined && rowValues[idx] !== null ? rowValues[idx] : '';
       const aliases = GoogleDriveSheetService.FIELD_ALIASES[header] || [];
       const primaryKey = aliases[0] || header.charAt(0).toLowerCase() + header.slice(1);
@@ -208,9 +413,14 @@ export class GoogleDriveSheetService {
         }
       }
 
-      record[primaryKey] = parsedVal;
+      if (record[primaryKey] === undefined || record[primaryKey] === '' || parsedVal !== '') {
+        record[primaryKey] = parsedVal;
+      }
       record[header] = cellVal;
     });
+
+    const sheetRowNum = rowIndex + 2;
+    record._sheetRowNumber = sheetRowNum;
 
     if (!record.id) {
       record.id =
@@ -225,7 +435,7 @@ export class GoogleDriveSheetService {
         record.idMonitoring ||
         record.NIS ||
         record.nis ||
-        `row_${rowIndex + 2}`;
+        `row_${sheetRowNum}`;
     }
 
     return record;
@@ -243,7 +453,7 @@ export class GoogleDriveSheetService {
     return rawRows
       .filter((raw) => raw && typeof raw === 'object')
       .map((raw, idx) => {
-        const dynamicKeys = Object.keys(raw);
+        const dynamicKeys = Object.keys(raw).filter((k) => k !== '_sheetRowNumber');
         const headerSet = new Set<string>(blueprintHeaders);
         dynamicKeys.forEach((k) => headerSet.add(k));
         const headers = Array.from(headerSet);
@@ -267,10 +477,21 @@ export class GoogleDriveSheetService {
           return '';
         });
 
-        const rec = this.rowToRecord(sheetName, headers, rowValues, idx);
-        const baseId = String(rec.id || `row_${idx + 2}`);
+        const resolvedRowIndex =
+          typeof raw._sheetRowNumber === 'number' && raw._sheetRowNumber >= 2
+            ? raw._sheetRowNumber - 2
+            : idx;
+
+        const rec = this.rowToRecord(sheetName, headers, rowValues, resolvedRowIndex);
+        const sheetRowNumber =
+          typeof raw._sheetRowNumber === 'number' && raw._sheetRowNumber >= 2
+            ? raw._sheetRowNumber
+            : resolvedRowIndex + 2;
+        rec._sheetRowNumber = sheetRowNumber;
+
+        const baseId = String(rec.id || `row_${sheetRowNumber}`);
         if (seenIds.has(baseId)) {
-          rec.id = `${baseId}#r${idx + 2}`;
+          rec.id = `${baseId}#r${sheetRowNumber}`;
         } else {
           rec.id = baseId;
         }
