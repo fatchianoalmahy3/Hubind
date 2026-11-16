@@ -20,14 +20,14 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
       title: 'Kapasitas Kuota',
       computedValue: (data) => data.reduce((acc, curr) => acc + (curr.kuotaSiswa || 0), 0),
       icon: 'Users',
-      change: 'Target siswa prakerin',
+      change: 'Otomatis dari jumlah siswa diinput Hubin',
       variant: 'info',
     },
     {
-      title: 'Total Terdaftar',
+      title: 'Total Terdaftar PKL',
       computedValue: (data) => data.reduce((acc, curr) => acc + (curr.totalTerdaftar || 0), 0),
       icon: 'CheckCircle',
-      change: 'Data kelas XI aktif',
+      change: 'Otomatis dari siswa berproses PKL',
       variant: 'success',
     },
     {
@@ -40,6 +40,16 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
   ],
   fields: [
     {
+      key: 'id',
+      label: 'ID Jurusan',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis (JUR-...)',
+      helperText: 'Terisi otomatis oleh sistem',
+    },
+    {
       key: 'kode',
       label: 'Kode',
       type: 'text',
@@ -47,8 +57,10 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
       isFormInput: true,
       isSortable: true,
       isSearchable: true,
+      disabled: true,
       validation: { required: true },
-      placeholder: 'Contoh: TKR',
+      placeholder: 'Terisi otomatis dari nama jurusan',
+      helperText: 'Kode singkatan otomatis dari Nama Program Keahlian',
     },
     {
       key: 'nama',
@@ -59,7 +71,7 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
       isSortable: true,
       isSearchable: true,
       validation: { required: true },
-      placeholder: 'Nama resmi jurusan',
+      placeholder: 'Contoh: Teknik Kendaraan Ringan',
     },
     {
       key: 'namaKakomli',
@@ -71,15 +83,6 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
       isSearchable: true,
       validation: { required: true },
       placeholder: 'Nama lengkap & gelar',
-    },
-    {
-      key: 'nipKakomli',
-      label: 'NIP Kakomli',
-      type: 'text',
-      isTableColumn: true,
-      isFormInput: true,
-      isSearchable: true,
-      placeholder: 'NIP Pegawai',
     },
     {
       key: 'kontakWA',
@@ -96,7 +99,9 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
       isTableColumn: true,
       isFormInput: true,
       isSortable: true,
-      validation: { min: 1 },
+      disabled: true,
+      defaultValue: 0,
+      helperText: 'Otomatis terhitung dari jumlah siswa yang diinput Hubin di Master Siswa',
     },
     {
       key: 'totalTerdaftar',
@@ -105,6 +110,9 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
       isTableColumn: true,
       isFormInput: true,
       isSortable: true,
+      disabled: true,
+      defaultValue: 0,
+      helperText: 'Otomatis terhitung dari siswa yang sudah mengajukan / terdaftar PKL',
     },
   ],
 };

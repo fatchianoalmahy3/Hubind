@@ -171,7 +171,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     try {
       const json = await PublicPortalClient.getPetugasList();
       if (!json.success) {
-        const errMsg = 'Gagal membaca daftar petugas dari Google Spreadsheet.';
+        const errMsg = 'Gagal membaca daftar petugas dari Cloud Server.';
         setPetugasList([]);
         setPetugasLoadError(errMsg);
         ToastManager.getInstance().show('Gagal Memuat Daftar Petugas', 'error', errMsg);
@@ -186,7 +186,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         setSelectedPetugasNip(list[0].nip || '-');
       }
     } catch (e: any) {
-      const errMsg = e?.message || 'Tidak dapat terhubung ke Google Spreadsheet.';
+      const errMsg = e?.message || 'Tidak dapat terhubung ke Cloud Server.';
       setPetugasList([]);
       setPetugasLoadError(errMsg);
       ToastManager.getInstance().show('Gagal Memuat Daftar Petugas', 'error', errMsg);
@@ -201,7 +201,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     try {
       const json = await PublicPortalClient.getPetugasDudi(teacherName, teacherId);
       if (!json.success) {
-        const errMsg = 'Gagal memuat daftar DUDI bimbingan dari Spreadsheet.';
+        const errMsg = 'Gagal memuat daftar DUDI bimbingan dari Cloud Server.';
         setAssignedDudiList([]);
         setDudiError(errMsg);
         ToastManager.getInstance().show('Gagal Memuat DUDI Bimbingan', 'error', errMsg);
@@ -209,7 +209,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
       }
       setAssignedDudiList(Array.isArray(json.data) ? json.data : []);
     } catch (e: any) {
-      const errMsg = e?.message || 'Gagal terhubung ke Google Spreadsheet.';
+      const errMsg = e?.message || 'Gagal terhubung ke Cloud Server.';
       setAssignedDudiList([]);
       setDudiError(errMsg);
       ToastManager.getInstance().show('Gagal Memuat DUDI Bimbingan', 'error', errMsg);
@@ -232,7 +232,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     const toastId = ToastManager.getInstance().show(
       'Memverifikasi PIN Petugas...',
       'pending',
-      `Mencocokkan identitas ${selectedPetugasNama || 'petugas'} dengan Spreadsheet`
+      `Mencocokkan identitas ${selectedPetugasNama || 'petugas'} dengan Cloud Server`
     );
 
     try {
@@ -306,7 +306,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         selectedPetugasNama
       );
       if (!json.success) {
-        const errMsg = 'Gagal memuat daftar siswa dari Google Spreadsheet.';
+        const errMsg = 'Gagal memuat daftar siswa dari Cloud Server.';
         setStudentsError(errMsg);
         ToastManager.getInstance().show('Gagal Memuat Daftar Siswa', 'error', errMsg);
         return;
@@ -339,7 +339,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
       setDraftsByKey(initDrafts);
       setDudiStudents(students);
     } catch (e: any) {
-      const errMsg = e?.message || 'Gagal menghubungi Google Spreadsheet.';
+      const errMsg = e?.message || 'Gagal menghubungi Cloud Server.';
       setStudentsError(errMsg);
       ToastManager.getInstance().show('Gagal Memuat Siswa DUDI', 'error', errMsg);
     } finally {
@@ -488,10 +488,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         setEditingGradeByStudent((prev) => ({ ...prev, [activeStudentKey]: false }));
         if (onSuccess) onSuccess();
       } else {
-        setFormError(res.message || 'Gagal menyimpan perubahan nilai ke Google Spreadsheet.');
+        setFormError(res.message || 'Gagal menyimpan perubahan nilai ke Cloud Server.');
       }
     } catch (e: any) {
-      setFormError(e?.message || 'Gagal memperbarui nilai ke Google Spreadsheet.');
+      setFormError(e?.message || 'Gagal memperbarui nilai ke Cloud Server.');
     } finally {
       setSavingGradeEdit(false);
     }
@@ -612,10 +612,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           setSelectedStudentIndex(selectedStudentIndex + 1);
         }
       } else {
-        setFormError(json.message || 'Gagal menyimpan data ke Google Spreadsheet.');
+        setFormError(json.message || 'Gagal menyimpan data ke Cloud Server.');
       }
     } catch (e: any) {
-      setFormError(e?.message || 'Periksa koneksi dan konfigurasi Apps Script.');
+      setFormError(e?.message || 'Periksa koneksi internet dan layanan Cloud Server.');
     } finally {
       setSubmitting(false);
     }
@@ -666,7 +666,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 Portal Supervisi Guru Pembimbing
               </h2>
               <p className="text-[11px] text-slate-500 truncate">
-                Langkah {currentStep} dari 3 · Sinkron Google Spreadsheet
+                Langkah {currentStep} dari 3 · Tersinkron ke Cloud Server
               </p>
             </div>
           </div>
@@ -774,7 +774,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                   Pilih Nama &amp; Masukkan PIN
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Gunakan 4 digit terakhir NIP / No. WhatsApp terdaftar atau PIN khusus pada sheet Master Guru
+                  Gunakan 4 digit terakhir No. WhatsApp terdaftar atau PIN khusus Guru Pendamping
                 </p>
               </div>
 
@@ -823,9 +823,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                     className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all cursor-pointer disabled:opacity-50"
                   >
                     {loadingPetugas ? (
-                      <option value="">Memuat daftar guru dari Google Spreadsheet...</option>
+                      <option value="">Memuat daftar guru dari Cloud Server...</option>
                     ) : petugasList.length === 0 ? (
-                      <option value="">-- Belum ada data di Master_Guru_Pendamping --</option>
+                      <option value="">-- Belum ada data Guru Pendamping terdaftar --</option>
                     ) : (
                       petugasList.map((p, idx) => (
                         <option key={`${p.id || 'petugas'}_${idx}`} value={p.id}>
@@ -834,11 +834,6 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                       ))
                     )}
                   </select>
-                  {selectedPetugasNip && (
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      NIP: {selectedPetugasNip}
-                    </p>
-                  )}
                 </div>
 
                 <div>
@@ -854,7 +849,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                       setPinInput(e.target.value);
                       setPinError('');
                     }}
-                    placeholder="4 digit terakhir NIP / WA"
+                    placeholder="PIN atau 4 digit terakhir WA"
                     className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-center text-base tracking-widest font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
                     required
                   />
@@ -884,7 +879,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>
-                    Petugas Aktif: <b>{selectedPetugasNama}</b> (NIP: {selectedPetugasNip})
+                    Petugas Aktif: <b>{selectedPetugasNama}</b>
                   </span>
                 </div>
                 <span className="text-[11px] text-blue-700 font-semibold">
@@ -894,7 +889,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
               {loadingDudi ? (
                 <div className="p-8 text-center text-xs text-slate-500">
-                  Memuat daftar DUDI bimbingan dari sheet Plotting_Pemberangkatan...
+                  Memuat daftar DUDI bimbingan dari Cloud Server...
                 </div>
               ) : dudiError ? (
                 <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800">
@@ -906,7 +901,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                     Belum Ada DUDI yang Di-plotting untuk {selectedPetugasNama}
                   </p>
                   <p>
-                    Pastikan Admin Hubin sudah menetapkan nama Anda pada sheet <code>Plotting_Pemberangkatan</code> atau <code>Data_Pengajuan_PKL</code> di Google Spreadsheet.
+                    Pastikan Admin Hubin sudah menetapkan nama Anda pada data Penempatan Siswa PKL di Cloud Server.
                   </p>
                 </div>
               ) : (
@@ -985,7 +980,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
               {loadingStudents ? (
                 <div className="p-8 text-center text-xs text-slate-500">
-                  Memuat daftar siswa &amp; riwayat tahap monitoring dari Google Spreadsheet...
+                  Memuat daftar siswa &amp; riwayat tahap monitoring dari Cloud Server...
                 </div>
               ) : studentsError ? (
                 <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800">
@@ -1065,7 +1060,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                           </span>
                           <span className="text-[11px] text-slate-500">
                             {(activeStudent.completedStages || []).includes(activeStageNum)
-                              ? 'Sudah terdata di Spreadsheet'
+                              ? 'Sudah terdata di Cloud Server'
                               : 'Tahap berikutnya'}
                           </span>
                         </div>
@@ -1201,7 +1196,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                           {!isEditingGrade ? (
                             <>
                               <p className="text-emerald-800 leading-relaxed">
-                                Nilai DUDI untuk siswa ini sudah tercatat di Spreadsheet
+                                Nilai DUDI untuk siswa ini sudah tercatat di Cloud Server
                                 {activeStudent.submittedGradeSummary?.tahapDiinput
                                   ? ` (${activeStudent.submittedGradeSummary.tahapDiinput})`
                                   : ''}
@@ -1541,7 +1536,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                           className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
                         >
                           {submitting ? (
-                            <span>Menyimpan ke Spreadsheet...</span>
+                            <span>Menyimpan ke Cloud Server...</span>
                           ) : (
                             <>
                               <Save className="w-4 h-4" />

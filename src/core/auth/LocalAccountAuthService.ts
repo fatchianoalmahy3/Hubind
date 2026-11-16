@@ -1,6 +1,6 @@
 import { UserRole } from '../types/schema';
 import { GoogleSheetClient } from '../GoogleSheetClient';
-import { safeFetchJson, HtmlResponseError, validateGasDeployUrl } from '../utils/safeFetchJson';
+import { safeFetchJson, isBackendProxyUnavailableError, validateGasDeployUrl } from '../utils/safeFetchJson';
 
 export const ADMIN_SESSION_STORAGE_KEY = 'hubin_admin_session_v1';
 export const MASTER_AKUN_SHEET_NAME = 'Master_Akun';
@@ -274,7 +274,7 @@ async function fetchMasterAkunDirectViaGas(): Promise<{
     if (errMsg.toLowerCase().includes('tidak ditemukan') || errMsg.toLowerCase().includes('not found')) {
       return { accounts: [], sheetExists: false };
     }
-    throw new Error(errMsg || 'Gagal membaca data akun dari Google Spreadsheet.');
+    throw new Error(errMsg || 'Gagal membaca data akun dari Cloud Server.');
   }
 
   const rawRows: any[] = Array.isArray(json?.data) ? json.data : [];
@@ -325,11 +325,7 @@ export const LocalAccountAuthService = {
         throw new Error(data?.message || 'Username atau Password salah.');
       }
     } catch (err: any) {
-      const isStaticHostFallback =
-        err instanceof HtmlResponseError ||
-        err instanceof TypeError ||
-        String(err?.message || '').includes('Failed to fetch');
-      if (!isStaticHostFallback) {
+      if (!isBackendProxyUnavailableError(err)) {
         throw err;
       }
     }
@@ -399,10 +395,7 @@ export const LocalAccountAuthService = {
           };
         }
       } catch (err: any) {
-        if (
-          !(err instanceof HtmlResponseError) &&
-          !String(err?.message || '').includes('Failed to fetch')
-        ) {
+        if (!isBackendProxyUnavailableError(err)) {
           throw err;
         }
       }
@@ -477,17 +470,14 @@ export const LocalAccountAuthService = {
           };
         }
 
-        if (status >= 400 && status < 500 && data?.message) {
+        if (status >= 400 && status < 500 && status !== 404 && data?.message) {
           throw new Error(data.message);
         }
-        if (data?.message && !String(data.message).includes('Failed to fetch')) {
+        if (data?.message && status < 500 && !String(data.message).includes('Failed to fetch')) {
           throw new Error(data.message);
         }
       } catch (err: any) {
-        if (
-          !(err instanceof HtmlResponseError) &&
-          !String(err?.message || '').includes('Failed to fetch')
-        ) {
+        if (!isBackendProxyUnavailableError(err)) {
           throw err;
         }
       }
@@ -575,17 +565,14 @@ export const LocalAccountAuthService = {
         if (ok && data?.success && Array.isArray(data.accounts)) {
           return data.accounts;
         }
-        if (status >= 400 && status < 500 && data?.message) {
+        if (status >= 400 && status < 500 && status !== 404 && data?.message) {
           throw new Error(data.message);
         }
-        if (data?.message && !String(data.message).includes('Failed to fetch')) {
+        if (data?.message && status < 500 && !String(data.message).includes('Failed to fetch')) {
           throw new Error(data.message);
         }
       } catch (err: any) {
-        if (
-          !(err instanceof HtmlResponseError) &&
-          !String(err?.message || '').includes('Failed to fetch')
-        ) {
+        if (!isBackendProxyUnavailableError(err)) {
           throw err;
         }
       }
@@ -612,7 +599,7 @@ export const LocalAccountAuthService = {
     const token = getAdminSessionToken();
     if (token && !token.startsWith('local_gas_')) {
       try {
-        const { ok, data } = await safeFetchJson('/api/admin/accounts', {
+        const { ok, status, data } = await safeFetchJson('/api/admin/accounts', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -624,14 +611,11 @@ export const LocalAccountAuthService = {
         if (ok && data?.success && Array.isArray(data.accounts)) {
           return data.accounts;
         }
-        if (data?.message && !String(data.message).includes('Failed to fetch')) {
+        if (data?.message && status < 500 && !String(data.message).includes('Failed to fetch')) {
           throw new Error(data.message);
         }
       } catch (err: any) {
-        if (
-          !(err instanceof HtmlResponseError) &&
-          !String(err?.message || '').includes('Failed to fetch')
-        ) {
+        if (!isBackendProxyUnavailableError(err)) {
           throw err;
         }
       }
@@ -687,7 +671,7 @@ export const LocalAccountAuthService = {
     const client = GoogleSheetClient.getInstance();
     const res = await client.syncSheetFull(MASTER_AKUN_SHEET_NAME, rowsPayload);
     if (!res.success) {
-      throw new Error(res.message || 'Gagal menyimpan data akun ke Google Spreadsheet.');
+      throw new Error(res.message || 'Gagal menyimpan data akun ke Cloud Server.');
     }
   },
 };

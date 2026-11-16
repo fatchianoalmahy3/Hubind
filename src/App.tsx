@@ -3,7 +3,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
-  FileSpreadsheet,
+  Database,
   RefreshCw,
   Sparkles,
   ExternalLink,
@@ -189,7 +189,7 @@ export default function App() {
         connected: false,
         spreadsheetId: '',
         error:
-          'ID Google Spreadsheet untuk tahun ajaran aktif belum diatur di Firebase. Masukkan ID Spreadsheet atau buka Setup Wizard.',
+          'ID Database Cloud Server untuk tahun ajaran aktif belum diatur. Masukkan konfigurasi server pada menu Konfigurasi Server.',
       });
       return;
     }
@@ -200,7 +200,7 @@ export default function App() {
         connected: false,
         spreadsheetId: activeId,
         error:
-          'URL Web App Google Apps Script (GAS) "/exec" belum diatur di Firebase. Pasang URL GAS agar seluruh perangkat membaca/menulis Spreadsheet secara konsisten.',
+          'Endpoint API Cloud Server ("/exec") belum diatur. Pasang endpoint API Server agar seluruh perangkat membaca dan menulis data secara konsisten.',
       });
       return;
     }
@@ -224,7 +224,7 @@ export default function App() {
       spreadsheetId: activeId,
       error:
         gasRes.error ||
-        'Gagal terhubung ke Web App GAS. Periksa URL "/exec" dan pastikan deployment Web App diatur ke "Anyone (Siapa saja)".',
+        'Gagal terhubung ke Endpoint API Cloud Server. Periksa URL "/exec" dan pastikan akses endpoint tersedia.',
     });
   }, [appMode, currentUser, configSnapshot.spreadsheetId, configSnapshot.gasDeployUrl, configSnapshot.spreadsheetName]);
 
@@ -295,15 +295,15 @@ export default function App() {
       }
       setRefreshState((prev) => prev + 1);
       ToastManager.getInstance().show(
-        'Data Diperbarui dari Google Spreadsheet',
+        'Data Diperbarui dari Cloud Server',
         'success',
-        `Tersinkron langsung dengan ${verification.spreadsheetTitle || configSnapshot.spreadsheetId || 'Google Sheets'}.`
+        `Tersinkron langsung dengan Cloud Server (${verification.spreadsheetTitle || `TA ${configSnapshot.activeYear}`}).`
       );
     } catch (err: any) {
       ToastManager.getInstance().show(
         'Gagal Sinkronisasi',
         'error',
-        err?.message || 'Periksa koneksi Cloud GAS Web App dan ID Spreadsheet.'
+        err?.message || 'Periksa koneksi Cloud Server dan konfigurasi server.'
       );
     } finally {
       setGlobalSyncing(false);
@@ -321,6 +321,45 @@ export default function App() {
     const activeId = configSnapshot.spreadsheetId;
     const isFirebaseAuthOk = Boolean(currentUser);
     const isSheetOk = verification.connected;
+    const isHubin = userRole === 'Hubin';
+
+    if (!isHubin) {
+      return (
+        <div className="max-w-xl mx-auto py-8 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-lg overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-blue-50/40 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                    Layanan Cloud Server Sedang Disiapkan Admin Hubin
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Koneksi database utama belum aktif atau sedang dalam pemeliharaan. Silakan muat ulang dalam beberapa saat atau hubungi Admin Hubin.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-500">
+                Tahun Ajaran Aktif: <strong className="text-slate-800">{configSnapshot.activeYear}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={runConnectionVerification}
+                disabled={verification.checking}
+                className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${verification.checking ? 'animate-spin' : ''}`} />
+                <span>Cek Ulang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="max-w-3xl mx-auto py-4 sm:py-8 animate-in fade-in duration-200">
@@ -332,10 +371,10 @@ export default function App() {
               </div>
               <div>
                 <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                  Verifikasi Koneksi Google Spreadsheet (SSOT)
+                  Verifikasi Koneksi Cloud Server
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Aplikasi menggunakan 100% data langsung dari Google Spreadsheet (tanpa data dummy). Pastikan 3 status berikut terhubung.
+                  Aplikasi menggunakan 100% data langsung dari Cloud Server (tanpa data dummy). Pastikan 3 status berikut terhubung.
                 </p>
               </div>
             </div>
@@ -380,7 +419,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* Step 2: Cloud GAS Web App Endpoint */}
+            {/* Step 2: Endpoint API Cloud Server */}
             <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 {verification.connected ? (
@@ -390,19 +429,19 @@ export default function App() {
                 )}
                 <div>
                   <div className="text-xs font-bold text-slate-900">
-                    2. Koneksi Cloud Google Apps Script (GAS Web App)
+                    2. Endpoint API Cloud Server
                   </div>
                   <div className="text-[11px] text-slate-500">
                     {verification.connected
-                      ? 'Terhubung otomatis lintas perangkat & tahan refresh via Cloud GAS Web App (/exec).'
-                      : 'Pasang URL Web App Google Apps Script (/exec) dengan akses "Anyone (Siapa saja)" agar aplikasi terhubung konsisten di semua perangkat.'}
+                      ? 'Terhubung otomatis lintas perangkat & tahan refresh ke Cloud Server.'
+                      : 'Pasang URL endpoint API Cloud Server dengan akses publik agar aplikasi terhubung konsisten di semua perangkat.'}
                   </div>
                 </div>
               </div>
 
               {verification.connected ? (
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 self-start sm:self-auto">
-                  Cloud GAS Aktif
+                  Cloud Server Aktif
                 </span>
               ) : (
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
@@ -412,20 +451,20 @@ export default function App() {
                     className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                   >
                     <Code2 className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Lihat Script GAS</span>
+                    <span>Integrasi API Server</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsSheetConfigOpen(true)}
                     className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer"
                   >
-                    Atur URL GAS
+                    Konfigurasi Server
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Step 3: Target Spreadsheet ID in Firestore */}
+            {/* Step 3: Database Cloud Server */}
             <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 {isSheetOk ? (
@@ -435,14 +474,14 @@ export default function App() {
                 )}
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-slate-900">
-                    3. Target Google Spreadsheet (TA {configSnapshot.activeYear})
+                    3. Database Cloud Server (TA {configSnapshot.activeYear})
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
                     {activeId
                       ? verification.spreadsheetTitle
                         ? `${verification.spreadsheetTitle} (${activeId})`
-                        : `ID Tersimpan di Firebase: ${activeId}`
-                      : 'Belum ada ID Spreadsheet tersimpan di Firebase Firestore.'}
+                        : `ID Database Tersimpan: ${activeId}`
+                      : 'Belum ada ID Database Server tersimpan.'}
                   </div>
                 </div>
               </div>
@@ -453,8 +492,8 @@ export default function App() {
                   onClick={() => setIsSheetConfigOpen(true)}
                   className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>{activeId ? 'Ganti / Atur ID' : 'Masukkan ID Spreadsheet'}</span>
+                  <Database className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{activeId ? 'Ganti / Atur Database' : 'Konfigurasi Server'}</span>
                 </button>
                 <button
                   type="button"
@@ -462,7 +501,7 @@ export default function App() {
                   className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Setup Spreadsheet / Wizard</span>
+                  <span>Setup Server (Wizard)</span>
                 </button>
               </div>
             </div>
@@ -474,13 +513,13 @@ export default function App() {
             )}
 
             <div className="pt-2 flex items-center justify-between text-xs text-slate-500 border-t border-slate-100">
-              <span>Ingin mengelola daftar tahun ajaran atau template Docs terlebih dahulu?</span>
+              <span>Ingin mengelola daftar tahun ajaran atau template dokumen terlebih dahulu?</span>
               <button
                 type="button"
                 onClick={() => setCurrentModule('workspace')}
                 className="text-blue-600 font-semibold hover:underline cursor-pointer"
               >
-                Buka Pusat Berkas &amp; Pengaturan &rarr;
+                Buka Pusat Berkas &amp; Konfigurasi Server &rarr;
               </button>
             </div>
           </div>
@@ -490,7 +529,7 @@ export default function App() {
   };
 
   const renderActiveModule = () => {
-    if (currentModule === 'workspace') {
+    if (currentModule === 'workspace' && userRole === 'Hubin') {
       return (
         <WorkspaceHubPage
           onOpenGasModal={() => setIsGasOpen(true)}
@@ -502,7 +541,7 @@ export default function App() {
       );
     }
 
-    // Enforce Cloud GAS + Spreadsheet Connection Gate for operational modules
+    // Enforce Cloud Server Connection Gate for operational modules
     if (!verification.connected) {
       return renderConnectionGate();
     }
@@ -673,7 +712,7 @@ export default function App() {
     doc_pengantaran: 'Dokumen Pengantaran PKL',
     doc_monitoring: 'Dokumen Monitoring PKL',
     doc_penarikan: 'Dokumen Penarikan PKL',
-    workspace: 'Pusat Berkas & Pengaturan Cloud',
+    workspace: 'Pusat Berkas & Konfigurasi Server',
   };
 
   return (
@@ -734,71 +773,73 @@ export default function App() {
             />
 
             <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 lg:py-5 max-w-[1440px] mx-auto w-full">
-              {/* Compact Single-Line Spreadsheet & Connection Context Strip */}
-              <div className="mb-4 px-3.5 py-2 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
-                <div className="flex items-center gap-2 min-w-0">
-                  {verification.connected ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                  )}
-                  <span className="truncate">
+              {/* Compact Single-Line Cloud Server Context Strip (Hubin Only) */}
+              {userRole === 'Hubin' && (
+                <div className="mb-4 px-3.5 py-2 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
+                  <div className="flex items-center gap-2 min-w-0">
                     {verification.connected ? (
-                      <>
-                        Spreadsheet:{' '}
-                        <strong className="text-slate-900 font-semibold">
-                          {verification.spreadsheetTitle || configSnapshot.spreadsheetName || configSnapshot.spreadsheetId}
-                        </strong>
-                        <span className="text-slate-400 mx-1.5 hidden md:inline" aria-hidden="true">·</span>
-                        <span className="text-emerald-700 font-medium hidden md:inline">
-                          Tersinkron Cloud (GAS)
-                        </span>
-                      </>
-                    ) : configSnapshot.spreadsheetId ? (
-                      <>
-                        Spreadsheet:{' '}
-                        <span className="font-mono font-medium text-slate-900">{configSnapshot.spreadsheetId}</span>
-                        <span className="text-slate-400 mx-1.5" aria-hidden="true">·</span>
-                        <span className="text-amber-700 font-medium">
-                          {verification.checking ? 'Memeriksa koneksi...' : 'Menunggu koneksi Cloud GAS'}
-                        </span>
-                      </>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                     ) : (
-                      <span className="text-amber-800 font-medium">
-                        Spreadsheet belum dikonfigurasi
-                      </span>
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
                     )}
-                  </span>
-                </div>
+                    <span className="truncate">
+                      {verification.connected ? (
+                        <>
+                          Cloud Server:{' '}
+                          <strong className="text-slate-900 font-semibold">
+                            {verification.spreadsheetTitle || configSnapshot.spreadsheetName || configSnapshot.spreadsheetId}
+                          </strong>
+                          <span className="text-slate-400 mx-1.5 hidden md:inline" aria-hidden="true">·</span>
+                          <span className="text-emerald-700 font-medium hidden md:inline">
+                            Tersinkron
+                          </span>
+                        </>
+                      ) : configSnapshot.spreadsheetId ? (
+                        <>
+                          Cloud Server:{' '}
+                          <span className="font-mono font-medium text-slate-900">{configSnapshot.spreadsheetId}</span>
+                          <span className="text-slate-400 mx-1.5" aria-hidden="true">·</span>
+                          <span className="text-amber-700 font-medium">
+                            {verification.checking ? 'Memeriksa koneksi...' : 'Menunggu koneksi Cloud Server'}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-amber-800 font-medium">
+                          Cloud Server belum dikonfigurasi
+                        </span>
+                      )}
+                    </span>
+                  </div>
 
-                <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
-                  {configSnapshot.spreadsheetUrl && (
-                    <a
-                      href={configSnapshot.spreadsheetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                  <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+                    {configSnapshot.spreadsheetUrl && (
+                      <a
+                        href={configSnapshot.spreadsheetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                      >
+                        <span>Buka Database</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsTemplateManagerOpen(true)}
+                      className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                     >
-                      <span>Buka Sheet</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsTemplateManagerOpen(true)}
-                    className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                  >
-                    Template Docs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsSheetConfigOpen(true)}
-                    className="h-8 px-2.5 rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-semibold cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                  >
-                    Ganti Sheet
-                  </button>
+                      Template Dokumen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsSheetConfigOpen(true)}
+                      className="h-8 px-2.5 rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-semibold cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                    >
+                      Konfigurasi Server
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {renderActiveModule()}
             </main>

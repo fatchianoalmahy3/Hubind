@@ -17,6 +17,7 @@ import {
   validateGasDeployUrl,
   formatGasNetworkError,
   isNetworkFetchError,
+  isBackendProxyUnavailableError,
 } from './utils/safeFetchJson';
 
 const DIRECT_SHEET_CACHE_TTL_MS = 20_000;
@@ -69,13 +70,13 @@ async function fetchGasGet(
   forceRefresh = false
 ): Promise<any[]> {
   if (!cfg.spreadsheetId) {
-    throw new Error('ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.');
+    throw new Error('Koneksi Database Cloud Server belum dikonfigurasi oleh Admin Hubin.');
   }
   const validation = validateGasDeployUrl(cfg.gasDeployUrl);
   if (!validation.valid) {
     throw new Error(
       validation.error ||
-        'URL Google Apps Script Web App (/exec) belum diatur oleh Admin Hubin di Pengaturan Spreadsheet.'
+        'Koneksi Cloud Server belum dikonfigurasi oleh Admin Hubin.'
     );
   }
   const gasUrl = validation.normalizedUrl;
@@ -94,13 +95,13 @@ async function fetchGasGet(
       timeoutMs: 16_000,
     });
     if (!ok || json?.error) {
-      throw new Error(json?.error || `Gagal membaca sheet [${sheetName}] dari Google Apps Script (HTTP ${status}).`);
+      throw new Error(json?.error || `Gagal membaca data dari Cloud Server (HTTP ${status}).`);
     }
     return Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
   } catch (err: any) {
     if (err instanceof HtmlResponseError && err.isGoogleAuth) {
       throw new Error(
-        'Akses Google Apps Script Web App masih dibatasi (mengembalikan halaman login Google). Admin: buka Apps Script -> Deploy -> Kelola deployment -> Edit -> setel "Yang memiliki akses" ke "Siapa saja (Anyone)".'
+        'Akses layanan Cloud Server publik masih dibatasi. Silakan hubungi Admin Hubin untuk memeriksa pengaturan akses server.'
       );
     }
     if (isNetworkFetchError(err)) {
@@ -117,13 +118,13 @@ async function fetchGasPost(
   cfg: Awaited<ReturnType<typeof ensureHydratedConfig>>
 ): Promise<void> {
   if (!cfg.spreadsheetId) {
-    throw new Error('ID Google Spreadsheet belum dikonfigurasi oleh Admin Hubin di Firebase.');
+    throw new Error('Koneksi Database Cloud Server belum dikonfigurasi oleh Admin Hubin.');
   }
   const validation = validateGasDeployUrl(cfg.gasDeployUrl);
   if (!validation.valid) {
     throw new Error(
       validation.error ||
-        'URL Google Apps Script Web App (/exec) belum diatur oleh Admin Hubin untuk portal publik.'
+        'Layanan Cloud Server untuk portal publik belum dikonfigurasi oleh Admin Hubin.'
     );
   }
   const gasUrl = validation.normalizedUrl;
@@ -150,12 +151,12 @@ async function fetchGasPost(
       }),
     });
     if (!ok || json?.error) {
-      throw new Error(json?.error || `Gagal menulis ke Google Spreadsheet [${sheetName}] (HTTP ${status}).`);
+      throw new Error(json?.error || `Gagal menyimpan data ke Cloud Server (HTTP ${status}).`);
     }
   } catch (err: any) {
     if (err instanceof HtmlResponseError && err.isGoogleAuth) {
       throw new Error(
-        'Akses Google Apps Script Web App masih dibatasi (mengembalikan halaman login Google). Admin: setel akses Web App deployment ke "Siapa saja (Anyone)".'
+        'Akses layanan Cloud Server publik masih dibatasi. Silakan hubungi Admin Hubin untuk memeriksa pengaturan akses server.'
       );
     }
     if (isNetworkFetchError(err)) {
@@ -250,7 +251,7 @@ async function callPublicEndpoint<T>(
     if (errCode === 'GAS_TIMEOUT' || status === 504) {
       throw new Error(
         data?.message ||
-          'Koneksi ke Google Apps Script melebihi batas waktu. Periksa koneksi atau coba beberapa saat lagi.'
+          'Koneksi ke Cloud Server melebihi batas waktu. Periksa koneksi internet atau coba beberapa saat lagi.'
       );
     }
 
@@ -264,11 +265,7 @@ async function callPublicEndpoint<T>(
     if (isTimeoutError(err)) {
       throw err;
     }
-    if (
-      err instanceof HtmlResponseError ||
-      err instanceof TypeError ||
-      String(err?.message || '').includes('Failed to fetch')
-    ) {
+    if (isBackendProxyUnavailableError(err)) {
       return directClientCall();
     }
     throw err;
@@ -359,7 +356,7 @@ export const PublicPortalClient = {
           return {
             success: true,
             found: false,
-            message: `Siswa dengan NIS [${searchNis}] tidak ditemukan di sheet Master Siswa.`,
+            message: `Siswa dengan NIS [${searchNis}] tidak ditemukan di Database Sekolah.`,
           };
         }
 
@@ -411,10 +408,9 @@ export const PublicPortalClient = {
     application: any;
   }> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan Pengajuan ke Spreadsheet...',
+      'Menyimpan Pengajuan ke Cloud Server...',
       'pending',
-      `Mengirim data pengajuan PKL ${payload?.nama || ''} ke [Data_Pengajuan_PKL]`,
-      'Data_Pengajuan_PKL'
+      `Mengirim data pengajuan PKL ${payload?.nama || ''} ke Cloud Server`
     );
 
     try {
@@ -511,7 +507,7 @@ export const PublicPortalClient = {
           await writeSheetDirect('Data_Pengajuan_PKL', 'CREATE', sheetRow);
           return {
             success: true,
-            message: 'Pengajuan PKL berhasil disimpan langsung ke Google Spreadsheet.',
+            message: 'Pengajuan PKL berhasil disimpan ke Cloud Server.',
             application: sheetRow,
           };
         }
@@ -521,16 +517,16 @@ export const PublicPortalClient = {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
         ToastManager.getInstance().update(
           toastId,
-          'Tersimpan di Google Spreadsheet!',
+          'Tersimpan di Cloud Server!',
           'success',
-          `Pengajuan PKL ${payload.nama} (${result.application?.id || ''}) tercatat di Data_Pengajuan_PKL.`
+          `Pengajuan PKL ${payload.nama} (${result.application?.id || ''}) telah tersimpan ke Cloud Server.`
         );
       } else {
         ToastManager.getInstance().update(
           toastId,
           'Gagal Menyimpan Pengajuan',
           'error',
-          result?.message || 'Terjadi kendala saat menyimpan ke Google Spreadsheet.'
+          result?.message || 'Terjadi kendala saat menyimpan ke Cloud Server.'
         );
       }
       return result;
@@ -539,7 +535,7 @@ export const PublicPortalClient = {
         toastId,
         'Gagal Menyimpan Pengajuan',
         'error',
-        err?.message || 'Periksa koneksi dan konfigurasi Apps Script.'
+        err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
       );
       throw err;
     }
@@ -598,7 +594,7 @@ export const PublicPortalClient = {
         });
 
         if (!teacher) {
-          throw new Error('Data petugas tidak ditemukan di sheet Master_Guru_Pendamping.');
+          throw new Error('Data petugas tidak ditemukan di Database Cloud Server.');
         }
 
         const explicitPin = pickField(teacher, 'PIN', 'pin', 'Pin');
@@ -612,7 +608,7 @@ export const PublicPortalClient = {
 
         if (validPins.length === 0) {
           throw new Error(
-            'Petugas belum memiliki kolom PIN, NIP, atau No. WA yang valid di Master_Guru_Pendamping untuk verifikasi.'
+            'Petugas belum memiliki PIN atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi.'
           );
         }
 
@@ -900,10 +896,9 @@ export const PublicPortalClient = {
     monitoring: any;
   }> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan Supervisi ke Spreadsheet...',
+      'Menyimpan Supervisi ke Cloud Server...',
       'pending',
-      `Menulis ${payload?.tahap_monitoring || 'Monitoring'} untuk ${payload?.nama_siswa || 'Siswa'} ke [Monitoring_5_Tahap]`,
-      'Monitoring_5_Tahap'
+      `Menyimpan ${payload?.tahap_monitoring || 'Monitoring'} untuk ${payload?.nama_siswa || 'Siswa'} ke Cloud Server`
     );
 
     try {
@@ -1118,7 +1113,7 @@ export const PublicPortalClient = {
           return {
             success: true,
             gradeSynced,
-            message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Google Spreadsheet.`,
+            message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Cloud Server.`,
             monitoring: sheetRow,
           };
         }
@@ -1130,11 +1125,11 @@ export const PublicPortalClient = {
           GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
         }
         const nilaiSuffix = res.gradeSynced
-          ? ` · Nilai DUDI (${res.monitoring?.Nilai_rata_rata ?? res.monitoring?.Nilai_Rata_Rata ?? payload.nilai_rata_rata}) tersinkron ke Nilai_Dan_Sertifikat`
+          ? ` · Nilai DUDI (${res.monitoring?.Nilai_rata_rata ?? res.monitoring?.Nilai_Rata_Rata ?? payload.nilai_rata_rata}) tersinkron ke Rekap Nilai`
           : '';
         ToastManager.getInstance().update(
           toastId,
-          res.gradeSynced ? 'Supervisi & Nilai PKL Tersimpan!' : 'Data Supervisi Tersimpan di Spreadsheet!',
+          res.gradeSynced ? 'Supervisi & Nilai Tersimpan!' : 'Data Supervisi Tersimpan di Cloud Server!',
           'success',
           `${payload.nama_siswa} · ${payload.tahap_monitoring} (S:${payload.sakit ?? 0} I:${payload.izin ?? 0} A:${payload.alpha ?? 0})${nilaiSuffix}`
         );
@@ -1143,7 +1138,7 @@ export const PublicPortalClient = {
           toastId,
           'Gagal Menyimpan Supervisi',
           'error',
-          res?.message || 'Gagal menyimpan ke Google Spreadsheet.'
+          res?.message || 'Gagal menyimpan ke Cloud Server.'
         );
       }
 
@@ -1153,7 +1148,7 @@ export const PublicPortalClient = {
         toastId,
         'Gagal Menyimpan Supervisi',
         'error',
-        err?.message || 'Periksa koneksi dan konfigurasi Apps Script.'
+        err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
       );
       throw err;
     }
@@ -1194,10 +1189,9 @@ export const PublicPortalClient = {
     };
   }> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan Perubahan Nilai ke Spreadsheet...',
+      'Menyimpan Perubahan Nilai ke Cloud Server...',
       'pending',
-      `Memperbarui nilai PKL ${payload.nama_siswa} pada [Monitoring_5_Tahap]`,
-      'Monitoring_5_Tahap'
+      `Memperbarui nilai PKL ${payload.nama_siswa} di Cloud Server`
     );
 
     try {
@@ -1422,7 +1416,7 @@ export const PublicPortalClient = {
           return {
             success: true,
             nilaiSynced,
-            message: `Perubahan nilai PKL ${namaSiswa} (${avgScore}) berhasil disimpan ke Google Spreadsheet.`,
+            message: `Perubahan nilai PKL ${namaSiswa} (${avgScore}) berhasil disimpan ke Cloud Server.`,
             gradeSummary: {
               monitoringId: resolvedMonId,
               k3lh,
@@ -1445,16 +1439,15 @@ export const PublicPortalClient = {
         }
         ToastManager.getInstance().update(
           toastId,
-          'Perubahan Nilai Tersimpan di Spreadsheet!',
+          'Perubahan Nilai Tersimpan di Cloud Server!',
           'success',
           `${payload.nama_siswa}: Rata-rata ${res.gradeSummary?.rataRata ?? ''} (${res.gradeSummary?.predikat ?? ''})`
         );
         if (res.nilaiSynced) {
           ToastManager.getInstance().show(
-            'Rekap Nilai_Dan_Sertifikat Diperbarui!',
+            'Rekap Nilai Diperbarui di Server!',
             'success',
-            `Nilai DUDI terbaru untuk ${payload.nama_siswa} (${res.gradeSummary?.rataRata}) telah disinkronkan.`,
-            'Nilai_Dan_Sertifikat'
+            `Nilai DUDI terbaru untuk ${payload.nama_siswa} (${res.gradeSummary?.rataRata}) telah disinkronkan ke Cloud Server.`
           );
         }
       } else {
@@ -1462,7 +1455,7 @@ export const PublicPortalClient = {
           toastId,
           'Gagal Memperbarui Nilai',
           'error',
-          res?.message || 'Gagal menyimpan perubahan nilai ke Spreadsheet.'
+          res?.message || 'Gagal menyimpan perubahan nilai ke Cloud Server.'
         );
       }
 
@@ -1472,7 +1465,7 @@ export const PublicPortalClient = {
         toastId,
         'Gagal Memperbarui Nilai',
         'error',
-        err?.message || 'Periksa koneksi dan konfigurasi Apps Script.'
+        err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
       );
       throw err;
     }

@@ -21,6 +21,16 @@ function normalize(val: unknown): string {
     .replace(/\s+/g, ' ');
 }
 
+function getStudentIdentityKey(nis?: unknown, nama?: unknown, kelas?: unknown): string {
+  const cleanNis = String(nis ?? '').trim();
+  if (cleanNis && cleanNis !== '-') {
+    return `nis:${cleanNis.toLowerCase()}`;
+  }
+  const cleanNama = normalize(nama);
+  const cleanKelas = normalize(kelas);
+  return cleanNama ? `nama:${cleanNama}|${cleanKelas}` : '';
+}
+
 export class RelationSyncService {
   private static instance: RelationSyncService;
 
@@ -108,6 +118,205 @@ export class RelationSyncService {
   }
 
   /**
+   * Recalculates Master_Jurusan.kuotaSiswa (Target Kuota = all students inputted by Hubin in Master_Siswa_XI)
+   * and Master_Jurusan.totalTerdaftar (Siswa Terdaftar = unique students in that jurusan actively enrolled in PKL).
+   */
+  public async syncJurusanCounts(
+    options: { silentToast?: boolean } = { silentToast: true }
+  ): Promise<{ updatedJurusan: number }> {
+    const silentOpts = { silentToast: options.silentToast !== false };
+    const [{ PengajuanService }, { PerizinanService }] = await Promise.all([
+      import('./PengajuanService'),
+      import('./PerizinanService'),
+    ]);
+
+    const [siswaList, jurusanList, pengajuanList, perizinanList, placements] = await Promise.all([
+      SiswaService.getInstance().getAll(),
+      JurusanService.getInstance().getAll(),
+      PengajuanService.getInstance().getAll().catch(() => []),
+      PerizinanService.getInstance().getAll().catch(() => []),
+      SiswaPklService.getInstance().getAll().catch(() => []),
+    ]);
+
+    const jurusanByKey = new Map<string, Jurusan>();
+    for (const j of jurusanList) {
+      if (j.nama) jurusanByKey.set(normalize(j.nama), j);
+      if (j.kode) jurusanByKey.set(normalize(j.kode), j);
+    }
+
+    const siswaByNis = new Map<string, Siswa>();
+    const siswaByName = new Map<string, Siswa>();
+    for (const s of siswaList) {
+      if (s.nis) siswaByNis.set(String(s.nis).trim().toLowerCase(), s);
+      if (s.nama) siswaByName.set(normalize(s.nama), s);
+    }
+
+    const kuotaCounts = new Map<string, number>();
+    const registeredSets = new Map<string, Set<string>>();
+    const ensureSet = (jurId: string) => {
+      let set = registeredSets.get(jurId);
+      if (!set) {
+        set = new Set<string>();
+        registeredSets.set(jurId, set);
+      }
+      return set;
+    };
+
+    for (const s of siswaList) {
+      const matchedJur = s.jurusan ? jurusanByKey.get(normalize(s.jurusan)) : undefined;
+      if (!matchedJur) continue;
+      kuotaCounts.set(matchedJur.id, (kuotaCounts.get(matchedJur.id) || 0) + 1);
+
+      const statusNorm = normalize(s.statusPKL);
+      if (statusNorm && statusNorm !== 'belum daftar') {
+        const key = getStudentIdentityKey(s.nis, s.nama, s.kelas);
+        if (key) ensureSet(matchedJur.id).add(key);
+      }
+    }
+
+    for (const req of pengajuanList) {
+      if (normalize(req.statusKakomli) === 'ditolak') continue;
+      const matchedSiswa: Siswa | undefined =
+        (req.nis ? siswaByNis.get(String(req.nis).trim().toLowerCase()) : undefined) ||
+        (req.namaSiswa ? siswaByName.get(normalize(req.namaSiswa)) : undefined);
+      const jurName = req.jurusan || matchedSiswa?.jurusan;
+      const matchedJur = jurName ? jurusanByKey.get(normalize(jurName)) : undefined;
+      if (!matchedJur) continue;
+
+      const key = getStudentIdentityKey(
+        req.nis || matchedSiswa?.nis,
+        req.namaSiswa || matchedSiswa?.nama,
+        req.kelas || matchedSiswa?.kelas
+      );
+      if (key) ensureSet(matchedJur.id).add(key);
+    }
+
+    for (const izn of perizinanList) {
+      const matchedSiswa: Siswa | undefined =
+        (izn.nis ? siswaByNis.get(String(izn.nis).trim().toLowerCase()) : undefined) ||
+        (izn.namaSiswa ? siswaByName.get(normalize(izn.namaSiswa)) : undefined);
+      const jurName = izn.jurusan || matchedSiswa?.jurusan;
+      const matchedJur = jurName ? jurusanByKey.get(normalize(jurName)) : undefined;
+      if (!matchedJur) continue;
+
+      const key = getStudentIdentityKey(
+        izn.nis || matchedSiswa?.nis,
+        izn.namaSiswa || matchedSiswa?.nama,
+        izn.kelas || matchedSiswa?.kelas
+      );
+      if (key) ensureSet(matchedJur.id).add(key);
+    }
+
+    for (const p of placements) {
+      if (normalize(p.statusPenempatan) === 'dibatalkan') continue;
+      const matchedSiswa: Siswa | undefined =
+        (p.nis ? siswaByNis.get(String(p.nis).trim().toLowerCase()) : undefined) ||
+        (p.namaSiswa ? siswaByName.get(normalize(p.namaSiswa)) : undefined);
+      const matchedJur = matchedSiswa?.jurusan
+        ? jurusanByKey.get(normalize(matchedSiswa.jurusan))
+        : undefined;
+      if (!matchedJur) continue;
+
+      const key = getStudentIdentityKey(p.nis || matchedSiswa?.nis, p.namaSiswa || matchedSiswa?.nama, matchedSiswa?.kelas);
+      if (key) ensureSet(matchedJur.id).add(key);
+    }
+
+    let updatedJurusan = 0;
+    for (const j of jurusanList) {
+      const nextKuota = kuotaCounts.get(j.id) || 0;
+      const nextTerdaftar = registeredSets.get(j.id)?.size || 0;
+      if (
+        Number(j.kuotaSiswa || 0) !== nextKuota ||
+        Number(j.totalTerdaftar || 0) !== nextTerdaftar
+      ) {
+        await JurusanService.getInstance().update(
+          j.id,
+          { kuotaSiswa: nextKuota, totalTerdaftar: nextTerdaftar },
+          silentOpts
+        );
+        updatedJurusan++;
+      }
+    }
+
+    return { updatedJurusan };
+  }
+
+  public async syncKelasCounts(
+    options: { silentToast?: boolean } = { silentToast: true }
+  ): Promise<{ updatedKelas: number }> {
+    const silentOpts = { silentToast: options.silentToast !== false };
+    const [siswaList, kelasList] = await Promise.all([
+      SiswaService.getInstance().getAll(),
+      KelasService.getInstance().getAll(),
+    ]);
+
+    const kelasByName = new Map<string, Kelas>();
+    for (const k of kelasList) {
+      if (k.namaKelas) kelasByName.set(normalize(k.namaKelas), k);
+    }
+
+    const kelasCounts = new Map<string, number>();
+    for (const s of siswaList) {
+      const matchedKls = s.kelas ? kelasByName.get(normalize(s.kelas)) : undefined;
+      if (matchedKls) {
+        kelasCounts.set(matchedKls.id, (kelasCounts.get(matchedKls.id) || 0) + 1);
+      }
+    }
+
+    let updatedKelas = 0;
+    for (const k of kelasList) {
+      const nextCount = kelasCounts.get(k.id) || 0;
+      if (Number(k.jumlahSiswa || 0) !== nextCount) {
+        await KelasService.getInstance().update(k.id, { jumlahSiswa: nextCount }, silentOpts);
+        updatedKelas++;
+      }
+    }
+
+    return { updatedKelas };
+  }
+
+  /**
+   * Lightweight automatic sync triggered after mutations on dependent modules.
+   */
+  public async syncAfterMutation(moduleId: string): Promise<void> {
+    if (moduleId === 'siswa') {
+      await Promise.all([
+        this.syncJurusanCounts({ silentToast: true }),
+        this.syncKelasCounts({ silentToast: true }),
+      ]);
+    } else if (moduleId === 'pengajuan' || moduleId === 'perizinan') {
+      await Promise.all([
+        this.syncJurusanCounts({ silentToast: true }),
+        this.syncPlacementCounts({ silentToast: true }),
+      ]);
+    } else if (moduleId === 'siswa_pkl') {
+      await Promise.all([
+        this.syncPlacementCounts({ silentToast: true }),
+        this.syncJurusanCounts({ silentToast: true }),
+      ]);
+    }
+  }
+
+  /**
+   * Automatic sync when viewing summary/master modules so counts stay live.
+   */
+  public async syncForModuleView(moduleId: string): Promise<number> {
+    if (moduleId === 'jurusan') {
+      const { updatedJurusan } = await this.syncJurusanCounts({ silentToast: true });
+      return updatedJurusan;
+    }
+    if (moduleId === 'guru' || moduleId === 'dudi') {
+      const { updatedDudi, updatedGuru } = await this.syncPlacementCounts({ silentToast: true });
+      return updatedDudi + updatedGuru;
+    }
+    if (moduleId === 'kelas') {
+      const { updatedKelas } = await this.syncKelasCounts({ silentToast: true });
+      return updatedKelas;
+    }
+    return 0;
+  }
+
+  /**
    * Full relational consistency check & recalculation purely in application logic
    * (zero Excel/Spreadsheet formulas).
    */
@@ -115,21 +324,16 @@ export class RelationSyncService {
     options: { backfillIds?: boolean } = {}
   ): Promise<RelationSyncSummary> {
     const siswaService = SiswaService.getInstance();
-    const jurusanService = JurusanService.getInstance();
-    const kelasService = KelasService.getInstance();
     const dudiService = DudiService.getInstance();
     const guruService = GuruService.getInstance();
     const siswaPklService = SiswaPklService.getInstance();
 
-    const [siswaList, jurusanList, kelasList, dudiList, guruList, placements] =
-      await Promise.all([
-        siswaService.getAll(),
-        jurusanService.getAll(),
-        kelasService.getAll(),
-        dudiService.getAll(),
-        guruService.getAll(),
-        siswaPklService.getAll(),
-      ]);
+    const [siswaList, dudiList, guruList, placements] = await Promise.all([
+      siswaService.getAll(),
+      dudiService.getAll(),
+      guruService.getAll(),
+      siswaPklService.getAll(),
+    ]);
 
     const siswaByNis = new Map<string, Siswa>();
     for (const s of siswaList) {
@@ -190,99 +394,19 @@ export class RelationSyncService {
       }
     }
 
-    // 2. Recalculate Master_DUDI.terisi & Master_Guru_Pendamping.jumlahBimbingan from active placements
-    const activePlacements = effectivePlacements.filter(
-      (p) => normalize(p.statusPenempatan) !== 'dibatalkan'
-    );
-
-    const dudiCounts = new Map<string, number>();
-    const guruCounts = new Map<string, number>();
-
-    for (const p of activePlacements) {
-      const matchedDudi =
-        (p.idDudi && dudiById.get(p.idDudi)) ||
-        (p.namaDudi && dudiByName.get(normalize(p.namaDudi)));
-      if (matchedDudi) {
-        dudiCounts.set(matchedDudi.id, (dudiCounts.get(matchedDudi.id) || 0) + 1);
-      }
-
-      const matchedGuru =
-        (p.idGuruPendamping && guruById.get(p.idGuruPendamping)) ||
-        (p.guruPendamping && guruByName.get(normalize(p.guruPendamping)));
-      if (matchedGuru) {
-        guruCounts.set(matchedGuru.id, (guruCounts.get(matchedGuru.id) || 0) + 1);
-      }
-    }
-
-    let updatedDudi = 0;
-    for (const d of dudiList) {
-      const nextCount = dudiCounts.get(d.id) || 0;
-      if (Number(d.terisi || 0) !== nextCount) {
-        await dudiService.update(d.id, { terisi: nextCount }, { silentToast: true });
-        updatedDudi++;
-      }
-    }
-
-    let updatedGuru = 0;
-    for (const g of guruList) {
-      const nextCount = guruCounts.get(g.id) || 0;
-      if (Number(g.jumlahBimbingan || 0) !== nextCount) {
-        await guruService.update(g.id, { jumlahBimbingan: nextCount }, { silentToast: true });
-        updatedGuru++;
-      }
-    }
-
-    // 3. Recalculate Master_Jurusan.totalTerdaftar & Master_Kelas_Walas.jumlahSiswa from Master_Siswa_XI
-    const jurusanByKey = new Map<string, Jurusan>();
-    for (const j of jurusanList) {
-      if (j.nama) jurusanByKey.set(normalize(j.nama), j);
-      if (j.kode) jurusanByKey.set(normalize(j.kode), j);
-    }
-
-    const kelasByName = new Map<string, Kelas>();
-    for (const k of kelasList) {
-      if (k.namaKelas) kelasByName.set(normalize(k.namaKelas), k);
-    }
-
-    const jurusanCounts = new Map<string, number>();
-    const kelasCounts = new Map<string, number>();
-
-    for (const s of siswaList) {
-      const matchedJur = s.jurusan ? jurusanByKey.get(normalize(s.jurusan)) : undefined;
-      if (matchedJur) {
-        jurusanCounts.set(matchedJur.id, (jurusanCounts.get(matchedJur.id) || 0) + 1);
-      }
-
-      const matchedKls = s.kelas ? kelasByName.get(normalize(s.kelas)) : undefined;
-      if (matchedKls) {
-        kelasCounts.set(matchedKls.id, (kelasCounts.get(matchedKls.id) || 0) + 1);
-      }
-    }
-
-    let updatedJurusan = 0;
-    for (const j of jurusanList) {
-      const nextCount = jurusanCounts.get(j.id) || 0;
-      if (Number(j.totalTerdaftar || 0) !== nextCount) {
-        await jurusanService.update(j.id, { totalTerdaftar: nextCount }, { silentToast: true });
-        updatedJurusan++;
-      }
-    }
-
-    let updatedKelas = 0;
-    for (const k of kelasList) {
-      const nextCount = kelasCounts.get(k.id) || 0;
-      if (Number(k.jumlahSiswa || 0) !== nextCount) {
-        await kelasService.update(k.id, { jumlahSiswa: nextCount }, { silentToast: true });
-        updatedKelas++;
-      }
-    }
+    // 2. Recalculate placements, jurusan (kuotaSiswa + totalTerdaftar), and kelas
+    const [placementRes, jurusanRes, kelasRes] = await Promise.all([
+      this.syncPlacementCounts({ silentToast: true }),
+      this.syncJurusanCounts({ silentToast: true }),
+      this.syncKelasCounts({ silentToast: true }),
+    ]);
 
     return {
       updatedPlacements,
-      updatedDudi,
-      updatedGuru,
-      updatedJurusan,
-      updatedKelas,
+      updatedDudi: placementRes.updatedDudi,
+      updatedGuru: placementRes.updatedGuru,
+      updatedJurusan: jurusanRes.updatedJurusan,
+      updatedKelas: kelasRes.updatedKelas,
     };
   }
 }

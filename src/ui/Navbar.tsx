@@ -82,8 +82,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="hidden xl:flex items-center gap-2 text-xs font-medium text-slate-600 pr-2 border-r border-slate-200 whitespace-nowrap shrink-0"
           title={
             isConnected
-              ? 'Terhubung otomatis lintas perangkat via Cloud GAS Web App'
-              : 'Menunggu konfigurasi Cloud GAS Web App & ID Spreadsheet'
+              ? 'Terhubung otomatis lintas perangkat ke Cloud Server'
+              : 'Menunggu konfigurasi Cloud Server'
           }
         >
           <span
@@ -92,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
             aria-hidden="true"
           />
-          <span>{isConnected ? 'Cloud GAS Aktif' : 'Belum Terhubung'}</span>
+          <span>{isConnected ? 'Cloud Server Aktif' : 'Belum Terhubung'}</span>
         </div>
 
         {/* Academic Year Switcher */}
@@ -105,7 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }}
             aria-label="Tahun Ajaran Aktif"
             className="bg-transparent border-0 font-bold text-slate-800 focus:outline-none cursor-pointer text-xs tabular-nums pr-1"
-            title="Ganti Tahun Ajaran Google Spreadsheet"
+            title="Ganti Tahun Ajaran Database Server"
           >
             {config.academicYears && config.academicYears.length > 0 ? (
               config.academicYears.map((ay) => (
@@ -127,14 +127,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={onSyncAll}
           disabled={syncing}
           className="h-9 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors shrink-0 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-          title="Muat ulang seluruh data dari Google Spreadsheet"
+          title="Muat ulang seluruh data dari Cloud Server"
         >
           <RefreshCw
             className={`w-3.5 h-3.5 shrink-0 ${
               syncing ? 'animate-spin text-blue-600' : 'text-slate-500'
             }`}
           />
-          <span className="hidden sm:inline">{syncing ? 'Menyinkronkan...' : 'Sync Semua'}</span>
+          <span className="hidden sm:inline">{syncing ? 'Menyinkronkan...' : 'Sync Server'}</span>
         </button>
 
         {/* Back to Landing Page */}

@@ -18,6 +18,21 @@ export class HtmlResponseError extends Error {
   }
 }
 
+export class NonJsonResponseError extends Error {
+  public readonly status: number;
+  public readonly contentType: string;
+  public readonly bodySnippet: string;
+  public readonly code = 'NON_JSON_RESPONSE';
+
+  constructor(message: string, status: number, contentType = '', bodySnippet = '') {
+    super(message);
+    this.name = 'NonJsonResponseError';
+    this.status = status;
+    this.contentType = contentType;
+    this.bodySnippet = bodySnippet;
+  }
+}
+
 export class TimeoutError extends Error {
   public readonly code = 'REQUEST_TIMEOUT';
   public readonly timeoutMs: number;
@@ -77,7 +92,7 @@ export function validateGasDeployUrl(rawUrl: string): GasUrlValidationResult {
       valid: false,
       normalizedUrl,
       isWorkspaceUrl,
-      error: 'URL Google Apps Script (/exec) belum diisi.',
+      error: 'URL Endpoint Cloud Server (/exec) belum diisi.',
     };
   }
 
@@ -86,7 +101,7 @@ export function validateGasDeployUrl(rawUrl: string): GasUrlValidationResult {
       valid: false,
       normalizedUrl,
       isWorkspaceUrl,
-      error: 'URL Google Apps Script tidak valid. Harus diawali https://script.google.com/...',
+      error: 'URL Endpoint Cloud Server tidak valid. Harus diawali https://...',
     };
   }
 
@@ -96,7 +111,7 @@ export function validateGasDeployUrl(rawUrl: string): GasUrlValidationResult {
       normalizedUrl,
       isWorkspaceUrl,
       error:
-        'Link yang Anda tempel adalah link editor Apps Script (/edit), bukan Web App URL. Klik Deploy -> New deployment -> pilih Web app -> salin URL yang berakhiran "/exec".',
+        'Tautan yang Anda tempel adalah tautan editor (/edit), bukan Endpoint Web Service. Salin URL endpoint berakhiran "/exec" dari Konfigurasi Server.',
     };
   }
 
@@ -106,7 +121,7 @@ export function validateGasDeployUrl(rawUrl: string): GasUrlValidationResult {
       normalizedUrl,
       isWorkspaceUrl,
       error:
-        'URL masih berakhiran "/dev" (mode uji coba yang wajib login Google dan diblokir CORS). Gunakan URL Web App resmi yang berakhiran "/exec" dengan akses "Siapa saja (Anyone)".',
+        'URL masih berakhiran "/dev" (mode pengembangan yang memblokir akses publik). Gunakan URL Endpoint Server resmi berakhiran "/exec" dengan akses "Siapa saja (Anyone)".',
     };
   }
 
@@ -116,7 +131,7 @@ export function validateGasDeployUrl(rawUrl: string): GasUrlValidationResult {
       normalizedUrl,
       isWorkspaceUrl,
       error:
-        'URL Google Apps Script harus berakhiran "/exec". Salin URL resmi dari menu Deploy -> Kelola deployment (Manage deployments).',
+        'URL Endpoint Server harus berakhiran "/exec". Salin URL resmi dari panel deployment Konfigurasi Server.',
     };
   }
 
@@ -140,6 +155,16 @@ export function isNetworkFetchError(err: unknown): boolean {
   ) || msg === 'failed to fetch' || msg === 'fetch failed';
 }
 
+export function isBackendProxyUnavailableError(err: unknown): boolean {
+  return (
+    err instanceof HtmlResponseError ||
+    err instanceof NonJsonResponseError ||
+    isNetworkFetchError(err) ||
+    (err as any)?.name === 'HtmlResponseError' ||
+    (err as any)?.name === 'NonJsonResponseError'
+  );
+}
+
 export function formatGasNetworkError(err: unknown, gasUrl?: string): string {
   const validation = gasUrl ? validateGasDeployUrl(gasUrl) : null;
   if (validation && !validation.valid && validation.error) {
@@ -148,18 +173,18 @@ export function formatGasNetworkError(err: unknown, gasUrl?: string): string {
 
   if (isNetworkFetchError(err)) {
     const workspaceHint = validation?.isWorkspaceUrl
-      ? ' URL Anda memakai domain Google Workspace (/a/macros/...): banyak domain sekolah/instansi memblokir akses publik "Anyone". Jika tetap gagal, deploy skrip melalui akun @gmail.com biasa yang diberi akses Editor ke Spreadsheet.'
+      ? ' Domain instansi (/a/macros/...) sering memblokir akses publik. Jika tetap gagal, deploy endpoint server memakai akun pengelola dengan akses penuh ke database server.'
       : '';
     return (
-      'Browser diblokir (CORS / Redirect Login Google) saat menghubungi Web App GAS ("Failed to fetch"). ' +
-      'Pastikan di Apps Script: (1) Deploy -> Kelola deployment -> Edit -> setel "Jalankan sebagai: Saya (Me)" dan "Yang memiliki akses: Siapa saja (Anyone)", ' +
-      '(2) Pilih "Versi baru (New version)" setelah edit kode lalu klik Deploy & berikan izin (Authorize), ' +
-      '(3) URL berakhiran "/exec" (bukan "/dev").' +
+      'Browser diblokir (CORS / Redirect Autentikasi) saat menghubungi Cloud Server. ' +
+      'Pastikan pada Konfigurasi Server: (1) Akses deployment disetel ke "Siapa saja (Anyone)" dan dijalankan sebagai pengelola, ' +
+      '(2) Deploy versi terbaru setelah pembaruan, ' +
+      '(3) URL endpoint berakhiran "/exec".' +
       workspaceHint
     );
   }
 
-  return String((err as any)?.message || 'Gagal menghubungi Google Apps Script Web App.');
+  return String((err as any)?.message || 'Gagal menghubungi layanan Cloud Server.');
 }
 
 export interface SafeFetchInit extends RequestInit {
@@ -204,7 +229,7 @@ export async function safeFetchJson<T = any>(
   } catch (err: any) {
     if (timedOut || err?.name === 'AbortError') {
       throw new TimeoutError(
-        `Koneksi melebihi batas waktu (${Math.round(timeoutMs / 1000)} detik). Server atau Google Apps Script lambat merespons. Silakan coba lagi.`,
+        `Koneksi melebihi batas waktu (${Math.round(timeoutMs / 1000)} detik). Cloud Server lambat merespons. Silakan coba lagi.`,
         timeoutMs
       );
     }
@@ -219,7 +244,12 @@ export async function safeFetchJson<T = any>(
 
   if (!trimmed) {
     if (!res.ok) {
-      throw new Error(`Server mengembalikan respon kosong (HTTP ${res.status}).`);
+      throw new NonJsonResponseError(
+        `Cloud Server mengembalikan respon kosong (HTTP ${res.status}).`,
+        res.status,
+        contentType,
+        ''
+      );
     }
     return { ok: res.ok, status: res.status, data: {} as T };
   }
@@ -237,14 +267,14 @@ export async function safeFetchJson<T = any>(
 
     if (isGoogleAuth) {
       throw new HtmlResponseError(
-        'Google Apps Script mengembalikan halaman login Google. Pastikan Web App di-deploy dengan akses "Yang memiliki akses: Siapa saja (Anyone)" dan URL berakhiran "/exec".',
+        'Endpoint Cloud Server masih meminta login (akses dibatasi). Pastikan Konfigurasi Server disetel akses "Siapa saja (Anyone)" pada URL "/exec".',
         res.status,
         true
       );
     }
 
     throw new HtmlResponseError(
-      `Server mengembalikan halaman HTML (HTTP ${res.status}), bukan data JSON. Periksa konfigurasi endpoint server atau URL Google Apps Script.`,
+      `Cloud Server mengembalikan halaman HTML (HTTP ${res.status}), bukan data JSON. Periksa konfigurasi endpoint server.`,
       res.status,
       false
     );
@@ -255,8 +285,12 @@ export async function safeFetchJson<T = any>(
     return { ok: res.ok, status: res.status, data: parsed };
   } catch {
     const hint = contentType ? ` (${contentType})` : '';
-    throw new Error(
-      `Respon server bukan JSON yang valid${hint} [HTTP ${res.status}]: ${trimmed.slice(0, 120)}`
+    const snippet = trimmed.slice(0, 120);
+    throw new NonJsonResponseError(
+      `Respon server bukan JSON yang valid${hint} [HTTP ${res.status}]: ${snippet}`,
+      res.status,
+      contentType,
+      snippet
     );
   }
 }

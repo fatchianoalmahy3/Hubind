@@ -14,7 +14,7 @@ import {
   normalizeGasUrl,
   validateGasDeployUrl,
   formatGasNetworkError,
-  HtmlResponseError,
+  isBackendProxyUnavailableError,
 } from './utils/safeFetchJson';
 
 export interface AcademicYearConfig {
@@ -99,7 +99,7 @@ export class GoogleSheetClient {
         ToastManager.getInstance().show(
           'Koneksi Internet Aktif',
           'info',
-          'Sistem siap menyinkronkan data langsung ke Google Spreadsheet via Cloud GAS.'
+          'Sistem siap menyinkronkan data langsung ke Database Cloud Server.'
         );
       });
 
@@ -108,7 +108,7 @@ export class GoogleSheetClient {
         ToastManager.getInstance().show(
           'Koneksi Internet Terputus',
           'error',
-          'Operasi baca/tulis Google Spreadsheet membutuhkan koneksi internet aktif.'
+          'Operasi baca/tulis Cloud Server membutuhkan koneksi internet aktif.'
         );
       });
     }
@@ -309,9 +309,9 @@ export class GoogleSheetClient {
     driveFolderUrl?: string;
   }): Promise<boolean> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan ke Firebase Firestore...',
+      'Menyimpan ke Cloud Server...',
       'pending',
-      'Memperbarui ID Spreadsheet agar otomatis sinkron ke seluruh perangkat...'
+      'Memperbarui ID Database Server agar sinkron ke seluruh perangkat...'
     );
 
     try {
@@ -368,17 +368,17 @@ export class GoogleSheetClient {
 
       ToastManager.getInstance().update(
         toastId,
-        'Tersimpan di Firebase Cloud!',
+        'Konfigurasi Server Tersimpan!',
         'success',
-        'ID Spreadsheet sinkron otomatis ke semua HP, tablet, dan PC pengelola.'
+        'Konfigurasi Database Cloud Server sinkron otomatis ke semua perangkat pengelola.'
       );
       return true;
     } catch (e: any) {
       ToastManager.getInstance().update(
         toastId,
-        'Gagal Menyimpan ke Firebase',
+        'Gagal Menyimpan Konfigurasi Server',
         'error',
-        e?.message || 'Verifikasi Super Admin Firebase diperlukan untuk mengubah konfigurasi pusat.'
+        e?.message || 'Verifikasi Administrator diperlukan untuk mengubah konfigurasi server.'
       );
       return false;
     }
@@ -415,7 +415,7 @@ export class GoogleSheetClient {
         toastId,
         `Tahun Ajaran Aktif: ${year}`,
         'success',
-        `Sistem kini membaca Google Spreadsheet: [${this.spreadsheetName || this.spreadsheetId}]`
+        `Cloud Server kini terhubung ke Database: ${this.spreadsheetName || `TA ${year}`}`
       );
       return true;
     } catch (err: any) {
@@ -423,14 +423,14 @@ export class GoogleSheetClient {
         toastId,
         'Gagal Mengganti Tahun Ajaran',
         'error',
-        err?.message || 'Gagal menyimpan ke Firebase'
+        err?.message || 'Gagal menyimpan konfigurasi tahun ajaran ke server'
       );
       return false;
     }
   }
 
   /**
-   * Add a new academic year Google Spreadsheet entry and persist in Firestore
+   * Add a new academic year database entry and persist in Firestore
    */
   public async addNewAcademicYear(
     year: string,
@@ -442,7 +442,7 @@ export class GoogleSheetClient {
     const toastId = ToastManager.getInstance().show(
       'Mendaftarkan Tahun Ajaran Baru...',
       'pending',
-      `Menyimpan berkas Google Spreadsheet TA ${year} ke Firebase...`
+      `Menyimpan konfigurasi Database Cloud Server TA ${year}...`
     );
 
     try {
@@ -485,7 +485,7 @@ export class GoogleSheetClient {
         toastId,
         `Tahun Ajaran ${cleanYear} Tersimpan!`,
         'success',
-        'Google Spreadsheet baru terdaftar permanen di Firebase & aktif di semua gawai.'
+        'Database Cloud Server baru terdaftar permanen & aktif di semua perangkat.'
       );
       return true;
     } catch (err: any) {
@@ -509,9 +509,9 @@ export class GoogleSheetClient {
     spreadsheetName?: string
   ): Promise<boolean> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan Konfigurasi ke Firebase...',
+      'Menyimpan Konfigurasi Server...',
       'pending',
-      'Menyinkronkan ID Spreadsheet & URL GAS agar identik di semua perangkat...'
+      'Menyinkronkan pengaturan Database & Endpoint Cloud Server untuk semua perangkat...'
     );
 
     try {
@@ -559,30 +559,30 @@ export class GoogleSheetClient {
 
       ToastManager.getInstance().update(
         toastId,
-        'Konfigurasi Tersimpan di Firebase!',
+        'Konfigurasi Server Tersimpan!',
         'success',
-        'Seluruh perangkat kini otomatis membaca ID Spreadsheet & Cloud GAS yang sama.'
+        'Seluruh perangkat kini terhubung ke Database Cloud Server yang sama.'
       );
       return true;
     } catch (err: any) {
       ToastManager.getInstance().update(
         toastId,
-        'Gagal Menyimpan ke Firebase',
+        'Gagal Menyimpan Konfigurasi Server',
         'error',
-        err?.message || 'Verifikasi Super Admin Firebase diperlukan untuk menyimpan pengaturan pusat.'
+        err?.message || 'Verifikasi Administrator diperlukan untuk menyimpan konfigurasi server.'
       );
       return false;
     }
   }
 
   /**
-   * Update Google Docs template IDs permanently in Firestore
+   * Update document template IDs permanently in Firestore
    */
   public async updateTemplates(templates: WorkspaceTemplateConfig[]): Promise<boolean> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan Template Docs ke Firebase...',
+      'Menyimpan Template Dokumen...',
       'pending',
-      'Menyinkronkan ID Google Docs ke seluruh gawai...'
+      'Menyinkronkan template dokumen resmi ke Konfigurasi Server...'
     );
 
     try {
@@ -591,9 +591,9 @@ export class GoogleSheetClient {
 
       ToastManager.getInstance().update(
         toastId,
-        'Template Dokumen Tersimpan di Firebase!',
+        'Template Dokumen Tersimpan!',
         'success',
-        'Seluruh ID template Google Docs kini tersimpan permanen & konsisten di semua perangkat.'
+        'Seluruh ID template dokumen kini tersimpan permanen di Cloud Server untuk semua perangkat.'
       );
       return true;
     } catch (e: any) {
@@ -601,7 +601,7 @@ export class GoogleSheetClient {
         toastId,
         'Gagal Menyimpan Template',
         'error',
-        e?.message || 'Verifikasi Super Admin Firebase diperlukan.'
+        e?.message || 'Verifikasi Administrator diperlukan.'
       );
       return false;
     }
@@ -624,7 +624,7 @@ export class GoogleSheetClient {
     if (!validation.valid) {
       return {
         connected: false,
-        error: validation.error || 'URL Google Apps Script (/exec) belum dikonfigurasi.',
+        error: validation.error || 'URL Endpoint Cloud Server (/exec) belum dikonfigurasi.',
       };
     }
 
@@ -634,7 +634,7 @@ export class GoogleSheetClient {
     ).trim();
 
     if (!targetSpreadsheetId && customGasUrl === undefined) {
-      return { connected: false, error: 'ID Google Spreadsheet belum dikonfigurasi.' };
+      return { connected: false, error: 'ID Database Cloud Server belum dikonfigurasi.' };
     }
     if (!this.isOnline) {
       return { connected: false, error: 'Perangkat sedang offline.' };
@@ -652,7 +652,7 @@ export class GoogleSheetClient {
           params.set('spreadsheetId', targetSpreadsheetId);
         }
         const qs = params.toString();
-        const { ok, data: json } = await safeFetchJson(`/api/admin/gas-ping${qs ? `?${qs}` : ''}`, {
+        const { ok, status, data: json } = await safeFetchJson(`/api/admin/gas-ping${qs ? `?${qs}` : ''}`, {
           method: 'GET',
           headers: {
             Accept: 'application/json',
@@ -666,12 +666,12 @@ export class GoogleSheetClient {
             sheets: Array.isArray(json.sheets) ? json.sheets : [],
           };
         }
-        if (json?.message && json?.code !== 'UNAUTHORIZED') {
+        if (json?.message && status < 500 && json?.code !== 'UNAUTHORIZED') {
           return { connected: false, error: json.message };
         }
       } catch (err: any) {
-        if (!(err instanceof HtmlResponseError) && !String(err?.message || '').includes('Failed to fetch')) {
-          return { connected: false, error: err?.message || 'Gagal menghubungi proxy server GAS.' };
+        if (!isBackendProxyUnavailableError(err)) {
+          return { connected: false, error: err?.message || 'Gagal menghubungi proxy Cloud Server.' };
         }
       }
     }
@@ -695,7 +695,7 @@ export class GoogleSheetClient {
       if (!ok || json?.error) {
         return {
           connected: false,
-          error: json?.error || 'Web App GAS tidak merespon PING dengan benar.',
+          error: json?.error || 'Endpoint Cloud Server tidak merespon PING dengan benar.',
         };
       }
 
@@ -718,19 +718,19 @@ export class GoogleSheetClient {
   ): Promise<{ success: boolean; message: string; title?: string; sheets?: string[] }> {
     const targetGas = normalizeGasUrl(customGasUrl ?? this.gasDeployUrl);
     const toastId = ToastManager.getInstance().show(
-      'Menguji Koneksi Cloud GAS...',
+      'Menguji Koneksi Cloud Server...',
       'pending',
-      'Memeriksa koneksi Google Apps Script ke Google Spreadsheet...'
+      'Memeriksa koneksi ke endpoint Database Cloud Server...'
     );
 
     if (!targetGas) {
       ToastManager.getInstance().update(
         toastId,
-        'URL Apps Script Belum Diisi',
+        'Endpoint Server Belum Diisi',
         'error',
-        'Masukkan URL Web App GAS (/exec) yang telah di-deploy.'
+        'Masukkan URL Endpoint Server (/exec) pada Konfigurasi Server.'
       );
-      return { success: false, message: 'URL Web App GAS (/exec) belum diatur.' };
+      return { success: false, message: 'URL Endpoint Server (/exec) belum diatur.' };
     }
 
     const pingRes = await this.pingGasConnection(targetGas, customSpreadsheetId);
@@ -739,27 +739,27 @@ export class GoogleSheetClient {
       this.lastTestedAt = now;
       const sheetCountNote =
         Array.isArray(pingRes.sheets) && pingRes.sheets.length > 0
-          ? ` — ${pingRes.sheets.length} tab sheet terdeteksi`
+          ? ` — ${pingRes.sheets.length} tabel server terdeteksi`
           : '';
 
       ToastManager.getInstance().update(
         toastId,
-        'Koneksi Cloud GAS Berhasil!',
+        'Koneksi Cloud Server Berhasil!',
         'success',
-        `Terhubung ke "${pingRes.title || 'Google Spreadsheet'}"${sheetCountNote} (${now})`
+        `Terhubung ke "${pingRes.title || 'Database Cloud Server'}"${sheetCountNote} (${now})`
       );
       return {
         success: true,
         title: pingRes.title,
         sheets: pingRes.sheets,
-        message: `Terhubung via Cloud GAS ke "${pingRes.title || 'Spreadsheet'}"${sheetCountNote}.`,
+        message: `Terhubung ke Cloud Server "${pingRes.title || 'Database Server'}"${sheetCountNote}.`,
       };
     }
 
-    const msg = pingRes.error || 'Pastikan Web App GAS di-deploy dengan akses "Anyone (Siapa saja)".';
+    const msg = pingRes.error || 'Pastikan Endpoint Server disetel dengan akses "Anyone (Siapa saja)".';
     ToastManager.getInstance().update(
       toastId,
-      'Gagal Menghubungi Web App GAS',
+      'Gagal Menghubungi Cloud Server',
       'error',
       msg
     );
@@ -771,9 +771,9 @@ export class GoogleSheetClient {
   ): Promise<{ success: boolean; message: string; formUrl?: string; spreadsheetUrl?: string }> {
     const sId = targetSpreadsheetId || this.spreadsheetId;
     const toastId = ToastManager.getInstance().show(
-      'Auto-Generate Sheet & GForm...',
+      'Inisialisasi Tabel Cloud Server...',
       'pending',
-      `Menyiapkan struktur sheet terpisah untuk TA ${this.activeYear}...`
+      `Menyiapkan struktur tabel terpisah untuk TA ${this.activeYear}...`
     );
 
     if (this.gasDeployUrl && this.isOnline) {
@@ -792,13 +792,13 @@ export class GoogleSheetClient {
         if (ok && !resJson?.error) {
           ToastManager.getInstance().update(
             toastId,
-            'Auto-Generate Berhasil!',
+            'Struktur Cloud Server Siap!',
             'success',
-            'Seluruh tab sheet dan Google Form berhasil disiapkan di Spreadsheet Anda.'
+            'Seluruh tabel server dan formulir pendaftaran berhasil disiapkan.'
           );
           return {
             success: true,
-            message: 'Berhasil membuat sheet dan Google Form di Google Spreadsheet.',
+            message: 'Berhasil menyiapkan seluruh struktur tabel pada Database Cloud Server.',
             formUrl: resJson.formUrl,
             spreadsheetUrl: resJson.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${sId}`,
           };
@@ -810,15 +810,15 @@ export class GoogleSheetClient {
 
     ToastManager.getInstance().update(
       toastId,
-      'Gunakan File .xlsx atau Skrip GAS',
+      'Gunakan Template Excel atau Skrip Inisialisasi',
       'info',
-      'Unduh file Master .xlsx (Impor ke Google Sheets) atau jalankan kode Apps Script di Spreadsheet Anda.'
+      'Unduh file Master Excel (.xlsx) atau jalankan skrip inisialisasi pada Konfigurasi Server.'
     );
 
     return {
       success: false,
       message:
-        'Gunakan tab "Download File Master Excel (.xlsx)" lalu Impor ke Google Sheets, atau jalankan kode di tab "Skrip Google Apps Script (GAS)".',
+        'Gunakan tab "Download File Master Excel (.xlsx)" atau jalankan skrip di tab "Skrip API Integrasi Server".',
       spreadsheetUrl: sId ? `https://docs.google.com/spreadsheets/d/${sId}` : undefined,
     };
   }
@@ -863,7 +863,7 @@ export class GoogleSheetClient {
       return {
         data: [],
         fromSpreadsheet: false,
-        error: 'ID Google Spreadsheet belum dikonfigurasi.',
+        error: 'Konfigurasi Database Cloud Server belum diatur.',
       };
     }
 
@@ -871,7 +871,7 @@ export class GoogleSheetClient {
       return {
         data: [],
         fromSpreadsheet: false,
-        error: 'Perangkat sedang offline. Sambungkan internet untuk membaca Google Spreadsheet.',
+        error: 'Perangkat sedang offline. Sambungkan internet untuk mengakses Cloud Server.',
       };
     }
 
@@ -879,7 +879,7 @@ export class GoogleSheetClient {
       return {
         data: [],
         fromSpreadsheet: false,
-        error: 'URL Web App Google Apps Script (/exec) belum dikonfigurasi.',
+        error: 'URL Endpoint Cloud Server (/exec) belum dikonfigurasi.',
       };
     }
 
@@ -925,14 +925,11 @@ export class GoogleSheetClient {
               fromSpreadsheet: true,
             };
           }
-          if (json?.message && status !== 401 && status !== 403) {
+          if (json?.message && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 404) {
             throw new Error(json.message);
           }
         } catch (proxyErr: any) {
-          if (
-            !(proxyErr instanceof HtmlResponseError) &&
-            !String(proxyErr?.message || '').includes('Failed to fetch')
-          ) {
+          if (!isBackendProxyUnavailableError(proxyErr)) {
             throw proxyErr;
           }
         }
@@ -941,7 +938,7 @@ export class GoogleSheetClient {
       // 2. Direct Cloud GAS Web App fallback (static SPA preview host)
       const validation = validateGasDeployUrl(this.gasDeployUrl);
       if (!validation.valid) {
-        throw new Error(validation.error || 'URL Web App GAS tidak valid.');
+        throw new Error(validation.error || 'URL Endpoint Cloud Server tidak valid.');
       }
       const gasUrl = validation.normalizedUrl;
       const sep = gasUrl.includes('?') ? '&' : '?';
@@ -954,7 +951,7 @@ export class GoogleSheetClient {
           { method: 'GET', redirect: 'follow', cache: 'no-store', timeoutMs: 18_000 }
         );
         if (!ok) {
-          throw new Error(`GAS Web App gagal membaca sheet [${sheetName}] (${status})`);
+          throw new Error(`Cloud Server gagal memuat data modul (${status}).`);
         }
         if ((json.status === 'success' || json.success) && Array.isArray(json.data)) {
           const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
@@ -964,7 +961,7 @@ export class GoogleSheetClient {
             fromSpreadsheet: true,
           };
         }
-        throw new Error(json.error || `Format respon GAS untuk [${sheetName}] tidak valid.`);
+        throw new Error(json.error || 'Format respon Cloud Server tidak valid.');
       } catch (err: any) {
         throw new Error(formatGasNetworkError(err, gasUrl));
       }
@@ -1031,14 +1028,11 @@ export class GoogleSheetClient {
         if (ok && json?.success) {
           return;
         }
-        if (json?.message && status !== 401 && status !== 403) {
+        if (json?.message && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 404) {
           throw new Error(json.message);
         }
       } catch (proxyErr: any) {
-        if (
-          !(proxyErr instanceof HtmlResponseError) &&
-          !String(proxyErr?.message || '').includes('Failed to fetch')
-        ) {
+        if (!isBackendProxyUnavailableError(proxyErr)) {
           throw proxyErr;
         }
       }
@@ -1046,7 +1040,7 @@ export class GoogleSheetClient {
 
     const validation = validateGasDeployUrl(this.gasDeployUrl);
     if (!validation.valid) {
-      throw new Error(validation.error || 'URL Web App GAS tidak valid.');
+      throw new Error(validation.error || 'URL Endpoint Cloud Server tidak valid.');
     }
     const gasUrl = validation.normalizedUrl;
     const rawId =
@@ -1077,7 +1071,7 @@ export class GoogleSheetClient {
       });
 
       if (!ok || json?.error) {
-        throw new Error(json?.error || `GAS Web App mengembalikan status ${status}`);
+        throw new Error(json?.error || `Cloud Server mengembalikan status ${status}`);
       }
       await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
         method: 'POST',
@@ -1089,7 +1083,7 @@ export class GoogleSheetClient {
   }
 
   /**
-   * Strict CRUD commit to Google Spreadsheet via Cloud GAS (fails loudly if not connected)
+   * Strict CRUD commit to Cloud Server (fails loudly if not connected)
    */
   public async commitToSpreadsheet(
     sheetName: string,
@@ -1100,28 +1094,28 @@ export class GoogleSheetClient {
     const silent = Boolean(options?.silentToast);
 
     if (!this.spreadsheetId) {
-      const msg = 'ID Google Spreadsheet belum diatur. Atur Spreadsheet terlebih dahulu.';
-      if (!silent) ToastManager.getInstance().show('Spreadsheet Belum Diatur', 'error', msg);
+      const msg = 'Konfigurasi Database Cloud Server belum diatur.';
+      if (!silent) ToastManager.getInstance().show('Server Belum Dikonfigurasi', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
     if (!this.isOnline) {
-      const msg = 'Tidak ada koneksi internet untuk menulis ke Google Spreadsheet.';
+      const msg = 'Tidak ada koneksi internet untuk menyimpan data ke Cloud Server.';
       if (!silent) ToastManager.getInstance().show('Koneksi Offline', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
     if (!this.gasDeployUrl) {
-      const msg = 'URL Web App Google Apps Script (/exec) belum dikonfigurasi.';
-      if (!silent) ToastManager.getInstance().show('URL GAS Belum Diatur', 'error', msg);
+      const msg = 'URL Endpoint Cloud Server (/exec) belum dikonfigurasi.';
+      if (!silent) ToastManager.getInstance().show('Endpoint Server Belum Diatur', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
     const toastId = !silent
       ? ToastManager.getInstance().show(
-          'Menyimpan ke Google Spreadsheet...',
+          'Menyimpan ke Cloud Server...',
           'pending',
-          `Menulis ${action} ke lembar kerja [${sheetName}] (TA ${this.activeYear})`,
+          `Memproses sinkronisasi data ke Cloud Server (TA ${this.activeYear})`,
           sheetName
         )
       : null;
@@ -1131,16 +1125,16 @@ export class GoogleSheetClient {
       if (toastId) {
         ToastManager.getInstance().update(
           toastId,
-          'Tersimpan di Google Spreadsheet!',
+          'Tersimpan di Cloud Server!',
           'success',
-          `Data berhasil ditulis ke Google Spreadsheet [${sheetName}] via Cloud GAS.`
+          'Data berhasil ditulis dan disinkronkan ke Cloud Server.'
         );
       }
       return { success: true, fromLiveSheet: true };
     } catch (err: any) {
-      const errMsg = err?.message || 'Gagal menghubungi Web App GAS';
+      const errMsg = err?.message || 'Gagal menghubungi Cloud Server';
       if (toastId) {
-        ToastManager.getInstance().update(toastId, 'Gagal Menyimpan ke Spreadsheet', 'error', errMsg);
+        ToastManager.getInstance().update(toastId, 'Gagal Menyimpan ke Cloud Server', 'error', errMsg);
       }
       return { success: false, fromLiveSheet: false, error: errMsg };
     }
@@ -1162,22 +1156,22 @@ export class GoogleSheetClient {
     const silent = Boolean(options?.silentToast);
 
     if (!this.spreadsheetId) {
-      const msg = 'ID Google Spreadsheet belum dikonfigurasi.';
-      if (!silent) ToastManager.getInstance().show('Spreadsheet Belum Diatur', 'error', msg);
+      const msg = 'Konfigurasi Database Cloud Server belum diatur.';
+      if (!silent) ToastManager.getInstance().show('Server Belum Dikonfigurasi', 'error', msg);
       return { success: false, message: msg };
     }
 
     if (!this.gasDeployUrl || !this.isOnline) {
-      const msg = 'Pastikan koneksi internet aktif dan URL Web App GAS (/exec) sudah terpasang.';
-      if (!silent) ToastManager.getInstance().show('Koneksi GAS Belum Siap', 'error', msg);
+      const msg = 'Pastikan koneksi internet aktif dan Endpoint Cloud Server sudah terpasang.';
+      if (!silent) ToastManager.getInstance().show('Koneksi Server Belum Siap', 'error', msg);
       return { success: false, message: msg };
     }
 
     const toastId = !silent
       ? ToastManager.getInstance().show(
-          'Menyinkronkan ke Google Spreadsheet...',
+          'Menyinkronkan ke Cloud Server...',
           'pending',
-          `Menyegarkan data lembar kerja [${sheetName}] (TA ${this.activeYear})`,
+          `Menyegarkan data terbaru di Cloud Server (TA ${this.activeYear})`,
           sheetName
         )
       : null;
@@ -1188,15 +1182,15 @@ export class GoogleSheetClient {
       if (toastId) {
         ToastManager.getInstance().update(
           toastId,
-          'Sinkronisasi Spreadsheet Berhasil',
+          'Sinkronisasi Cloud Server Berhasil',
           'success',
-          `${rows.length} baris tersimpan via Cloud GAS (${now}).`
+          `${rows.length} baris tersinkron di Cloud Server (${now}).`
         );
       }
       return { success: true, message: 'Berhasil tersinkronisasi' };
     } catch (err: any) {
       if (toastId) {
-        ToastManager.getInstance().update(toastId, 'Gagal Sinkronisasi GAS', 'error', err?.message || 'Error');
+        ToastManager.getInstance().update(toastId, 'Gagal Sinkronisasi Cloud Server', 'error', err?.message || 'Error');
       }
       return { success: false, message: err?.message || 'Error' };
     }

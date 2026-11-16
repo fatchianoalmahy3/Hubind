@@ -15,10 +15,31 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const isServerlessRuntime = Boolean(
+  process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NOW_REGION
+);
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+const jsonParser = express.json({ limit: '2mb' });
+app.use((req, res, next) => {
+  // Vercel @vercel/node may pre-parse req.body and drain the request stream before handing off to Express
+  if (
+    isServerlessRuntime &&
+    req.body !== undefined &&
+    typeof req.body === 'object' &&
+    req.body !== null
+  ) {
+    (req as any)._body = true;
+    return next();
+  }
+  return jsonParser(req, res, next);
+});
+
 app.use('/api', (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -26,7 +47,7 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 
-// Load Firebase project/database config cleanly (zero hardcoded fallback)
+// Load Firebase project/database config cleanly (multi-path lookup for Express & Vercel serverless bundle)
 interface FirebaseAppletConfig {
   projectId: string;
   firestoreDatabaseId: string;
@@ -34,13 +55,33 @@ interface FirebaseAppletConfig {
 }
 
 function loadFirebaseConfig(): FirebaseAppletConfig {
-  const cfgPath = path.join(__dirname, 'firebase-applet-config.json');
-  const raw = fs.readFileSync(cfgPath, 'utf-8');
-  const parsed = JSON.parse(raw);
+  const candidates = [
+    path.join(__dirname, 'firebase-applet-config.json'),
+    path.join(process.cwd(), 'firebase-applet-config.json'),
+    path.resolve(__dirname, '../firebase-applet-config.json'),
+    path.resolve(__dirname, '../../firebase-applet-config.json'),
+  ];
+
+  for (const cfgPath of candidates) {
+    try {
+      if (fs.existsSync(cfgPath)) {
+        const raw = fs.readFileSync(cfgPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        return {
+          projectId: String(parsed.projectId || ''),
+          firestoreDatabaseId: String(parsed.firestoreDatabaseId || '(default)'),
+          apiKey: String(parsed.apiKey || ''),
+        };
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
   return {
-    projectId: String(parsed.projectId || ''),
-    firestoreDatabaseId: String(parsed.firestoreDatabaseId || '(default)'),
-    apiKey: String(parsed.apiKey || ''),
+    projectId: String(process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || ''),
+    firestoreDatabaseId: String(process.env.FIREBASE_DATABASE_ID || '(default)'),
+    apiKey: String(process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || ''),
   };
 }
 
@@ -2322,7 +2363,7 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
   }
 });
 
-// Serve frontend with Vite dev middleware
+// Serve frontend with Vite dev middleware when running as standalone Node server (not on Vercel Serverless)
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -2343,4 +2384,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!isServerlessRuntime) {
+  startServer();
+}
+
+export default app;

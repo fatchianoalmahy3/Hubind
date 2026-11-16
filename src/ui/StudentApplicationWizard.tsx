@@ -78,7 +78,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
     try {
       const json = await PublicPortalClient.getDudiList();
       if (!json.success) {
-        const msg = 'Gagal membaca daftar DUDI dari Google Spreadsheet.';
+        const msg = 'Gagal membaca daftar DUDI dari Cloud Server.';
         setDudiList([]);
         setDudiLoadError(msg);
         ToastManager.getInstance().show('Gagal Memuat DUDI', 'error', msg);
@@ -86,7 +86,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
       }
       setDudiList(Array.isArray(json.data) ? json.data : []);
     } catch (e: any) {
-      const msg = e?.message || 'Tidak dapat terhubung ke Google Spreadsheet.';
+      const msg = e?.message || 'Tidak dapat terhubung ke Cloud Server.';
       setDudiList([]);
       setDudiLoadError(msg);
       ToastManager.getInstance().show('Gagal Memuat DUDI', 'error', msg);
@@ -135,7 +135,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
       const json = await PublicPortalClient.lookupStudentByNis(nis);
 
       if (!json.success) {
-        const msg = json.message || 'Gagal mengakses data siswa di Google Spreadsheet.';
+        const msg = json.message || 'Gagal mengakses data siswa di Cloud Server.';
         setSearchError(msg);
         ToastManager.getInstance().show('Gagal Mencari NIS', 'error', msg);
         return;
@@ -149,7 +149,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
         setTeleponOrtu(json.student.telepon_wali || '');
       } else {
         setSearchError(
-          json.message || `Siswa dengan NIS [${nis}] tidak ditemukan di Google Spreadsheet sekolah.`
+          json.message || `Siswa dengan NIS [${nis}] tidak ditemukan di Database Sekolah.`
         );
       }
     } catch (e: any) {
@@ -303,7 +303,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
         setSubmissionResult(json.application);
       } else {
         setSubmitError(
-          json.message || 'Gagal mengirim pengajuan ke Google Spreadsheet. Hubungi Admin Hubin.'
+          json.message || 'Gagal mengirim pengajuan ke Cloud Server. Hubungi Admin Hubin.'
         );
       }
     } catch (e: any) {
@@ -335,7 +335,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                 Portal Pengajuan PKL Siswa Mandiri
               </h2>
               <p className="text-xs text-slate-500 truncate">
-                Tahun Ajaran {activeYear} · Terhubung Google Spreadsheet Sekolah
+                Tahun Ajaran {activeYear} · Terhubung Cloud Server Sekolah
               </p>
             </div>
           </div>
@@ -437,7 +437,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                   Pengajuan PKL Berhasil Dikirim!
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Data pengajuan Anda beserta bio DUDI telah tercatat langsung di Google Spreadsheet Pokja Hubin SMK PGRI 2 Ponorogo.
+                  Data pengajuan Anda beserta bio DUDI telah tercatat langsung di Cloud Server Pokja Hubin SMK PGRI 2 Ponorogo.
                 </p>
               </div>
 
@@ -578,7 +578,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                       <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
                         <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
                           <UserCheck className="w-4 h-4 text-blue-600" />
-                          <span>Data Siswa Ditemukan di Spreadsheet</span>
+                          <span>Data Siswa Terverifikasi di Server</span>
                         </div>
                         <span className="text-xs font-mono font-semibold text-slate-500">
                           NIS: {studentData.nis}
@@ -634,8 +634,8 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                           <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2">
                             <p className="font-bold">Data Belum Sesuai?</p>
                             <p className="leading-relaxed">
-                              Silakan hubungi Wali Kelas atau Admin Pokja Hubin untuk memperbarui data Anda di sheet{' '}
-                              <code className="font-mono font-semibold">Master_Siswa_XI</code> sebelum melanjutkan pengajuan PKL, atau periksa kembali NIS yang Anda ketik.
+                              Silakan hubungi Wali Kelas atau Admin Pokja Hubin untuk memperbarui data Anda di{' '}
+                              <span className="font-semibold">Database Siswa Sekolah</span> sebelum melanjutkan pengajuan PKL, atau periksa kembali NIS yang Anda ketik.
                             </p>
                             <button
                               type="button"
@@ -978,7 +978,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                       className="min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {submitting ? (
-                        <span>Mengirim ke Google Spreadsheet...</span>
+                        <span>Mengirim ke Cloud Server...</span>
                       ) : (
                         <>
                           <span>Kirim Formulir Pengajuan PKL</span>

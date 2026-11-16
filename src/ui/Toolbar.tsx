@@ -174,20 +174,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         )}
 
-        {/* Secondary Action: Sync Active Sheet */}
+        {/* Secondary Action: Sync Active Cloud Table */}
         <button
           type="button"
           onClick={onSyncSpreadsheet}
           disabled={syncing}
           className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-          title="Muat ulang tab sheet aktif dari Google Spreadsheet"
+          title="Muat ulang data terbaru dari Cloud Server"
         >
           <RefreshCw
             className={`w-3.5 h-3.5 shrink-0 ${
               syncing ? 'animate-spin text-blue-600' : 'text-slate-500'
             }`}
           />
-          <span>{syncing ? 'Menyinkronkan...' : 'Sync Sheet'}</span>
+          <span>{syncing ? 'Menyinkronkan...' : 'Segarkan Data'}</span>
         </button>
 
         {/* Secondary Tools Overflow Dropdown */}
@@ -257,7 +257,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <div className="min-w-0">
                   <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
                   <div className="text-[11px] text-slate-500 truncate">
-                    Unggah baris massal ke Spreadsheet
+                    Unggah baris massal ke Cloud Server
                   </div>
                 </div>
               </button>
@@ -298,7 +298,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 >
                   <Sparkles className="w-4 h-4 text-slate-500 shrink-0" />
                   <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">Simulasi GForm Siswa</div>
+                    <div className="font-semibold text-slate-900">Simulasi Portal Siswa</div>
                     <div className="text-[11px] text-slate-500 truncate">
                       Uji alur dropdown Jurusan → Kelas → Siswa
                     </div>
@@ -318,9 +318,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 >
                   <Code2 className="w-4 h-4 text-slate-500 shrink-0" />
                   <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">Script Otomasi (GAS)</div>
+                    <div className="font-semibold text-slate-900">Integrasi API Server</div>
                     <div className="text-[11px] text-slate-500 truncate">
-                      Salin kode Google Apps Script sekolah
+                      Konfigurasi skrip konektor Cloud Server
                     </div>
                   </div>
                 </button>

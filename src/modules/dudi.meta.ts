@@ -44,6 +44,16 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
   ],
   fields: [
     {
+      key: 'id',
+      label: 'ID DUDI',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis (DUDI-...)',
+      helperText: 'Terisi otomatis oleh sistem',
+    },
+    {
       key: 'namaDudi',
       label: 'Nama Perusahaan / Industri',
       type: 'text',

@@ -52,7 +52,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
       setKelasList(kls);
       setSiswaList(sis);
     } catch (err: any) {
-      setLoadError(err?.message || 'Gagal membaca master data dari Google Spreadsheet.');
+      setLoadError(err?.message || 'Gagal membaca master data dari Cloud Server.');
     } finally {
       setLoadingMaster(false);
     }
@@ -84,7 +84,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
       ToastManager.getInstance().show(
         'Siswa Belum Dipilih',
         'error',
-        'Pilih siswa yang terdaftar di Master_Siswa_XI terlebih dahulu.'
+        'Pilih siswa yang terdaftar di Database Siswa terlebih dahulu.'
       );
       return;
     }
@@ -124,9 +124,9 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
       onFormSubmitted();
     } catch (err: any) {
       ToastManager.getInstance().show(
-        'Gagal Menyimpan ke Google Spreadsheet',
+        'Gagal Menyimpan ke Cloud Server',
         'error',
-        err?.message || 'Periksa koneksi Cloud GAS Web App dan ID Spreadsheet Anda.'
+        err?.message || 'Periksa koneksi dan konfigurasi Cloud Server Anda.'
       );
     } finally {
       setLoading(false);
@@ -158,7 +158,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-widest text-purple-200 bg-purple-800/60 px-2 py-0.5 rounded">
-                  Form Pengajuan Terhubung Spreadsheet
+                  Simulasi Pengajuan Cloud Server
                 </span>
                 <h3 className="text-base font-bold mt-1">
                   Pengajuan PKL Siswa SMK PGRI 2 Ponorogo
@@ -173,7 +173,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
             </button>
           </div>
           <p className="text-xs text-purple-100 mt-2">
-            Mekanisme Section Bertingkat: <b>Jurusan &rarr; Kelas &rarr; Nama Dropdown (Live Spreadsheet)</b>
+            Mekanisme Section Bertingkat: <b>Jurusan &rarr; Kelas &rarr; Nama Dropdown (Live Cloud Server)</b>
           </p>
         </div>
 
@@ -183,14 +183,14 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
             <div className="bg-white p-8 rounded-xl border border-slate-200 text-center space-y-3">
               <RefreshCw className="w-6 h-6 text-purple-600 animate-spin mx-auto" />
               <p className="text-xs font-semibold text-slate-600">
-                Memuat data Master Jurusan, Kelas, dan Siswa langsung dari Google Spreadsheet...
+                Memuat data Master Jurusan, Kelas, dan Siswa langsung dari Cloud Server...
               </p>
             </div>
           ) : loadError ? (
             <div className="bg-white p-6 rounded-xl border border-rose-200 space-y-3 text-xs text-rose-800">
               <div className="flex items-center gap-2 font-bold">
                 <AlertCircle className="w-4 h-4 text-rose-600" />
-                <span>Gagal Membaca Data Google Spreadsheet</span>
+                <span>Gagal Membaca Data Cloud Server</span>
               </div>
               <p className="text-rose-700">{loadError}</p>
               <button
@@ -243,7 +243,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                       ))
                     ) : (
                       <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                        Sheet <b>Master_Jurusan</b> di Google Spreadsheet masih kosong. Tambahkan data jurusan terlebih dahulu.
+                        Data <b>Kompetensi Keahlian</b> di Cloud Server masih kosong. Tambahkan data jurusan terlebih dahulu.
                       </div>
                     )}
                   </div>
@@ -299,7 +299,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                       ))
                     ) : (
                       <div className="p-4 bg-amber-50 rounded-lg text-xs text-amber-800">
-                        Tidak ada rombel terdaftar di sheet <b>Master_Kelas_Walas</b> untuk jurusan {selectedJurusan}.
+                        Tidak ada rombel terdaftar di Database Kelas untuk jurusan {selectedJurusan}.
                       </div>
                     )}
                   </div>
@@ -328,7 +328,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                   <div className="border-b border-slate-100 pb-2">
                     <span className="text-xs font-bold text-purple-700 uppercase">Section 3 dari 4</span>
                     <h4 className="text-sm font-bold text-slate-800 mt-0.5">
-                      Pilih Nama Resmi Siswa dari Sheet Master_Siswa_XI:
+                      Pilih Nama Resmi Siswa dari Database Siswa:
                     </h4>
                   </div>
 
@@ -350,11 +350,11 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                     </select>
                     {availableStudents.length === 0 ? (
                       <p className="text-[11px] text-amber-700 mt-1.5 font-medium">
-                        Tidak ada siswa berstatus &quot;Belum Daftar&quot; pada kelas {selectedKelas} di Google Spreadsheet.
+                        Tidak ada siswa berstatus &quot;Belum Daftar&quot; pada kelas {selectedKelas} di Cloud Server.
                       </p>
                     ) : (
                       <p className="text-[11px] text-slate-500 mt-1">
-                        *Nama diambil langsung dari sheet Master_Siswa_XI Pokja Hubin.
+                        *Nama diambil langsung dari Database Siswa Cloud Server Pokja Hubin.
                       </p>
                     )}
                   </div>
@@ -507,7 +507,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                   <div>
                     <h4 className="text-base font-bold text-slate-800">Pengajuan Berhasil Dikirim!</h4>
                     <p className="text-xs text-slate-500 mt-1">
-                      Data pengajuan telah dicatat langsung ke Google Spreadsheet Pokja Hubin.
+                      Data pengajuan telah dicatat langsung ke Cloud Server Pokja Hubin.
                     </p>
                   </div>
 

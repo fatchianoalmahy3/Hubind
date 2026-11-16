@@ -246,7 +246,7 @@ export function ImportExcelModal<T extends Record<string, any>>({
               >
                 {availableSheets.map((s) => (
                   <option key={s} value={s}>
-                    Sheet: {s}
+                    Sheet Excel: {s}
                   </option>
                 ))}
               </select>
@@ -259,7 +259,7 @@ export function ImportExcelModal<T extends Record<string, any>>({
               <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
                 <span>
                   Pratinjau Data Siap Import ({parsedRows.length} baris
-                  {selectedSheet ? ` • Sheet: ${selectedSheet}` : ''})
+                  {selectedSheet ? ` · Sheet Excel: ${selectedSheet}` : ''})
                 </span>
                 <span className="text-emerald-600 font-bold">Valid &amp; Terbaca</span>
               </div>

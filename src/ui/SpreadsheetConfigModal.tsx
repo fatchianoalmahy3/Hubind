@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  FileSpreadsheet,
+  Database,
   Check,
   RefreshCw,
   ShieldCheck,
@@ -68,12 +68,12 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
     setGasUrl(normalized);
     const check = validateGasDeployUrl(normalized);
     if (!check.valid) {
-      const errMsg = check.error || 'URL Google Apps Script tidak valid.';
+      const errMsg = check.error || 'Endpoint API Cloud Server tidak valid.';
       setTestResult({
         success: false,
         message: errMsg,
       });
-      ToastManager.getInstance().show('URL Apps Script Tidak Valid', 'error', errMsg);
+      ToastManager.getInstance().show('Endpoint API Server Tidak Valid', 'error', errMsg);
       return;
     }
 
@@ -132,14 +132,14 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
         <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/60 shadow-2xs">
-              <FileSpreadsheet className="w-5 h-5" />
+              <Database className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-800 tracking-tight">
-                Pengaturan ID Spreadsheet &amp; Apps Script (Firebase)
+                Konfigurasi Server &amp; Database Cloud (TA {activeYear})
               </h3>
               <p className="text-[11px] text-slate-500">
-                Disimpan permanen di Firebase Cloud agar identik di semua perangkat
+                Disimpan terpusat di Cloud Server agar identik di semua perangkat
               </p>
             </div>
           </div>
@@ -156,10 +156,10 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
           <div className="p-3.5 bg-slate-50/90 border border-slate-200/80 rounded-2xl text-xs text-slate-600 space-y-1">
             <div className="flex items-center gap-1.5 font-bold text-slate-800">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Single Source of Truth (TA {activeYear}):</span>
+              <span>Single Source of Truth Cloud Server (TA {activeYear}):</span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Firebase hanya menyimpan ID Spreadsheet dan konfigurasi tautan. Seluruh data siswa, DUDI, pengajuan, monitoring, dan sertifikat dibaca/ditulis 100% langsung dari Google Spreadsheet ini.
+              Pusat konfigurasi menyimpan referensi node database aktif. Seluruh data siswa, DUDI, pengajuan, monitoring, dan sertifikat dibaca serta ditulis 100% langsung ke Database Cloud Server ini.
             </p>
           </div>
 
@@ -167,7 +167,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                <span>Link atau ID Google Spreadsheet (TA {activeYear}):</span>
+                <span>Link atau ID Database Cloud Server (TA {activeYear}):</span>
               </label>
               <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">
                 Tahun Aktif
@@ -180,7 +180,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
                 setSpreadsheetInput(e.target.value);
                 setTestResult(null);
               }}
-              placeholder="Tempelkan link lengkap Google Sheets atau ID-nya..."
+              placeholder="Tempelkan link atau ID Database Cloud Server..."
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
             />
             {cleanSpreadsheetId && (
@@ -200,7 +200,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-700">
-                Google Apps Script (GAS) Web App Deployment URL:
+                Endpoint API Cloud Server (Deployment URL):
               </label>
               <button
                 type="button"
@@ -208,7 +208,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
                 onClick={handleTestGas}
                 className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline disabled:opacity-40 cursor-pointer"
               >
-                {testing ? 'Menguji GAS...' : 'Tes URL Apps Script'}
+                {testing ? 'Menguji Server...' : 'Tes URL API Server'}
               </button>
             </div>
             <input
@@ -223,14 +223,14 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
             />
             <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-              Wajib berakhiran <code>/exec</code> (bukan <code>/dev</code>). Pada dialog Deploy Apps Script, pastikan <b>Execute as: Me</b> dan <b>Who has access: Anyone (Siapa saja)</b>.
+              Wajib berakhiran <code>/exec</code> (bukan <code>/dev</code>). Pada dialog deploy server, pastikan <b>Execute as: Me</b> dan <b>Who has access: Anyone (Siapa saja)</b>.
             </p>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
               <FolderSync className="w-3.5 h-3.5 text-blue-600" />
-              <span>Link Folder Google Drive Hubin (Opsional):</span>
+              <span>Link Folder Arsip Drive Hubin (Opsional):</span>
             </label>
             <input
               type="url"
@@ -270,7 +270,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 underline hover:text-rose-900"
                   >
-                    <span>Cek langsung respon URL GAS di tab baru</span>
+                    <span>Cek langsung respon API Server di tab baru</span>
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
@@ -288,7 +288,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all disabled:opacity-40 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
-            <span>{testing ? 'Menguji Koneksi...' : 'Tes Koneksi GAS'}</span>
+            <span>{testing ? 'Menguji Koneksi...' : 'Tes Koneksi Server'}</span>
           </button>
 
           <div className="flex items-center gap-2">
@@ -306,7 +306,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
               className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all disabled:opacity-50 cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>{saving ? 'Menyimpan...' : 'Simpan ke Firebase'}</span>
+              <span>{saving ? 'Menyimpan...' : 'Simpan Konfigurasi Server'}</span>
             </button>
           </div>
         </div>

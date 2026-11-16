@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ModuleMetadata } from '../core/types/metadata';
 import { BaseRepository } from '../core/BaseRepository';
 import { useDataGrid } from '../hooks/useDataGrid';
@@ -17,20 +17,25 @@ import {
   XCircle,
   Printer,
   Calendar,
-  FileSpreadsheet,
+  Database,
   AlertTriangle,
   RefreshCw,
   FileCheck,
   UserCheck,
   Send,
   X,
+  MessageCircle,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
+import { DudiService } from '../services/DudiService';
 import { PengajuanService } from '../services/PengajuanService';
 import { PerizinanService } from '../services/PerizinanService';
 import { GuruService } from '../services/GuruService';
 import { RelationSyncService } from '../services/RelationSyncService';
 import { Guru } from '../core/types/schema';
 import { ToastManager } from '../core/ToastManager';
+import { getTodayIsoDate, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import {
   calculateEqualWeightedAverage,
   getPredikatFromScore,
@@ -146,17 +151,71 @@ export function ModulePage<T extends { id: string }>({
   });
   const [guruList, setGuruList] = useState<Guru[]>([]);
   const [syncingRelations, setSyncingRelations] = useState(false);
+  const [allExistingRows, setAllExistingRows] = useState<T[]>([]);
+  const autoSyncedViewsRef = useRef<Set<string>>(new Set());
+
+  // Kirim WA ke DUDI modal state
+  const [waModal, setWaModal] = useState<{
+    isOpen: boolean;
+    row: any | null;
+    dudiName: string;
+    picName: string;
+    phoneInput: string;
+    message: string;
+  }>({
+    isOpen: false,
+    row: null,
+    dudiName: '',
+    picName: '',
+    phoneInput: '',
+    message: '',
+  });
 
   const isRelationalModule = ['dudi', 'guru', 'siswa_pkl', 'jurusan', 'kelas', 'siswa'].includes(
     metadata.id
   );
+
+  // Auto-recalculate Jurusan/Guru/DUDI/Kelas live counts when opening their module tabs
+  useEffect(() => {
+    const autoViewModules = new Set(['jurusan', 'guru', 'dudi', 'kelas']);
+    if (!autoViewModules.has(metadata.id)) return;
+    if (loading || loadError || data.length === 0) return;
+
+    const sessionKey = `${metadata.id}:${data.length}`;
+    if (autoSyncedViewsRef.current.has(sessionKey)) return;
+    autoSyncedViewsRef.current.add(sessionKey);
+
+    let cancelled = false;
+    RelationSyncService.getInstance()
+      .syncForModuleView(metadata.id)
+      .then((updatedCount) => {
+        if (!cancelled && updatedCount > 0) {
+          refresh();
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [metadata.id, loading, loadError, data.length]);
+
+  const handleOpenAddModal = async () => {
+    try {
+      const fullList = await repository.getAll();
+      setAllExistingRows(fullList);
+    } catch {
+      setAllExistingRows(data);
+    }
+    setIsAddModalOpen(true);
+  };
 
   const handleSyncRelations = async () => {
     setSyncingRelations(true);
     const toastId = ToastManager.getInstance().show(
       'Menyinkronkan Relasi Data...',
       'pending',
-      'Menghitung ulang keterisian DUDI, Guru, Jurusan & Kelas dari Spreadsheet'
+      'Menghitung ulang keterisian DUDI, Guru, Jurusan & Kelas dari Cloud Server'
     );
     try {
       const summary = await RelationSyncService.getInstance().recalculateAllRelations({
@@ -183,7 +242,7 @@ export function ModulePage<T extends { id: string }>({
         toastId,
         'Gagal Sinkronisasi Relasi',
         'error',
-        err?.message || 'Periksa koneksi Google Spreadsheet dan coba kembali.'
+        err?.message || 'Periksa koneksi Cloud Server dan coba kembali.'
       );
     } finally {
       setSyncingRelations(false);
@@ -238,16 +297,16 @@ export function ModulePage<T extends { id: string }>({
   if (metadata.id === 'perizinan') {
     if (userRole === 'Hubin' || userRole === 'Kakomli') {
       customRowActions.push({
+        name: 'send_wa_dudi',
+        label: 'Kirim WA ke DUDI',
+        icon: MessageCircle,
+        color: 'hover:text-emerald-700 hover:bg-emerald-50 text-emerald-600',
+      });
+      customRowActions.push({
         name: 'mark_ortu_ok',
         label: 'Izin Ortu OK',
         icon: UserCheck,
         color: 'hover:text-sky-600 hover:bg-sky-50 text-sky-600',
-      });
-      customRowActions.push({
-        name: 'mark_dudi_accepted',
-        label: 'Diterima DUDI',
-        icon: CheckCircle2,
-        color: 'hover:text-emerald-600 hover:bg-emerald-50 text-emerald-600',
       });
       customRowActions.push({
         name: 'promote_to_pkl',
@@ -333,6 +392,69 @@ export function ModulePage<T extends { id: string }>({
         tanggalRencanaTarik: '',
         submitting: false,
       });
+    } else if (actionName === 'send_wa_dudi') {
+      const [dudiList, pengajuanList] = await Promise.all([
+        DudiService.getInstance().getAll().catch(() => []),
+        PengajuanService.getInstance().getAll().catch(() => []),
+      ]);
+      const targetDudiNorm = String(item.dudiTujuan || '').trim().toLowerCase();
+      const matchedDudi = dudiList.find(
+        (d) => d.namaDudi.trim().toLowerCase() === targetDudiNorm
+      );
+      const matchedPengajuan = pengajuanList.find(
+        (p) =>
+          (item.noPengajuan && p.noPengajuan === item.noPengajuan) ||
+          (item.nis && p.nis === item.nis)
+      );
+      const rawPhone =
+        matchedDudi?.kontakPic ||
+        matchedDudi?.noTelpDudi ||
+        matchedPengajuan?.noTelpDudi ||
+        '';
+      const cleanPhone = rawPhone === '-' ? '' : rawPhone;
+      const tglSurat = item.tanggalKirimSurat || getTodayIsoDate();
+      const alamat =
+        (item.alamatDudi && item.alamatDudi !== '-' ? item.alamatDudi : '') ||
+        matchedDudi?.alamat ||
+        matchedPengajuan?.alamatDudi ||
+        '-';
+
+      const composedMsg = [
+        'Yth. Pimpinan / Pembimbing Industri',
+        `${item.dudiTujuan || 'Mitra DUDI'}`,
+        'di Tempat',
+        '',
+        'Dengan hormat,',
+        'Kami dari Pokja Hubin SMK PGRI 2 Ponorogo menyampaikan surat permohonan & konfirmasi Perizinan PKL peserta didik kami:',
+        '',
+        `• No. Perizinan: ${item.noPerizinan || item.id || '-'}`,
+        `• No. Surat: ${item.noSuratPermohonan || '-'}`,
+        `• Tanggal Surat: ${tglSurat}`,
+        `• Nama Siswa: ${item.namaSiswa || '-'} (NIS: ${item.nis || '-'})`,
+        `• Kelas / Jurusan: ${item.kelas || '-'} / ${item.jurusan || '-'}`,
+        `• Nama Ortu / Wali: ${item.namaOrtuWali || '-'} (${item.statusIzinOrtu || 'Menunggu Izin'})`,
+        `• Lokasi DUDI: ${item.dudiTujuan || '-'}`,
+        `• Alamat DUDI: ${alamat}`,
+        item.linkBuktiBalasan && item.linkBuktiBalasan !== '-'
+          ? `• Tautan Berkas: ${item.linkBuktiBalasan}`
+          : '',
+        '',
+        'Mohon konfirmasi kesediaan penempatan PKL dari pihak Bapak/Ibu. Atas perhatian dan kerjasamanya kami ucapkan terima kasih.',
+        '',
+        'Hormat kami,',
+        'Pokja Hubin SMK PGRI 2 Ponorogo',
+      ]
+        .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
+        .join('\n');
+
+      setWaModal({
+        isOpen: true,
+        row: item,
+        dudiName: item.dudiTujuan || matchedDudi?.namaDudi || 'Mitra DUDI',
+        picName: matchedDudi?.namaPic || matchedDudi?.namaPemimpin || 'PIC / HRD Industri',
+        phoneInput: cleanPhone,
+        message: composedMsg,
+      });
     } else if (actionName === 'mark_ortu_ok') {
       setConfirmModal({
         isOpen: true,
@@ -342,18 +464,6 @@ export function ModulePage<T extends { id: string }>({
         confirmText: 'Ya, Diizinkan Ortu',
         onConfirm: async () => {
           await PerizinanService.getInstance().markOrtuApproved(row.id);
-          await refresh();
-        },
-      });
-    } else if (actionName === 'mark_dudi_accepted') {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Konfirmasi Balasan DUDI: Diterima?',
-        description: `Catat bahwa ${item.dudiTujuan} telah menerima ${item.namaSiswa} dan perbarui status siswa di Master Siswa.`,
-        variant: 'success',
-        confirmText: 'Catat Diterima DUDI',
-        onConfirm: async () => {
-          await PerizinanService.getInstance().markDudiAccepted(row.id);
           await refresh();
         },
       });
@@ -451,7 +561,7 @@ export function ModulePage<T extends { id: string }>({
         toastId,
         'Gagal Memproses Tindakan',
         'error',
-        err?.message || 'Periksa kembali data dan koneksi Google Spreadsheet.'
+        err?.message || 'Periksa kembali data dan koneksi Cloud Server.'
       );
       setActionModal((prev) => ({ ...prev, submitting: false }));
     }
@@ -518,17 +628,15 @@ export function ModulePage<T extends { id: string }>({
     const nextValues = normalizeGradePayload(values);
     setConfirmModal({
       isOpen: true,
-      title: 'Simpan Data Baru ke Google Spreadsheet?',
-      description: `Data baru akan divalidasi dan dicatat permanen pada lembar kerja [${metadata.tableName}].`,
+      title: 'Simpan Data Baru ke Cloud Server?',
+      description: 'Data baru akan divalidasi dan tersimpan secara permanen di Database Cloud Server.',
       variant: 'primary',
-      confirmText: 'Simpan ke Spreadsheet',
+      confirmText: 'Simpan ke Server',
       onConfirm: async () => {
         await repository.create(nextValues);
-        if (metadata.id === 'siswa_pkl') {
-          await RelationSyncService.getInstance()
-            .syncPlacementCounts()
-            .catch(() => {});
-        }
+        await RelationSyncService.getInstance()
+          .syncAfterMutation(metadata.id)
+          .catch(() => {});
         await refresh();
       },
     });
@@ -542,17 +650,15 @@ export function ModulePage<T extends { id: string }>({
 
     setConfirmModal({
       isOpen: true,
-      title: 'Perbarui Data di Google Spreadsheet?',
-      description: `Perubahan data baris ID ${editingRow.id} akan disinkronkan ke lembar kerja [${metadata.tableName}].`,
+      title: 'Perbarui Data di Cloud Server?',
+      description: `Perubahan data baris ID ${editingRow.id} akan disinkronkan ke Database Cloud Server.`,
       variant: 'primary',
-      confirmText: 'Perbarui di Spreadsheet',
+      confirmText: 'Perbarui di Server',
       onConfirm: async () => {
         await repository.update(editingRow.id, nextValues);
-        if (metadata.id === 'siswa_pkl') {
-          await RelationSyncService.getInstance()
-            .syncPlacementCounts()
-            .catch(() => {});
-        }
+        await RelationSyncService.getInstance()
+          .syncAfterMutation(metadata.id)
+          .catch(() => {});
         setEditingRow(null);
         await refresh();
       },
@@ -563,17 +669,15 @@ export function ModulePage<T extends { id: string }>({
   const handleDeleteRow = (row: T) => {
     setConfirmModal({
       isOpen: true,
-      title: 'Hapus Baris dari Google Spreadsheet?',
-      description: `Apakah Anda yakin ingin menghapus data baris ini? Data akan dihapus dari lembar kerja [${metadata.tableName}].`,
+      title: 'Hapus Baris dari Cloud Server?',
+      description: 'Apakah Anda yakin ingin menghapus data baris ini? Perubahan akan langsung disinkronkan ke Database Cloud Server.',
       variant: 'danger',
       confirmText: 'Ya, Hapus Data',
       onConfirm: async () => {
         await deleteRow(row.id);
-        if (metadata.id === 'siswa_pkl') {
-          await RelationSyncService.getInstance()
-            .syncPlacementCounts()
-            .catch(() => {});
-        }
+        await RelationSyncService.getInstance()
+          .syncAfterMutation(metadata.id)
+          .catch(() => {});
       },
     });
   };
@@ -614,33 +718,37 @@ export function ModulePage<T extends { id: string }>({
           </h1>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1">
             <span>{metadata.subtitle}</span>
-            <span className="text-slate-300" aria-hidden="true">·</span>
-            <span className="font-mono text-slate-600 font-medium">
-              Sheet: {metadata.tableName}
-            </span>
+            {userRole === 'Hubin' && (
+              <>
+                <span className="text-slate-300" aria-hidden="true">·</span>
+                <span className="font-mono text-slate-600 font-medium">
+                  Tabel Server: {metadata.tableName}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
-        {onOpenSheetConfig && (
+        {userRole === 'Hubin' && onOpenSheetConfig && (
           <button
             type="button"
             onClick={onOpenSheetConfig}
             className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Lihat konfigurasi Google Spreadsheet"
+            title="Lihat Konfigurasi Cloud Server"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>Sumber Google Sheet</span>
+            <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span>Konfigurasi Server</span>
           </button>
         )}
       </div>
 
-      {/* Sheet Error Banner (Never fallback to fake data) */}
+      {/* Server Error Banner (Never fallback to fake data) */}
       {loadError && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-900">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold">Gagal Membaca Sheet [{metadata.tableName}]</div>
+              <div className="font-bold">Gagal Memuat Data {metadata.title}</div>
               <div className="text-rose-700 mt-0.5">{loadError}</div>
             </div>
           </div>
@@ -654,13 +762,13 @@ export function ModulePage<T extends { id: string }>({
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
               <span>Muat Ulang</span>
             </button>
-            {onOpenSheetConfig && (
+            {userRole === 'Hubin' && onOpenSheetConfig && (
               <button
                 type="button"
                 onClick={onOpenSheetConfig}
                 className="h-9 px-3.5 rounded-lg bg-white border border-rose-300 text-rose-800 hover:bg-rose-100 font-semibold cursor-pointer whitespace-nowrap"
               >
-                Atur Spreadsheet
+                Konfigurasi Server
               </button>
             )}
           </div>
@@ -681,7 +789,7 @@ export function ModulePage<T extends { id: string }>({
         onSyncSpreadsheet={() => syncWithSpreadsheet(metadata.tableName)}
         syncing={syncing}
         onOpenImportModal={() => setIsImportModalOpen(true)}
-        onOpenAddModal={() => setIsAddModalOpen(true)}
+        onOpenAddModal={handleOpenAddModal}
         onOpenDocsModal={
           onOpenDocsForStudent
             ? () => {
@@ -691,8 +799,8 @@ export function ModulePage<T extends { id: string }>({
               }
             : undefined
         }
-        onOpenSimulatorModal={onOpenSimulator}
-        onOpenGasModal={onOpenGas}
+        onOpenSimulatorModal={userRole === 'Hubin' ? onOpenSimulator : undefined}
+        onOpenGasModal={userRole === 'Hubin' ? onOpenGas : undefined}
         onSyncRelations={isRelationalModule ? handleSyncRelations : undefined}
         syncingRelations={syncingRelations}
         viewMode={viewMode}
@@ -732,16 +840,16 @@ export function ModulePage<T extends { id: string }>({
             setConfirmModal((prev) => ({ ...prev, isOpen: false }));
           } catch (err: any) {
             ToastManager.getInstance().show(
-              'Gagal Menyimpan ke Spreadsheet',
+              'Gagal Menyimpan ke Cloud Server',
               'error',
-              err?.message || 'Periksa koneksi Cloud GAS Web App dan ID Spreadsheet.'
+              err?.message || 'Periksa koneksi Cloud Server dan coba beberapa saat lagi.'
             );
             setConfirmModal((prev) => ({ ...prev, isOpen: false }));
           }
         }}
         title={confirmModal.title}
         description={confirmModal.description}
-        sheetName={metadata.tableName}
+        sheetName={userRole === 'Hubin' ? metadata.tableName : ''}
         variant={confirmModal.variant}
         confirmText={confirmModal.confirmText}
       />
@@ -752,6 +860,9 @@ export function ModulePage<T extends { id: string }>({
         onClose={() => setIsAddModalOpen(false)}
         title={`Tambah Data ${metadata.title}`}
         fields={metadata.fields}
+        existingRows={allExistingRows.length > 0 ? allExistingRows : data}
+        moduleId={metadata.id}
+        tableName={metadata.tableName}
         onSubmit={handleCreateSubmit}
         onOpenImageCropper={(current, onDone) =>
           setCropperState({ isOpen: true, currentImage: current, onDone })
@@ -766,6 +877,9 @@ export function ModulePage<T extends { id: string }>({
           title={`Edit Data ${metadata.title}`}
           fields={metadata.fields}
           initialData={editingRow}
+          existingRows={data}
+          moduleId={metadata.id}
+          tableName={metadata.tableName}
           onSubmit={handleEditSubmit}
           onOpenImageCropper={(current, onDone) =>
             setCropperState({ isOpen: true, currentImage: current, onDone })
@@ -792,7 +906,7 @@ export function ModulePage<T extends { id: string }>({
           setConfirmModal({
             isOpen: true,
             title: `Hapus ${selectedIds.length} Baris Data Terpilih?`,
-            description: `Tindakan ini akan menghapus data terpilih dari Google Spreadsheet [${metadata.tableName}].`,
+            description: 'Tindakan ini akan menghapus data terpilih secara permanen dari Database Cloud Server.',
             variant: 'danger',
             confirmText: 'Ya, Hapus Terpilih',
             onConfirm: async () => {
@@ -806,7 +920,7 @@ export function ModulePage<T extends { id: string }>({
                 setConfirmModal({
                   isOpen: true,
                   title: `Setujui Massal ${selectedIds.length} Pengajuan Siswa?`,
-                  description: 'Status pengajuan terpilih akan diubah menjadi Disetujui di Google Spreadsheet.',
+                  description: 'Status pengajuan terpilih akan diubah menjadi Disetujui di Database Cloud Server.',
                   variant: 'success',
                   confirmText: 'Setujui Massal',
                   onConfirm: async () => {
@@ -814,8 +928,8 @@ export function ModulePage<T extends { id: string }>({
                     const toastId = ToastManager.getInstance().show(
                       `Menyetujui Massal ${count} Pengajuan...`,
                       'pending',
-                      'Memperbarui status ke Google Spreadsheet [Data_Pengajuan_PKL]',
-                      'Data_Pengajuan_PKL'
+                      'Memperbarui status pengajuan ke Cloud Server',
+                      userRole === 'Hubin' ? 'Data_Pengajuan_PKL' : undefined
                     );
                     try {
                       const pengajuanService = PengajuanService.getInstance();
@@ -969,7 +1083,7 @@ export function ModulePage<T extends { id: string }>({
                     )}
                     {guruList.length === 0 && (
                       <p className="text-[11px] text-amber-700 mt-1">
-                        Daftar di sheet Master_Guru_Pendamping masih kosong; Anda dapat mengetik nama guru secara langsung.
+                        Daftar Guru Pendamping di Cloud Server masih kosong; Anda dapat mengetik nama guru secara langsung.
                       </p>
                     )}
                   </div>
@@ -1042,6 +1156,159 @@ export function ModulePage<T extends { id: string }>({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Kirim WA ke DUDI Modal */}
+      {waModal.isOpen && waModal.row && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
+          onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-emerald-50/70">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <MessageCircle className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 truncate">
+                    Kirim Pesan WhatsApp ke DUDI
+                  </h3>
+                  <p className="text-xs text-slate-600 truncate">
+                    {waModal.dudiName} · {waModal.picName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
+                className="w-9 h-9 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0"
+                aria-label="Tutup modal WhatsApp"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Nomor WhatsApp Tujuan (PIC / HRD DUDI)
+                </label>
+                <input
+                  type="text"
+                  value={waModal.phoneInput}
+                  onChange={(e) =>
+                    setWaModal((prev) => ({ ...prev, phoneInput: e.target.value }))
+                  }
+                  placeholder="Contoh: 081234567890"
+                  className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                />
+                {normalizeWhatsAppNumber(waModal.phoneInput) ? (
+                  <p className="text-[11px] text-emerald-700 mt-1 font-mono">
+                    Target Link: wa.me/{normalizeWhatsAppNumber(waModal.phoneInput)}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Nomor WA DUDI belum tercatat di Master DUDI. Silakan masukkan nomor WA tujuan secara manual di atas.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Pratinjau Pesan (Dapat Diedit)
+                </label>
+                <textarea
+                  rows={10}
+                  value={waModal.message}
+                  onChange={(e) =>
+                    setWaModal((prev) => ({ ...prev, message: e.target.value }))
+                  }
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white text-xs text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(waModal.message);
+                      ToastManager.getInstance().show(
+                        'Pesan Disalin',
+                        'success',
+                        'Teks konfirmasi DUDI siap ditempel ke WhatsApp.'
+                      );
+                    } catch {
+                      ToastManager.getInstance().show(
+                        'Gagal Menyalin Otomatis',
+                        'info',
+                        'Silakan blok teks pesan dan tekan Ctrl+C.'
+                      );
+                    }
+                  }}
+                  className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Salin Pesan</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
+                    className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                  {normalizeWhatsAppNumber(waModal.phoneInput) ? (
+                    <a
+                      href={`https://wa.me/${normalizeWhatsAppNumber(
+                        waModal.phoneInput
+                      )}?text=${encodeURIComponent(waModal.message)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => {
+                        PerizinanService.getInstance()
+                          .markSuratSentToday(waModal.row.id, { silentToast: true })
+                          .then(() => refresh())
+                          .catch(() => {});
+                        ToastManager.getInstance().show(
+                          'Membuka WhatsApp DUDI',
+                          'success',
+                          `Mengirim surat permohonan ${waModal.row.namaSiswa} ke ${waModal.dudiName}.`
+                        );
+                        setWaModal((p) => ({ ...p, isOpen: false }));
+                      }}
+                      className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Kirim via WhatsApp</span>
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        ToastManager.getInstance().show(
+                          'Nomor WA Kosong',
+                          'error',
+                          'Isi nomor WhatsApp DUDI terlebih dahulu sebelum mengirim.'
+                        )
+                      }
+                      className="h-9 px-4 rounded-lg bg-slate-300 text-slate-600 font-semibold inline-flex items-center gap-1.5 cursor-not-allowed"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Isi No. WA Dulu</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

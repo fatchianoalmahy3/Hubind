@@ -41,6 +41,16 @@ export const SiswaMetadata: ModuleMetadata<Siswa> = {
   ],
   fields: [
     {
+      key: 'id',
+      label: 'ID Siswa',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis (SIS-...)',
+      helperText: 'Terisi otomatis oleh sistem',
+    },
+    {
       key: 'fotoUrl',
       label: 'Foto',
       type: 'image',

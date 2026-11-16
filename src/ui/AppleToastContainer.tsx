@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ToastManager, ToastMessage } from '../core/ToastManager';
-import { CheckCircle2, AlertTriangle, Loader2, Info, X, FileSpreadsheet } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, Info, X, Database } from 'lucide-react';
+import { getStoredAdminSession } from '../core/auth/LocalAccountAuthService';
 
 export const AppleToastContainer: React.FC = () => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -18,6 +19,8 @@ export const AppleToastContainer: React.FC = () => {
   const isPending = toast.type === 'pending';
   const isSuccess = toast.type === 'success';
   const isError = toast.type === 'error';
+  const isHubin = getStoredAdminSession()?.user?.role === 'Hubin';
+  const showTableMeta = isHubin && Boolean(toast.sheetName);
 
   return (
     <div
@@ -68,17 +71,17 @@ export const AppleToastContainer: React.FC = () => {
               {toast.description}
             </p>
           )}
-          {(toast.sheetName || (toast.queuedCount && toast.queuedCount > 0)) && (
+          {(showTableMeta || Number(toast.queuedCount || 0) > 0) && (
             <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] font-medium text-emerald-700">
-              {toast.sheetName ? (
+              {showTableMeta ? (
                 <div className="flex items-center gap-1 min-w-0 truncate">
-                  <FileSpreadsheet className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span className="truncate">Google Sheet: {toast.sheetName}</span>
+                  <Database className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span className="truncate">Tabel Server: {toast.sheetName}</span>
                 </div>
               ) : (
                 <span />
               )}
-              {toast.queuedCount && toast.queuedCount > 0 ? (
+              {Number(toast.queuedCount || 0) > 0 ? (
                 <span className="text-slate-400 font-mono shrink-0">
                   +{toast.queuedCount} antrean
                 </span>

@@ -115,7 +115,7 @@ export const GoogleDocsTemplateManagerModal: React.FC<GoogleDocsTemplateManagerM
                 Pengelola ID Template Google Docs
               </h2>
               <p className="text-xs text-slate-500">
-                Disimpan permanen di Firebase Cloud agar sinkron di semua perangkat pengelola
+                Disimpan permanen di Cloud Server agar sinkron di semua perangkat pengelola
               </p>
             </div>
           </div>
@@ -138,7 +138,7 @@ export const GoogleDocsTemplateManagerModal: React.FC<GoogleDocsTemplateManagerM
               <p className="leading-relaxed">
                 Tempelkan (<b>Paste</b>) <b>Link Dokumen Lengkap</b> dari Google Docs atau ID dokumen saja
                 (contoh: <code className="bg-white px-1 py-0.5 rounded text-[11px] font-mono text-blue-800">https://docs.google.com/document/d/.../edit</code>).
-                Sistem otomatis mengekstrak ID dan menyimpannya ke Firebase.
+                Sistem otomatis mengekstrak ID dan menyimpannya ke konfigurasi Cloud Server.
               </p>
             </div>
           </div>
@@ -252,11 +252,11 @@ export const GoogleDocsTemplateManagerModal: React.FC<GoogleDocsTemplateManagerM
             className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
           >
             {saving ? (
-              <span>Menyimpan ke Firebase...</span>
+              <span>Menyimpan ke Cloud Server...</span>
             ) : (
               <>
                 <Save className="w-3.5 h-3.5" />
-                <span>Simpan Template ke Firebase</span>
+                <span>Simpan Template ke Server</span>
               </>
             )}
           </button>

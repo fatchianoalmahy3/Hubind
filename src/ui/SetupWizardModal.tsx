@@ -66,9 +66,9 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
     const success = generateAndDownloadHubinXlsx(fileName);
     if (success) {
       ToastManager.getInstance().show(
-        'File Master .xlsx Diunduh!',
+        'File Master Excel (.xlsx) Diunduh!',
         'success',
-        'File template sheet terpisah berhasil diunduh. Siap diunggah ke Google Drive Anda.'
+        'File template Excel multi-tabel berhasil diunduh dan siap diunggah ke server.'
       );
     }
   };
@@ -77,9 +77,9 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
     const cleanId = parseSpreadsheetId(spreadsheetInput);
     if (!cleanId) {
       ToastManager.getInstance().show(
-        'ID Spreadsheet Kosong',
+        'ID Database Server Kosong',
         'error',
-        'Harap tempelkan Link atau ID Google Spreadsheet Anda.'
+        'Harap tempelkan Link atau ID Database Cloud Server Anda.'
       );
       return;
     }
@@ -162,9 +162,9 @@ function autoGenerateAllSheetsAndForm() {
     navigator.clipboard.writeText(gasScriptCode);
     setCopiedCode(true);
     ToastManager.getInstance().show(
-      'Kode Script Disalin',
+      'Skrip Server Disalin',
       'success',
-      'Tempelkan di Google Spreadsheet: Ekstensi -> Apps Script.'
+      'Kode skrip inisialisasi API Server siap ditempelkan ke konektor database.'
     );
     setTimeout(() => setCopiedCode(false), 2000);
   };
@@ -181,14 +181,14 @@ function autoGenerateAllSheetsAndForm() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                  Wizard Persiapan Google Spreadsheet &amp; Drive
+                  Konfigurasi Server &amp; Database Cloud
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
                   TA {config.activeYear || '2026/2027'}
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Konfigurasi ID Spreadsheet tersimpan terpusat di Firebase untuk seluruh perangkat
+                Konfigurasi Server tersimpan terpusat di Cloud Server untuk seluruh perangkat
               </p>
             </div>
           </div>
@@ -221,7 +221,7 @@ function autoGenerateAllSheetsAndForm() {
             <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold">
               2
             </span>
-            <span>Buat 10 Sheet</span>
+            <span>Siapkan 10 Tabel</span>
           </div>
           <div className="w-8 h-px bg-slate-200" />
           <div
@@ -232,7 +232,7 @@ function autoGenerateAllSheetsAndForm() {
             <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold">
               3
             </span>
-            <span>Simpan di Firebase</span>
+            <span>Aktifkan Server</span>
           </div>
         </div>
 
@@ -243,10 +243,10 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-blue-50/80 border border-blue-200/80 rounded-2xl text-xs space-y-1.5">
                 <div className="flex items-center gap-2 font-bold text-blue-900">
                   <Server className="w-4 h-4 text-blue-600" />
-                  <span>Arsitektur Single Source of Truth (Firebase + Spreadsheet):</span>
+                  <span>Arsitektur Single Source of Truth Cloud Server:</span>
                 </div>
                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                  ID Spreadsheet yang diatur di sini disimpan di Firebase Cloud Firestore agar konsisten di laptop, tablet, maupun smartphone. Seluruh data siswa, DUDI, pengajuan, perizinan, dan monitoring dibaca dan ditulis langsung ke Google Spreadsheet tersebut.
+                  Konfigurasi Server yang diatur di sini disimpan terpusat di Cloud Server agar konsisten di laptop, tablet, maupun smartphone. Seluruh data siswa, DUDI, pengajuan, perizinan, dan monitoring dibaca serta ditulis langsung ke Database Cloud Server tersebut.
                 </p>
               </div>
 
@@ -262,10 +262,10 @@ function autoGenerateAllSheetsAndForm() {
                     </div>
                     <div>
                       <h4 className="font-bold text-slate-900 text-sm group-hover:text-emerald-700">
-                        Opsi A: Auto-Generate 10 Sheet Baru
+                        Opsi A: Auto-Generate 10 Tabel Baru
                       </h4>
                       <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                        Belum punya spreadsheet atau ingin file baru? Buat 10 sheet terpisah lengkap dengan header resmi di Google Drive.
+                        Belum memiliki struktur database atau ingin tahun ajaran baru? Siapkan 10 tabel server terstandar lengkap dengan kolom resmi.
                       </p>
                     </div>
                   </div>
@@ -286,15 +286,15 @@ function autoGenerateAllSheetsAndForm() {
                     </div>
                     <div>
                       <h4 className="font-bold text-slate-900 text-sm group-hover:text-blue-700">
-                        Opsi B: Hubungkan File Spreadsheet Ada
+                        Opsi B: Hubungkan Database Server Ada
                       </h4>
                       <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                        Sudah memiliki Google Spreadsheet di Google Drive sekolah? Tempelkan link atau ID Spreadsheet untuk disinkronkan.
+                        Sudah memiliki node Database Cloud Server sekolah? Tempelkan link atau ID Database untuk disinkronkan.
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 text-xs font-bold text-blue-700 mt-4">
-                    <span>Hubungkan File</span>
+                    <span>Hubungkan Database</span>
                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                   </div>
                 </button>
@@ -302,7 +302,7 @@ function autoGenerateAllSheetsAndForm() {
 
               <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs space-y-1.5">
                 <span className="font-bold text-slate-700 block text-[11px]">
-                  10 Sheet Terpisah yang Digunakan:
+                  10 Entitas Tabel Server Terkelola:
                 </span>
                 <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-slate-600">
                   {HUBIN_SHEETS_BLUEPRINT.map((s) => (
@@ -331,7 +331,7 @@ function autoGenerateAllSheetsAndForm() {
                   }`}
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>1. Download Template .xlsx</span>
+                  <span>1. Download File Master Excel (.xlsx)</span>
                 </button>
                 <button
                   type="button"
@@ -343,7 +343,7 @@ function autoGenerateAllSheetsAndForm() {
                   }`}
                 >
                   <Copy className="w-3.5 h-3.5" />
-                  <span>2. Skrip Apps Script</span>
+                  <span>2. Skrip API Server</span>
                 </button>
               </div>
 
@@ -356,10 +356,10 @@ function autoGenerateAllSheetsAndForm() {
                       </div>
                       <div>
                         <h4 className="font-bold text-slate-800 text-sm">
-                          DATABASE_PKL_SMK_PGRI_2_PONOROGO_10_SHEETS.xlsx
+                          DATABASE_PKL_SMK_PGRI_2_PONOROGO_10_TABLES.xlsx
                         </h4>
                         <p className="text-[11px] text-slate-500">
-                          10 Sheet Terpisah Lengkap dengan header kolom terstandar siap isi data sekolah.
+                          File Master Excel 10 Tabel Lengkap dengan header kolom terstandar siap isi data sekolah.
                         </p>
                       </div>
                     </div>
@@ -370,7 +370,7 @@ function autoGenerateAllSheetsAndForm() {
                       className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-[0.99] cursor-pointer"
                     >
                       <Download className="w-4 h-4" />
-                      <span>Download File .xlsx 10 Sheet</span>
+                      <span>Download File Master Excel (.xlsx)</span>
                     </button>
                   </div>
 
@@ -379,7 +379,7 @@ function autoGenerateAllSheetsAndForm() {
                     onClick={() => setStep('connect')}
                     className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
                   >
-                    <span>Lanjut: Masukkan Link Spreadsheet</span>
+                    <span>Lanjut: Masukkan Konfigurasi Server</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -389,7 +389,7 @@ function autoGenerateAllSheetsAndForm() {
                 <div className="space-y-3">
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs flex items-center justify-between">
                     <span className="text-[11px] text-slate-600 font-semibold">
-                      Jalankan skrip ini sekali di Google Spreadsheet Anda:
+                      Jalankan skrip inisialisasi ini sekali pada konektor Cloud Server Anda:
                     </span>
                     <button
                       type="button"
@@ -397,7 +397,7 @@ function autoGenerateAllSheetsAndForm() {
                       className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
                     >
                       {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedCode ? 'Tersalin' : 'Salin Skrip'}</span>
+                      <span>{copiedCode ? 'Tersalin' : 'Salin Skrip API Server'}</span>
                     </button>
                   </div>
 
@@ -410,7 +410,7 @@ function autoGenerateAllSheetsAndForm() {
                     onClick={() => setStep('connect')}
                     className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <span>Lanjut: Hubungkan ID Spreadsheet</span>
+                    <span>Lanjut: Hubungkan ID Database Server</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -423,29 +423,29 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs space-y-1">
                 <div className="font-bold text-emerald-900 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Simpan Terpusat di Firebase (Multi-Device Sync):</span>
+                  <span>Simpan Terpusat di Cloud Server (Multi-Device Sync):</span>
                 </div>
                 <p className="text-[11px] text-emerald-800">
-                  Tempelkan URL atau ID Google Spreadsheet resmi Anda. Konfigurasi ini disimpan di Cloud Firestore agar seluruh perangkat membaca file yang sama.
+                  Tempelkan URL atau ID Database Cloud Server resmi Anda. Konfigurasi ini disimpan terpusat agar seluruh perangkat membaca sumber data yang sama.
                 </p>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Link Lengkap atau ID Google Spreadsheet (TA {config.activeYear || '2026/2027'}):
+                  Link Lengkap atau ID Database Cloud Server (TA {config.activeYear || '2026/2027'}):
                 </label>
                 <input
                   type="text"
                   value={spreadsheetInput}
                   onChange={(e) => setSpreadsheetInput(e.target.value)}
-                  placeholder="https://docs.google.com/spreadsheets/d/ID_SPREADSHEET_ANDA/edit"
+                  placeholder="Tempelkan link atau ID Database Cloud Server..."
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Link Folder Google Drive Hubin (Opsional):
+                  Link Folder Arsip Drive Hubin (Opsional):
                 </label>
                 <input
                   type="url"
@@ -458,7 +458,7 @@ function autoGenerateAllSheetsAndForm() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Google Apps Script Web App Deployment URL (Untuk Portal Publik Siswa &amp; Guru):
+                  Endpoint API Cloud Server (Deployment URL Portal Siswa &amp; Guru):
                 </label>
                 <input
                   type="text"
@@ -479,15 +479,15 @@ function autoGenerateAllSheetsAndForm() {
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900">
-                  Google Spreadsheet Siap &amp; Tersimpan di Firebase!
+                  Cloud Server Siap &amp; Tersinkronisasi!
                 </h3>
                 <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed mt-1">
-                  ID Spreadsheet untuk <b>Tahun Ajaran {config.activeYear || '2026/2027'}</b> kini tersimpan di Firebase dan otomatis sinkron di seluruh perangkat.
+                  Konfigurasi Database Server untuk <b>Tahun Ajaran {config.activeYear || '2026/2027'}</b> kini tersimpan terpusat di Cloud Server dan otomatis sinkron di seluruh perangkat.
                 </p>
               </div>
 
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl inline-block text-xs font-mono text-slate-700">
-                ID: {parseSpreadsheetId(spreadsheetInput)}
+                ID Server: {parseSpreadsheetId(spreadsheetInput)}
               </div>
             </div>
           )}
@@ -505,7 +505,7 @@ function autoGenerateAllSheetsAndForm() {
             </button>
           ) : (
             <span className="text-[11px] text-slate-400 font-mono">
-              Firebase Config Sync
+              Cloud Server Sync
             </span>
           )}
 
@@ -518,7 +518,7 @@ function autoGenerateAllSheetsAndForm() {
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all disabled:opacity-50 cursor-pointer"
               >
                 <Server className="w-4 h-4" />
-                <span>{isProcessing ? 'Menyimpan ke Firebase...' : 'Simpan & Aktifkan di Semua Device'}</span>
+                <span>{isProcessing ? 'Menyimpan ke Cloud Server...' : 'Simpan Konfigurasi Server & Aktifkan di Semua Device'}</span>
               </button>
             )}
 

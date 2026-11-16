@@ -8,6 +8,7 @@ import { GuruService } from './GuruService';
 import { SiswaPklService } from './SiswaPklService';
 import { PerizinanService } from './PerizinanService';
 import { RelationSyncService } from './RelationSyncService';
+import { generateNextSequentialId } from '../core/utils/autoIdHelpers';
 
 export class PengajuanService extends BaseRepository<Pengajuan> {
   private static instance: PengajuanService;
@@ -156,7 +157,10 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
         { silentToast: true }
       );
     } else {
-      const idPenempatan = `PLT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const idPenempatan = generateNextSequentialId(
+        'Plotting_Pemberangkatan',
+        existingPlottings as any
+      );
       await SiswaPklService.getInstance().create(
         {
           id: idPenempatan,
@@ -175,9 +179,10 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       );
     }
 
-    await RelationSyncService.getInstance()
-      .syncPlacementCounts({ silentToast: true })
-      .catch((err) => console.warn('Relation count sync warning:', err));
+    await Promise.all([
+      RelationSyncService.getInstance().syncPlacementCounts({ silentToast: true }),
+      RelationSyncService.getInstance().syncJurusanCounts({ silentToast: true }),
+    ]).catch((err) => console.warn('Relation count sync warning:', err));
 
     return updated;
   }

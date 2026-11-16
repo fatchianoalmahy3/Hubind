@@ -53,7 +53,7 @@ const DOC_META: Record<
     label: 'Naskah MoU DUDI',
     shortTitle: 'MOU',
     description: 'Nota Kesepahaman kerjasama penyelenggaraan PKL dengan Dunia Usaha / Industri',
-    sourceLabel: 'Sheet: Master_DUDI',
+    sourceLabel: 'Database Mitra DUDI',
     icon: FileSignature,
     defaultNoSurat: `421.5 / ___ / MoU.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,
   },
@@ -61,7 +61,7 @@ const DOC_META: Record<
     label: 'Surat Tugas Guru Pendamping',
     shortTitle: 'Surat Tugas',
     description: 'Surat perintah tugas guru pendamping beserta daftar siswa & DUDI binaan',
-    sourceLabel: 'Sheet: Master_Guru_Pendamping + Data Siswa PKL',
+    sourceLabel: 'Database Guru Pendamping & Siswa PKL',
     icon: UserCheck,
     defaultNoSurat: `421.5 / ___ / ST.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,
   },
@@ -69,7 +69,7 @@ const DOC_META: Record<
     label: 'Dokumen Pengajuan PKL',
     shortTitle: 'Pengajuan',
     description: 'Lembar permohonan rekomendasi penempatan PKL siswa ke Kakomli & Hubin',
-    sourceLabel: 'Sheet: Data_Pengajuan_PKL',
+    sourceLabel: 'Database Pengajuan PKL',
     icon: FileText,
     defaultNoSurat: `421.5 / ___ / REG.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,
   },
@@ -77,7 +77,7 @@ const DOC_META: Record<
     label: 'Surat & Berita Acara Pengantaran',
     shortTitle: 'Pengantaran',
     description: 'Surat pengantar resmi dan berita acara serah terima siswa ke DUDI',
-    sourceLabel: 'Sheet: Plotting_Pemberangkatan (Data Siswa PKL)',
+    sourceLabel: 'Database Penempatan Siswa PKL',
     icon: Send,
     defaultNoSurat: `421.5 / ___ / ANTAR.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,
   },
@@ -85,7 +85,7 @@ const DOC_META: Record<
     label: 'Instrumen Monitoring Lapangan',
     shortTitle: 'Monitoring',
     description: 'Berita acara dan lembar supervisi guru pendamping di lokasi DUDI',
-    sourceLabel: 'Sheet: Plotting_Pemberangkatan + Monitoring_5_Tahap',
+    sourceLabel: 'Database Penempatan & Monitoring PKL',
     icon: Compass,
     defaultNoSurat: `421.5 / ___ / MON.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,
   },
@@ -93,7 +93,7 @@ const DOC_META: Record<
     label: 'Surat & Berita Acara Penarikan',
     shortTitle: 'Penarikan',
     description: 'Surat tugas penjemputan siswa purnatugas PKL & ucapan terima kasih mitra',
-    sourceLabel: 'Sheet: Plotting_Pemberangkatan (Data Siswa PKL)',
+    sourceLabel: 'Database Penempatan Siswa PKL',
     icon: LogOut,
     defaultNoSurat: `421.5 / ___ / TARIK.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,
   },
@@ -183,7 +183,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         setSelectedId((prev) => (pRows.some((r) => r.id === prev) ? prev : pRows[0]?.id || ''));
       }
     } catch (e: any) {
-      setError(e?.message || 'Gagal memuat data dari Google Spreadsheet.');
+      setError(e?.message || 'Gagal memuat data dari Cloud Server.');
     } finally {
       setLoading(false);
     }
@@ -209,11 +209,11 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     }
     if (activeDocKey === 'doc_surat_tugas') {
       return guruList
-        .filter((g) => !q || `${g.nama} ${g.nip} ${g.peranUtama}`.toLowerCase().includes(q))
+        .filter((g) => !q || `${g.nama} ${g.kontakWA || ''} ${g.peranUtama}`.toLowerCase().includes(q))
         .map((g) => ({
           id: g.id,
           title: g.nama,
-          subtitle: `NIP: ${g.nip || '-'} · ${g.peranUtama}`,
+          subtitle: `${g.peranUtama}${g.kontakWA ? ` · WA: ${g.kontakWA}` : ''}`,
           raw: g,
         }));
     }
@@ -460,7 +460,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             <div className="max-h-[380px] overflow-y-auto space-y-1.5 pr-1">
               {loading ? (
                 <div className="py-8 text-center text-xs text-slate-400">
-                  Membaca data langsung dari Google Spreadsheet...
+                  Membaca data langsung dari Cloud Server...
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg p-4">
@@ -505,7 +505,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   Pilih Data untuk Pratinjau {meta.shortTitle}
                 </h4>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Dokumen ini menarik data langsung dari {meta.sourceLabel}. Tambahkan data di Spreadsheet atau pilih salah satu baris di panel kiri.
+                  Dokumen ini menarik data langsung dari {meta.sourceLabel} di Cloud Server. Tambahkan data pada modul terkait atau pilih salah satu baris di panel kiri.
                 </p>
               </div>
             ) : (
@@ -662,10 +662,12 @@ function renderDocumentBody(params: {
               <td className="py-1.5 font-bold w-40">Nama Petugas / Guru</td>
               <td className="py-1.5 font-bold">: {guru.nama}</td>
             </tr>
-            <tr className="border-b border-slate-200">
-              <td className="py-1.5 font-bold">NIP / NUPTK</td>
-              <td className="py-1.5 font-mono">: {guru.nip || '-'}</td>
-            </tr>
+            {guru.nip && guru.nip !== '-' && (
+              <tr className="border-b border-slate-200">
+                <td className="py-1.5 font-bold">NIP / NUPTK</td>
+                <td className="py-1.5 font-mono">: {guru.nip}</td>
+              </tr>
+            )}
             <tr className="border-b border-slate-200">
               <td className="py-1.5 font-bold">Jabatan / Peran</td>
               <td className="py-1.5">: {guru.peranUtama || 'Guru Pendamping PKL'}</td>
@@ -695,7 +697,7 @@ function renderDocumentBody(params: {
             {assignedStudents.length === 0 ? (
               <tr>
                 <td colSpan={5} className="border border-slate-300 p-3 text-center text-slate-400 italic">
-                  Belum ada siswa terplot pada guru pendamping ini di sheet Plotting_Pemberangkatan.
+                  Belum ada siswa terplot pada guru pendamping ini di Cloud Server.
                 </td>
               </tr>
             ) : (

@@ -40,6 +40,16 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
   ],
   fields: [
     {
+      key: 'id',
+      label: 'ID Kelas',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis (KLS-...)',
+      helperText: 'Terisi otomatis oleh sistem',
+    },
+    {
       key: 'namaKelas',
       label: 'Nama Kelas',
       type: 'text',

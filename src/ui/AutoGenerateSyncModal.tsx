@@ -72,9 +72,9 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
     const success = generateAndDownloadHubinXlsx(fileName);
     if (success) {
       ToastManager.getInstance().show(
-        'File .xlsx Berhasil Diunduh!',
+        'File Master Excel (.xlsx) Berhasil Diunduh!',
         'success',
-        `File ${fileName} berisi 10 sheet terpisah siap di-import ke Google Spreadsheet.`
+        `File ${fileName} berisi 10 tabel lengkap siap diunggah.`
       );
     }
   };
@@ -84,7 +84,7 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
     ToastManager.getInstance().show(
       'File CSV Diunduh',
       'info',
-      `Sheet [${def.sheetName}] berhasil diunduh.`
+      `Template CSV tabel [${def.sheetName}] berhasil diunduh.`
     );
   };
 
@@ -207,9 +207,9 @@ function autoGenerateAllSheetsAndForm() {
     navigator.clipboard.writeText(gasScriptCode);
     setCopiedCode(true);
     ToastManager.getInstance().show(
-      'Kode Apps Script Disalin',
+      'Skrip API Server Disalin',
       'success',
-      'Kode generator siap ditempelkan di Google Spreadsheet.'
+      'Kode inisialisasi tabel siap ditempelkan pada konsol API Server.'
     );
     setTimeout(() => setCopiedCode(false), 2500);
   };
@@ -226,14 +226,14 @@ function autoGenerateAllSheetsAndForm() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                  Auto-Generate &amp; Sync Multi-Sheet
+                  Inisialisasi &amp; Blueprint Struktur Server
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  10 Sheet Terpisah
+                  10 Tabel Server
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Generate otomatis Google Spreadsheet, Google Form 4-Section, dan sinkronkan seluruh tabel data
+                Inisialisasi otomatis struktur Database Cloud Server dan sinkronkan seluruh entitas data
               </p>
             </div>
           </div>
@@ -256,7 +256,7 @@ function autoGenerateAllSheetsAndForm() {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            1. Generate Langsung ke Google Drive
+            1. Inisialisasi Cloud Server
           </button>
           <button
             onClick={() => setActiveTab('download')}
@@ -276,7 +276,7 @@ function autoGenerateAllSheetsAndForm() {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            3. Blueprint 10 Sheet Terpisah
+            3. Blueprint 10 Tabel Server
           </button>
           <button
             onClick={() => setActiveTab('script')}
@@ -286,7 +286,7 @@ function autoGenerateAllSheetsAndForm() {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            4. Skrip Google Apps Script (GAS)
+            4. Skrip API Integrasi Server
           </button>
         </div>
 
@@ -298,23 +298,23 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-200/80 rounded-2xl text-xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Otomatisasi Struktur 10 Sheet &amp; Google Form:</span>
+                  <span>Otomatisasi Struktur 10 Tabel Cloud Server:</span>
                 </div>
                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                  Fitur ini secara instan menyiapkan dan memisahkan seluruh lembar kerja di Google Spreadsheet Anda ke dalam <b>10 Sheet terpisah</b>, menata judul kolom (*header*) dengan format tebal, memasang rumus rekapitulasi, dan membuat <b>Google Form pendaftaran siswa</b> yang terhubung langsung ke Sheet <code>Data_Pengajuan_PKL</code>.
+                  Fitur ini secara instan menyiapkan seluruh skema Database Cloud Server ke dalam <b>10 entitas tabel terpisah</b>, menata struktur kolom terstandar, dan menyiapkan entitas pengajuan PKL siswa agar tersinkronisasi penuh.
                 </p>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Target Google Spreadsheet ID (Tahun Ajaran {config.activeYear}):
+                  Target ID Database Cloud Server (Tahun Ajaran {config.activeYear}):
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={targetSpreadsheetId}
                     onChange={(e) => setTargetSpreadsheetId(e.target.value)}
-                    placeholder="Tempelkan ID Google Spreadsheet sekolah Anda"
+                    placeholder="Tempelkan ID Database Cloud Server sekolah Anda"
                     className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                   <button
@@ -323,22 +323,22 @@ function autoGenerateAllSheetsAndForm() {
                     className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all disabled:opacity-50 shrink-0 cursor-pointer"
                   >
                     <Sparkles className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
-                    <span>{isGenerating ? 'Memproses...' : 'Jalankan Auto-Generate Sekarang'}</span>
+                    <span>{isGenerating ? 'Memproses...' : 'Inisialisasi Server Sekarang'}</span>
                   </button>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  *Masukkan ID Google Spreadsheet resmi yang tersimpan di pengaturan Firebase.
+                  *Masukkan ID Database resmi yang tersimpan pada Konfigurasi Server.
                 </p>
               </div>
 
-              {/* Alert Penjelasan Keamanan Google Drive */}
+              {/* Alert Penjelasan Keamanan Server */}
               <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-2xl text-xs space-y-2 text-amber-900">
                 <div className="flex items-center gap-2 font-bold text-amber-900 text-xs">
                   <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>Mengapa Google Spreadsheet Anda Belum Berubah Otomatis?</span>
+                  <span>Mengapa Struktur Database Server Belum Berubah Otomatis?</span>
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  File Google Spreadsheet Anda berada di Google Drive pribadi Anda dan dilindungi oleh sistem keamanan Google. Browser web di luar Google Drive <b>tidak dapat memodifikasi file Spreadsheet Anda secara sepihak</b> tanpa eksekusi script di dalam file tersebut.
+                  Node Database Cloud Server dilindungi kebijakan otorisasi ketat. Browser web <b>tidak dapat memodifikasi skema inti secara sepihak</b> tanpa eksekusi skrip inisialisasi atau impor file master Excel (.xlsx).
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
@@ -346,14 +346,14 @@ function autoGenerateAllSheetsAndForm() {
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Cara 1: Unduh File Master .xlsx (Paling Mudah)</span>
+                    <span>Cara 1: Download File Master Excel (.xlsx)</span>
                   </button>
                   <button
                     onClick={() => setActiveTab('script')}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all"
                   >
                     <Code2 className="w-3.5 h-3.5" />
-                    <span>Cara 2: Jalankan Script di Apps Script</span>
+                    <span>Cara 2: Jalankan Skrip API Server</span>
                   </button>
                 </div>
               </div>
@@ -381,14 +381,14 @@ function autoGenerateAllSheetsAndForm() {
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Unduh File .xlsx 10 Sheet Sekarang</span>
+                      <span>Download File Master Excel (.xlsx)</span>
                     </button>
                     <button
                       onClick={() => setActiveTab('script')}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-[11px] font-semibold"
                     >
                       <Code2 className="w-3.5 h-3.5" />
-                      <span>Salin Kode Script Apps Script</span>
+                      <span>Salin Skrip API Server</span>
                     </button>
                     {result.spreadsheetUrl && (
                       <a
@@ -397,8 +397,8 @@ function autoGenerateAllSheetsAndForm() {
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 text-[11px] font-semibold hover:bg-slate-50"
                       >
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Buka Spreadsheet Anda</span>
+                        <Database className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Buka Database Server</span>
                         <ExternalLink className="w-3 h-3 text-slate-400" />
                       </a>
                     )}
@@ -406,10 +406,10 @@ function autoGenerateAllSheetsAndForm() {
                 </div>
               )}
 
-              {/* Summary of 10 Sheets */}
+              {/* Summary of 10 Server Tables */}
               <div className="border border-slate-200 rounded-2xl p-4 bg-white space-y-2 text-xs">
                 <div className="font-bold text-slate-800">
-                  Daftar 10 Lembar Kerja Terpisah yang Digenerate:
+                  Daftar 10 Tabel Server yang Digenerate:
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                   {HUBIN_SHEETS_BLUEPRINT.map((s, idx) => (
@@ -426,26 +426,26 @@ function autoGenerateAllSheetsAndForm() {
                 </div>
               </div>
 
-              {/* Panduan Membuat Spreadsheet Terlebih Dahulu */}
+              {/* Panduan Penyiapan Struktur Server */}
               <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl text-xs space-y-2">
                 <div className="font-bold text-slate-800 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>Ingin Membuat Spreadsheet &amp; Format Terlebih Dahulu?</span>
+                  <span>Ingin Menyiapkan Struktur Database Server Terlebih Dahulu?</span>
                 </div>
                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                  Sangat mudah! Anda dapat membuat Google Spreadsheet baru di Google Drive Anda sendiri, lalu memilih salah satu dari 2 cara praktis berikut:
+                  Anda dapat membuat node Database Cloud Server baru terlebih dahulu, lalu memilih salah satu dari 2 cara praktis berikut:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-[11px]">
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
-                    <span className="font-bold text-emerald-700 block">Cara 1 (Rekomendasi Cepat):</span>
+                    <span className="font-bold text-emerald-700 block">Cara 1 (Template Excel):</span>
                     <p className="text-slate-500">
-                      Buka tab <b>"Download File Master Excel (.xlsx)"</b>, unduh file 10 sheet lengkap, lalu impor ke Google Drive (<b>File &rarr; Impor &rarr; Upload</b>). Seluruh 10 sheet terpisah dan header langsung terbentuk rapi!
+                      Buka tab <b>&quot;Download File Master Excel (.xlsx)&quot;</b>, unduh file 10 tabel lengkap, lalu impor ke node database server Anda.
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
-                    <span className="font-bold text-blue-700 block">Cara 2 (Auto-Format ID):</span>
+                    <span className="font-bold text-blue-700 block">Cara 2 (Otomatisasi ID Server):</span>
                     <p className="text-slate-500">
-                      Salin ID Google Spreadsheet kosong Anda ke kolom di atas, lalu klik <b>"Jalankan Auto-Generate Sekarang"</b>. Sistem akan otomatis menyusun 10 sheet dan membuat Google Form terhubung.
+                      Tempelkan ID Database Server kosong Anda ke kolom di atas, lalu klik <b>&quot;Inisialisasi Server Sekarang&quot;</b> untuk menyiapkan 10 tabel secara otomatis.
                     </p>
                   </div>
                 </div>
@@ -459,10 +459,10 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-2 text-blue-900">
                 <div className="font-bold flex items-center gap-1.5 text-sm">
                   <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                  <span>Download File Master Excel (.xlsx) Lengkap 10 Sheet:</span>
+                  <span>Download File Master Excel (.xlsx) Lengkap 10 Tabel:</span>
                 </div>
                 <p className="text-[11px] text-blue-800 leading-relaxed">
-                  Jika Anda ingin membuat file spreadsheet sendiri secara manual, cukup unduh file <b>.xlsx</b> ini, lalu buka di Google Drive: <b>File &rarr; Impor &rarr; Upload</b>. Google Spreadsheet Anda akan langsung memiliki 10 tab terpisah dengan format kolom rapi dan data awal lengkap!
+                  Unduh file master Excel <b>.xlsx</b> ini apabila ingin mengimpor struktur 10 tabel terstandar sekaligus ke node database server Anda.
                 </p>
               </div>
 
@@ -476,7 +476,7 @@ function autoGenerateAllSheetsAndForm() {
                       Template_Lengkap_Hubin_SMK_PGRI_2_Ponorogo.xlsx
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Berisi 10 Sheet Terpisah • Format Kolom Auto-Width • Data Master 9 Jurusan &amp; Mitra DUDI
+                      File Master Excel 10 Tabel • Format Kolom Auto-Width • Data Master 9 Jurusan &amp; Mitra DUDI
                     </p>
                   </div>
                 </div>
@@ -486,32 +486,31 @@ function autoGenerateAllSheetsAndForm() {
                   className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all shrink-0 active:scale-[0.98]"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Download .xlsx 10 Sheet</span>
+                  <span>Download File Master Excel (.xlsx)</span>
                 </button>
               </div>
 
-              {/* Cara Import ke Google Drive */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1.5">
                 <div className="font-bold text-slate-800">
-                  Cara Impor ke Google Spreadsheet:
+                  Cara Impor File Master Excel (.xlsx) ke Database Server:
                 </div>
                 <ol className="list-decimal list-inside space-y-1 text-slate-600 text-[11px]">
-                  <li>Unduh file <code>.xlsx</code> di atas.</li>
-                  <li>Buka <a href="https://sheets.google.com" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">Google Sheets</a> &rarr; Buka Spreadsheet baru / Spreadsheet Anda.</li>
-                  <li>Klik menu <b>File</b> &rarr; <b>Impor (Import)</b> &rarr; Pilih tab <b>Upload</b> &rarr; Pilih file <code>.xlsx</code> tadi.</li>
-                  <li>Pilih opsi: <i>"Ganti spreadsheet (Replace spreadsheet)"</i> atau <i>"Sisipkan sheet baru"</i>.</li>
-                  <li>Selesai! 10 sheet terpisah langsung tersedia lengkap dengan judul kolom.</li>
+                  <li>Unduh file Master Excel <code>.xlsx</code> di atas.</li>
+                  <li>Buka panel database server Anda pada menu Konfigurasi Server.</li>
+                  <li>Pilih menu <b>File</b> &rarr; <b>Impor (Import)</b> &rarr; <b>Upload</b> &rarr; pilih file <code>.xlsx</code> tadi.</li>
+                  <li>Pilih opsi ganti / sisipkan tabel agar 10 struktur tabel baku langsung terbentuk.</li>
+                  <li>Selesai! 10 entitas tabel server langsung siap dipakai seluruh pengguna.</li>
                 </ol>
               </div>
             </div>
           )}
 
-          {/* TAB 3: BLUEPRINT 10 SHEET TERPISAH */}
+          {/* TAB 3: BLUEPRINT 10 TABEL SERVER */}
           {activeTab === 'blueprint' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Rincian spesifikasi 10 sheet terpisah beserta kolom-kolomnya:</span>
-                <span className="font-bold text-emerald-700">10 Sheet Baku</span>
+                <span>Rincian spesifikasi 10 tabel server beserta struktur kolom bakunya:</span>
+                <span className="font-bold text-emerald-700">10 Tabel Baku</span>
               </div>
 
               <div className="space-y-2.5">
@@ -530,7 +529,7 @@ function autoGenerateAllSheetsAndForm() {
                       <button
                         onClick={() => handleDownloadSingleCsv(def)}
                         className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 p-1 hover:bg-blue-50 rounded-lg"
-                        title="Unduh format sheet ini sebagai CSV"
+                        title="Unduh template CSV untuk tabel ini"
                       >
                         <Download className="w-3 h-3" />
                         <span>Unduh CSV</span>
@@ -554,19 +553,19 @@ function autoGenerateAllSheetsAndForm() {
             </div>
           )}
 
-          {/* TAB 4: KODE APPS SCRIPT */}
+          {/* TAB 4: SKRIP API SERVER */}
           {activeTab === 'script' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-600">
-                  Kode generator untuk dipasang di Apps Script Google Spreadsheet:
+                  Skrip inisialisasi struktur tabel untuk dipasang pada konektor Cloud Server:
                 </span>
                 <button
                   onClick={copyScript}
                   className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
                 >
                   {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCode ? 'Tersalin!' : 'Salin Kode Script'}</span>
+                  <span>{copiedCode ? 'Tersalin!' : 'Salin Skrip Server'}</span>
                 </button>
               </div>
 

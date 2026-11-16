@@ -1,14 +1,22 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { FieldConfig } from '../core/types/metadata';
-import { Dudi, Guru, Jurusan, Kelas, Siswa } from '../core/types/schema';
+import { Dudi, Guru, Jurusan, Kelas, PenempatanPKL, Pengajuan, Siswa } from '../core/types/schema';
 import { useDynamicForm } from '../hooks/useDynamicForm';
 import { DudiService } from '../services/DudiService';
 import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
 import { KelasService } from '../services/KelasService';
+import { PengajuanService } from '../services/PengajuanService';
+import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
 import { getPredikatFromScore } from '../core/utils/monitoringHelpers';
-import { X, Save, Upload, AlertCircle, Link2 } from 'lucide-react';
+import {
+  generateJurusanCode,
+  generateNextSequentialId,
+  generateNextSuratPermohonan,
+  getTodayIsoDate,
+} from '../core/utils/autoIdHelpers';
+import { X, Save, Upload, AlertCircle, Link2, Search, Lock, Check } from 'lucide-react';
 
 interface DynamicFormModalProps<T = any> {
   isOpen: boolean;
@@ -16,12 +24,20 @@ interface DynamicFormModalProps<T = any> {
   title: string;
   fields: FieldConfig<T>[];
   initialData?: Partial<T>;
+  existingRows?: T[];
+  moduleId?: string;
+  tableName?: string;
   onSubmit: (values: T) => Promise<void> | void;
   onOpenImageCropper?: (currentImage: string, onDone: (croppedUrl: string) => void) => void;
 }
 
 function norm(v: unknown): string {
-  return String(v ?? '').trim().toLowerCase();
+  return String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function cleanPlaceholderDash(v: unknown): string {
+  const s = String(v ?? '').trim();
+  return s === '-' ? '' : s;
 }
 
 export function DynamicFormModal<T extends Record<string, any>>({
@@ -30,6 +46,9 @@ export function DynamicFormModal<T extends Record<string, any>>({
   title,
   fields,
   initialData = {},
+  existingRows = [],
+  moduleId,
+  tableName,
   onSubmit,
   onOpenImageCropper,
 }: DynamicFormModalProps<T>) {
@@ -41,6 +60,34 @@ export function DynamicFormModal<T extends Record<string, any>>({
     () => new Set(formFields.map((f) => String(f.key))),
     [formFields]
   );
+
+  const resolvedTableName = useMemo(() => {
+    if (tableName) return tableName;
+    switch (moduleId) {
+      case 'siswa':
+        return 'Master_Siswa_XI';
+      case 'jurusan':
+        return 'Master_Jurusan';
+      case 'kelas':
+        return 'Master_Kelas_Walas';
+      case 'dudi':
+        return 'Master_DUDI';
+      case 'guru':
+        return 'Master_Guru_Pendamping';
+      case 'pengajuan':
+        return 'Data_Pengajuan_PKL';
+      case 'perizinan':
+        return 'Data_Perizinan_PKL';
+      case 'siswa_pkl':
+        return 'Plotting_Pemberangkatan';
+      case 'monitoring':
+        return 'Monitoring_5_Tahap';
+      case 'sertifikat':
+        return 'Nilai_Dan_Sertifikat';
+      default:
+        return '';
+    }
+  }, [moduleId, tableName]);
 
   const {
     values,
@@ -60,19 +107,64 @@ export function DynamicFormModal<T extends Record<string, any>>({
   const [masterDudi, setMasterDudi] = useState<Dudi[]>([]);
   const [masterGuru, setMasterGuru] = useState<Guru[]>([]);
   const [masterSiswa, setMasterSiswa] = useState<Siswa[]>([]);
+  const [masterPengajuan, setMasterPengajuan] = useState<Pengajuan[]>([]);
+  const [masterPenempatan, setMasterPenempatan] = useState<PenempatanPKL[]>([]);
   const [loadingRelations, setLoadingRelations] = useState(false);
   const [manualFields, setManualFields] = useState<Record<string, boolean>>({});
   const [imageUrlInputKey, setImageUrlInputKey] = useState<string | null>(null);
+  const [openAutocompleteKey, setOpenAutocompleteKey] = useState<string | null>(null);
+  const hasMatchedPengajuanRef = useRef(false);
+  const dudiManuallyEditedRef = useRef(false);
+  const autoFilledDudiRef = useRef('');
+
+  const isCreateMode = !initialData?.id;
 
   useEffect(() => {
-    if (!isOpen) return;
-    resetForm(initialData);
+    if (!isOpen) {
+      setOpenAutocompleteKey(null);
+      return;
+    }
+
+    hasMatchedPengajuanRef.current = false;
+    dudiManuallyEditedRef.current = false;
+    autoFilledDudiRef.current = '';
     setManualFields({});
 
-    const sources = new Set(
-      formFields.map((f) => f.relationSource).filter(Boolean)
-    );
-    if (sources.size === 0) return;
+    // Prepare seeded initial values with deterministic auto-IDs, codes & today's date
+    const seed: Record<string, any> = { ...(initialData as Record<string, any>) };
+    const existingList = Array.isArray(existingRows) ? existingRows : [];
+
+    if (formFieldKeys.has('id') && !String(seed.id || '').trim()) {
+      seed.id = generateNextSequentialId(resolvedTableName, existingList as any);
+    }
+    if (moduleId === 'jurusan' && formFieldKeys.has('kode') && !String(seed.kode || '').trim() && seed.nama) {
+      seed.kode = generateJurusanCode(String(seed.nama));
+    }
+    if (formFieldKeys.has('noPengajuan') && !String(seed.noPengajuan || '').trim()) {
+      seed.noPengajuan = generateNextSequentialId('Data_Pengajuan_PKL', existingList as any);
+    }
+    if (formFieldKeys.has('noPerizinan') && !String(seed.noPerizinan || '').trim()) {
+      seed.noPerizinan = generateNextSequentialId('Data_Perizinan_PKL', existingList as any);
+    }
+    if (formFieldKeys.has('noSuratPermohonan') && !String(seed.noSuratPermohonan || '').trim()) {
+      seed.noSuratPermohonan = generateNextSuratPermohonan(existingList as any);
+    }
+    if (
+      moduleId === 'perizinan' &&
+      formFieldKeys.has('tanggalKirimSurat') &&
+      !String(seed.tanggalKirimSurat || '').trim()
+    ) {
+      seed.tanggalKirimSurat = getTodayIsoDate();
+    }
+    if (formFieldKeys.has('idPenempatan') && !String(seed.idPenempatan || '').trim()) {
+      seed.idPenempatan = generateNextSequentialId('Plotting_Pemberangkatan', existingList as any);
+    }
+
+    resetForm(seed as Partial<T>);
+
+    const sources = new Set(formFields.map((f) => f.relationSource).filter(Boolean));
+    const needsPengajuanLookup = moduleId === 'perizinan' || sources.has('siswa');
+    if (sources.size === 0 && !needsPengajuanLookup) return;
 
     let cancelled = false;
     setLoadingRelations(true);
@@ -98,7 +190,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
           .catch(() => {})
       );
     }
-    if (sources.has('dudi')) {
+    if (sources.has('dudi') || needsPengajuanLookup) {
       tasks.push(
         DudiService.getInstance()
           .getAll()
@@ -128,6 +220,30 @@ export function DynamicFormModal<T extends Record<string, any>>({
           .catch(() => {})
       );
     }
+    if (needsPengajuanLookup) {
+      tasks.push(
+        PengajuanService.getInstance()
+          .getAll()
+          .then((list) => {
+            if (!cancelled && !initialData?.noPengajuan && moduleId === 'perizinan' && !hasMatchedPengajuanRef.current) {
+              setValue(
+                'noPengajuan',
+                generateNextSequentialId('Data_Pengajuan_PKL', list as any)
+              );
+            }
+            if (!cancelled) setMasterPengajuan(list);
+          })
+          .catch(() => {})
+      );
+      tasks.push(
+        SiswaPklService.getInstance()
+          .getAll()
+          .then((list) => {
+            if (!cancelled) setMasterPenempatan(list);
+          })
+          .catch(() => {})
+      );
+    }
 
     Promise.all(tasks).finally(() => {
       if (!cancelled) setLoadingRelations(false);
@@ -138,7 +254,416 @@ export function DynamicFormModal<T extends Record<string, any>>({
     };
   }, [isOpen]);
 
+  // Build combined student directory from Master_Siswa_XI + Data_Pengajuan_PKL + Plotting_Pemberangkatan
+  const studentDirectory = useMemo(() => {
+    type DirectoryEntry = {
+      nis: string;
+      nama: string;
+      jurusan: string;
+      kelas: string;
+      namaOrtuWali: string;
+      noOrtuWali: string;
+      noWa: string;
+      pengajuan?: Pengajuan;
+      penempatan?: PenempatanPKL;
+      existingPerizinan?: Record<string, any>;
+    };
+
+    const scorePengajuan = (req: Pengajuan): number => {
+      let score = 0;
+      if (cleanPlaceholderDash(req.dudiTujuan)) score += 10;
+      if (norm(req.statusKakomli) === 'disetujui') score += 5;
+      else if (norm(req.statusKakomli) === 'pending') score += 2;
+      if (cleanPlaceholderDash(req.alamatDudi)) score += 1;
+      return score;
+    };
+
+    const pengajuanByKey = new Map<string, Pengajuan>();
+    for (const req of masterPengajuan) {
+      if (norm(req.statusKakomli) === 'ditolak') continue;
+      const candidateScore = scorePengajuan(req);
+      const nisKey = req.nis && req.nis !== '-' ? `nis:${norm(req.nis)}` : '';
+      const nameKey = req.namaSiswa ? `nama:${norm(req.namaSiswa)}` : '';
+
+      if (nisKey) {
+        const existing = pengajuanByKey.get(nisKey);
+        if (!existing || candidateScore > scorePengajuan(existing)) {
+          pengajuanByKey.set(nisKey, req);
+        }
+      }
+      if (nameKey) {
+        const existing = pengajuanByKey.get(nameKey);
+        if (!existing || candidateScore > scorePengajuan(existing)) {
+          pengajuanByKey.set(nameKey, req);
+        }
+      }
+    }
+
+    const scorePenempatan = (p: PenempatanPKL): number => {
+      let score = cleanPlaceholderDash(p.namaDudi) ? 10 : 0;
+      const st = norm(p.statusPenempatan);
+      if (st === 'sedang berjalan') score += 5;
+      else if (st === 'terjadwal') score += 4;
+      else if (st === 'selesai pkl') score += 2;
+      return score;
+    };
+
+    const penempatanByKey = new Map<string, PenempatanPKL>();
+    for (const p of masterPenempatan) {
+      if (norm(p.statusPenempatan) === 'dibatalkan') continue;
+      const candidateScore = scorePenempatan(p);
+      const nisKey = p.nis && p.nis !== '-' ? `nis:${norm(p.nis)}` : '';
+      const nameKey = p.namaSiswa ? `nama:${norm(p.namaSiswa)}` : '';
+
+      if (nisKey) {
+        const existing = penempatanByKey.get(nisKey);
+        if (!existing || candidateScore > scorePenempatan(existing)) {
+          penempatanByKey.set(nisKey, p);
+        }
+      }
+      if (nameKey) {
+        const existing = penempatanByKey.get(nameKey);
+        if (!existing || candidateScore > scorePenempatan(existing)) {
+          penempatanByKey.set(nameKey, p);
+        }
+      }
+    }
+
+    const perizinanByKey = new Map<string, Record<string, any>>();
+    if (moduleId === 'perizinan' && Array.isArray(existingRows)) {
+      for (const row of existingRows) {
+        if (initialData?.id && row?.id === initialData.id) continue;
+        if (!cleanPlaceholderDash(row?.dudiTujuan)) continue;
+        const nisKey = row?.nis && row.nis !== '-' ? `nis:${norm(row.nis)}` : '';
+        const nameKey = row?.namaSiswa ? `nama:${norm(row.namaSiswa)}` : '';
+        if (nisKey && !perizinanByKey.has(nisKey)) perizinanByKey.set(nisKey, row);
+        if (nameKey && !perizinanByKey.has(nameKey)) perizinanByKey.set(nameKey, row);
+      }
+    }
+
+    const map = new Map<string, DirectoryEntry>();
+
+    for (const s of masterSiswa) {
+      const nisNorm = s.nis && s.nis !== '-' ? norm(s.nis) : '';
+      const namaNorm = norm(s.nama);
+      const key = nisNorm ? `nis:${nisNorm}` : `nama:${namaNorm}`;
+      const matchedReq =
+        (nisNorm && pengajuanByKey.get(`nis:${nisNorm}`)) ||
+        (namaNorm ? pengajuanByKey.get(`nama:${namaNorm}`) : undefined);
+      const matchedPlt =
+        (nisNorm && penempatanByKey.get(`nis:${nisNorm}`)) ||
+        (namaNorm ? penempatanByKey.get(`nama:${namaNorm}`) : undefined);
+      const matchedIzn =
+        (nisNorm && perizinanByKey.get(`nis:${nisNorm}`)) ||
+        (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined);
+
+      map.set(key, {
+        nis: String(s.nis || '').trim(),
+        nama: String(s.nama || '').trim(),
+        jurusan: String(s.jurusan || matchedReq?.jurusan || '').trim(),
+        kelas: String(s.kelas || matchedReq?.kelas || '').trim(),
+        namaOrtuWali:
+          cleanPlaceholderDash(s.namaOrtuWali) ||
+          cleanPlaceholderDash(matchedReq?.namaOrtuWali) ||
+          cleanPlaceholderDash(matchedIzn?.namaOrtuWali),
+        noOrtuWali:
+          cleanPlaceholderDash(s.noOrtuWali) || cleanPlaceholderDash(matchedReq?.noOrtuWali),
+        noWa: cleanPlaceholderDash(s.noHpSiswa) || cleanPlaceholderDash(matchedReq?.noWa),
+        pengajuan: matchedReq,
+        penempatan: matchedPlt,
+        existingPerizinan: matchedIzn,
+      });
+    }
+
+    for (const req of masterPengajuan) {
+      if (norm(req.statusKakomli) === 'ditolak') continue;
+      const nisNorm = req.nis && req.nis !== '-' ? norm(req.nis) : '';
+      const namaNorm = norm(req.namaSiswa);
+      const key = nisNorm ? `nis:${nisNorm}` : `nama:${namaNorm}`;
+      const existing =
+        map.get(key) ||
+        (namaNorm
+          ? Array.from(map.values()).find((e) => norm(e.nama) === namaNorm)
+          : undefined);
+      if (existing) {
+        if (!existing.pengajuan) existing.pengajuan = req;
+        continue;
+      }
+      if (req.namaSiswa || req.nis) {
+        const matchedPlt =
+          (nisNorm && penempatanByKey.get(`nis:${nisNorm}`)) ||
+          (namaNorm ? penempatanByKey.get(`nama:${namaNorm}`) : undefined);
+        const matchedIzn =
+          (nisNorm && perizinanByKey.get(`nis:${nisNorm}`)) ||
+          (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined);
+        map.set(key, {
+          nis: String(req.nis || '').trim(),
+          nama: String(req.namaSiswa || '').trim(),
+          jurusan: String(req.jurusan || '').trim(),
+          kelas: String(req.kelas || '').trim(),
+          namaOrtuWali:
+            cleanPlaceholderDash(req.namaOrtuWali) || cleanPlaceholderDash(matchedIzn?.namaOrtuWali),
+          noOrtuWali: cleanPlaceholderDash(req.noOrtuWali),
+          noWa: cleanPlaceholderDash(req.noWa),
+          pengajuan: pengajuanByKey.get(key) || req,
+          penempatan: matchedPlt,
+          existingPerizinan: matchedIzn,
+        });
+      }
+    }
+
+    for (const plt of masterPenempatan) {
+      if (norm(plt.statusPenempatan) === 'dibatalkan') continue;
+      const nisNorm = plt.nis && plt.nis !== '-' ? norm(plt.nis) : '';
+      const namaNorm = norm(plt.namaSiswa);
+      const key = nisNorm ? `nis:${nisNorm}` : `nama:${namaNorm}`;
+      const existing =
+        map.get(key) ||
+        (namaNorm
+          ? Array.from(map.values()).find((e) => norm(e.nama) === namaNorm)
+          : undefined);
+      if (existing) {
+        if (!existing.penempatan) existing.penempatan = plt;
+        continue;
+      }
+      if (plt.namaSiswa || plt.nis) {
+        map.set(key, {
+          nis: String(plt.nis || '').trim(),
+          nama: String(plt.namaSiswa || '').trim(),
+          jurusan: '',
+          kelas: '',
+          namaOrtuWali: '',
+          noOrtuWali: '',
+          noWa: '',
+          penempatan: penempatanByKey.get(key) || plt,
+          existingPerizinan:
+            (nisNorm && perizinanByKey.get(`nis:${nisNorm}`)) ||
+            (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined),
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }, [masterSiswa, masterPengajuan, masterPenempatan, existingRows, moduleId, initialData?.id]);
+
+  const resolveDudiAddress = (dudiName: string, preferredAlamat?: unknown): string => {
+    const direct = cleanPlaceholderDash(preferredAlamat);
+    if (direct) return direct;
+    const target = norm(dudiName);
+    if (!target) return '';
+    const dudiFromMaster = masterDudi.find((d) => norm(d.namaDudi) === target);
+    return cleanPlaceholderDash(dudiFromMaster?.alamat);
+  };
+
+  const resolvePreferredDudi = (
+    matched?: (typeof studentDirectory)[number]
+  ): { dudiTujuan: string; alamatDudi: string } => {
+    if (!matched) return { dudiTujuan: '', alamatDudi: '' };
+    const candidates = [
+      {
+        name: cleanPlaceholderDash(matched.pengajuan?.dudiTujuan),
+        addr: matched.pengajuan?.alamatDudi,
+      },
+      {
+        name: cleanPlaceholderDash(matched.penempatan?.namaDudi),
+        addr: '',
+      },
+      {
+        name: cleanPlaceholderDash(matched.existingPerizinan?.dudiTujuan),
+        addr: matched.existingPerizinan?.alamatDudi,
+      },
+    ];
+    for (const c of candidates) {
+      if (c.name) {
+        return {
+          dudiTujuan: c.name,
+          alamatDudi: resolveDudiAddress(c.name, c.addr),
+        };
+      }
+    }
+    return { dudiTujuan: '', alamatDudi: '' };
+  };
+
+  // Reactive sync: eliminates race conditions when masterPengajuan/masterPenempatan/masterDudi load after student selection
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const currentNis = String(values.nis || '').trim();
+    const currentNama = norm(values.namaSiswa);
+
+    const matched =
+      (currentNis && currentNis !== '-'
+        ? studentDirectory.find((s) => norm(s.nis) === norm(currentNis))
+        : undefined) ||
+      (currentNama ? studentDirectory.find((s) => norm(s.nama) === currentNama) : undefined);
+
+    const patch: Record<string, any> = {};
+
+    if (matched) {
+      if (formFieldKeys.has('nis') && !currentNis && matched.nis) {
+        patch.nis = matched.nis;
+      }
+      if (formFieldKeys.has('namaSiswa') && !currentNama && matched.nama) {
+        patch.namaSiswa = matched.nama;
+      }
+      if (formFieldKeys.has('jurusan') && !cleanPlaceholderDash(values.jurusan) && matched.jurusan) {
+        patch.jurusan = matched.jurusan;
+      }
+      if (formFieldKeys.has('kelas') && !cleanPlaceholderDash(values.kelas) && matched.kelas) {
+        patch.kelas = matched.kelas;
+      }
+      if (
+        formFieldKeys.has('namaOrtuWali') &&
+        !cleanPlaceholderDash(values.namaOrtuWali) &&
+        matched.namaOrtuWali
+      ) {
+        patch.namaOrtuWali = matched.namaOrtuWali;
+      }
+      if (
+        moduleId === 'perizinan' &&
+        formFieldKeys.has('noPengajuan') &&
+        matched.pengajuan?.noPengajuan &&
+        !hasMatchedPengajuanRef.current &&
+        values.noPengajuan !== matched.pengajuan.noPengajuan
+      ) {
+        hasMatchedPengajuanRef.current = true;
+        patch.noPengajuan = matched.pengajuan.noPengajuan;
+      }
+
+      if (
+        formFieldKeys.has('dudiTujuan') &&
+        !dudiManuallyEditedRef.current &&
+        !cleanPlaceholderDash(values.dudiTujuan)
+      ) {
+        const resolved = resolvePreferredDudi(matched);
+        if (resolved.dudiTujuan) {
+          patch.dudiTujuan = resolved.dudiTujuan;
+          autoFilledDudiRef.current = resolved.dudiTujuan;
+          if (
+            formFieldKeys.has('alamatDudi') &&
+            !cleanPlaceholderDash(values.alamatDudi) &&
+            resolved.alamatDudi
+          ) {
+            patch.alamatDudi = resolved.alamatDudi;
+          }
+        }
+      }
+    }
+
+    const activeDudi = cleanPlaceholderDash(patch.dudiTujuan ?? values.dudiTujuan);
+    if (
+      activeDudi &&
+      formFieldKeys.has('alamatDudi') &&
+      !cleanPlaceholderDash(patch.alamatDudi ?? values.alamatDudi)
+    ) {
+      const addr = resolveDudiAddress(
+        activeDudi,
+        matched?.pengajuan?.alamatDudi || matched?.existingPerizinan?.alamatDudi
+      );
+      if (addr) {
+        patch.alamatDudi = addr;
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      setMultipleValues(patch);
+    }
+  }, [
+    isOpen,
+    moduleId,
+    studentDirectory,
+    masterDudi,
+    values.nis,
+    values.namaSiswa,
+    values.jurusan,
+    values.kelas,
+    values.namaOrtuWali,
+    values.noPengajuan,
+    values.dudiTujuan,
+    values.alamatDudi,
+  ]);
+
   if (!isOpen) return null;
+
+  const applyStudentSelection = (matched: (typeof studentDirectory)[number], triggerPatch: Record<string, any> = {}) => {
+    dudiManuallyEditedRef.current = false;
+    const patch: Record<string, any> = { ...triggerPatch };
+    if (formFieldKeys.has('nis') && matched.nis) patch.nis = matched.nis;
+    if (formFieldKeys.has('namaSiswa') && matched.nama) patch.namaSiswa = matched.nama;
+    if (formFieldKeys.has('jurusan') && matched.jurusan) patch.jurusan = matched.jurusan;
+    if (formFieldKeys.has('kelas') && matched.kelas) patch.kelas = matched.kelas;
+    if (formFieldKeys.has('namaOrtuWali') && matched.namaOrtuWali) {
+      patch.namaOrtuWali = matched.namaOrtuWali;
+    }
+    if (formFieldKeys.has('noOrtuWali') && matched.noOrtuWali) {
+      patch.noOrtuWali = matched.noOrtuWali;
+    }
+    if (formFieldKeys.has('noWa') && matched.noWa) {
+      patch.noWa = matched.noWa;
+    }
+
+    if (matched.pengajuan) {
+      hasMatchedPengajuanRef.current = true;
+      if (formFieldKeys.has('noPengajuan') && matched.pengajuan.noPengajuan) {
+        patch.noPengajuan = matched.pengajuan.noPengajuan;
+      }
+    } else if (
+      moduleId === 'perizinan' &&
+      isCreateMode &&
+      formFieldKeys.has('noPengajuan')
+    ) {
+      hasMatchedPengajuanRef.current = false;
+      patch.noPengajuan = generateNextSequentialId('Data_Pengajuan_PKL', masterPengajuan as any);
+    }
+
+    const resolvedDudi = resolvePreferredDudi(matched);
+    if (formFieldKeys.has('dudiTujuan')) {
+      if (resolvedDudi.dudiTujuan) {
+        patch.dudiTujuan = resolvedDudi.dudiTujuan;
+        autoFilledDudiRef.current = resolvedDudi.dudiTujuan;
+        if (formFieldKeys.has('alamatDudi')) {
+          patch.alamatDudi = resolvedDudi.alamatDudi || '';
+        }
+      } else if (
+        autoFilledDudiRef.current &&
+        norm(values.dudiTujuan) === norm(autoFilledDudiRef.current)
+      ) {
+        patch.dudiTujuan = '';
+        autoFilledDudiRef.current = '';
+        if (formFieldKeys.has('alamatDudi')) {
+          patch.alamatDudi = '';
+        }
+      }
+    }
+
+    if (
+      moduleId === 'perizinan' &&
+      formFieldKeys.has('tanggalKirimSurat') &&
+      !String(values.tanggalKirimSurat || '').trim()
+    ) {
+      patch.tanggalKirimSurat = getTodayIsoDate();
+    }
+
+    setMultipleValues(patch);
+  };
+
+  const applyDudiSelection = (matched: Dudi, fieldKey: string, selectedValue?: string) => {
+    dudiManuallyEditedRef.current = true;
+    const patch: Record<string, any> = {
+      [fieldKey]: selectedValue ?? matched.namaDudi,
+    };
+    if (formFieldKeys.has('idDudi')) patch.idDudi = matched.id;
+    if (formFieldKeys.has('alamatDudi') && matched.alamat) {
+      patch.alamatDudi = matched.alamat;
+    }
+    if (formFieldKeys.has('bidangPekerjaan') && matched.bidangKeahlian) {
+      patch.bidangPekerjaan = matched.bidangKeahlian;
+    }
+    if (formFieldKeys.has('noTelpDudi') && (matched.kontakPic || matched.noTelpDudi)) {
+      patch.noTelpDudi = matched.kontakPic || matched.noTelpDudi;
+    }
+    setMultipleValues(patch);
+  };
 
   const handleRelationSelect = (field: FieldConfig<T>, selectedValue: string) => {
     const key = String(field.key);
@@ -150,36 +675,20 @@ export function DynamicFormModal<T extends Record<string, any>>({
     }
 
     if (field.relationSource === 'siswa') {
-      const matched = masterSiswa.find((s) =>
+      const matched = studentDirectory.find((s) =>
         key === 'nis'
           ? String(s.nis).trim() === selectedValue.trim()
           : norm(s.nama) === norm(selectedValue)
       );
       if (matched) {
-        if (formFieldKeys.has('nis')) patch.nis = matched.nis;
-        if (formFieldKeys.has('namaSiswa')) patch.namaSiswa = matched.nama;
-        if (formFieldKeys.has('jurusan') && matched.jurusan) patch.jurusan = matched.jurusan;
-        if (formFieldKeys.has('kelas') && matched.kelas) patch.kelas = matched.kelas;
-        if (formFieldKeys.has('namaOrtuWali') && matched.namaOrtuWali) {
-          patch.namaOrtuWali = matched.namaOrtuWali;
-        }
-        if (formFieldKeys.has('noOrtuWali') && matched.noOrtuWali) {
-          patch.noOrtuWali = matched.noOrtuWali;
-        }
-        if (formFieldKeys.has('noWa') && matched.noHpSiswa) {
-          patch.noWa = matched.noHpSiswa;
-        }
+        applyStudentSelection(matched, patch);
+        return;
       }
     } else if (field.relationSource === 'dudi') {
       const matched = masterDudi.find((d) => norm(d.namaDudi) === norm(selectedValue));
       if (matched) {
-        if (formFieldKeys.has('idDudi')) patch.idDudi = matched.id;
-        if (formFieldKeys.has('alamatDudi') && matched.alamat) {
-          patch.alamatDudi = matched.alamat;
-        }
-        if (formFieldKeys.has('bidangPekerjaan') && matched.bidangKeahlian) {
-          patch.bidangPekerjaan = matched.bidangKeahlian;
-        }
+        applyDudiSelection(matched, key, selectedValue);
+        return;
       }
     } else if (field.relationSource === 'guru') {
       const matched = masterGuru.find((g) => norm(g.nama) === norm(selectedValue));
@@ -241,10 +750,10 @@ export function DynamicFormModal<T extends Record<string, any>>({
           value: g.nama,
         }));
       case 'siswa':
-        return masterSiswa.map((s) =>
+        return studentDirectory.map((s) =>
           key === 'nis'
-            ? { label: `${s.nis} — ${s.nama} (${s.kelas})`, value: s.nis }
-            : { label: `${s.nama} (${s.nis} · ${s.kelas})`, value: s.nama }
+            ? { label: `${s.nis} — ${s.nama} (${s.kelas || '-'})`, value: s.nis }
+            : { label: `${s.nama} (${s.nis || '-'} · ${s.kelas || '-'})`, value: s.nama }
         );
       default:
         return (field.options || []).map((o) => ({
@@ -254,10 +763,301 @@ export function DynamicFormModal<T extends Record<string, any>>({
     }
   };
 
+  const renderAutocompleteInput = (field: FieldConfig<T>) => {
+    const key = String(field.key);
+    const val = String(values[key] ?? '');
+    const err = errors[key];
+    const isDropdownOpen = openAutocompleteKey === key;
+    const query = norm(val);
+
+    if (field.relationSource === 'siswa') {
+      const filtered = studentDirectory
+        .filter((s) => {
+          if (!query) return true;
+          return (
+            norm(s.nama).includes(query) ||
+            norm(s.nis).includes(query) ||
+            norm(s.kelas).includes(query) ||
+            norm(s.jurusan).includes(query)
+          );
+        })
+        .sort((a, b) => {
+          const aStarts = norm(a.nama).startsWith(query) || norm(a.nis).startsWith(query) ? 0 : 1;
+          const bStarts = norm(b.nama).startsWith(query) || norm(b.nis).startsWith(query) ? 0 : 1;
+          if (aStarts !== bStarts) return aStarts - bStarts;
+          return a.nama.localeCompare(b.nama);
+        })
+        .slice(0, 25);
+
+      return (
+        <div className="relative">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={val}
+              autoComplete="off"
+              onFocus={() => setOpenAutocompleteKey(key)}
+              onBlur={() => setTimeout(() => setOpenAutocompleteKey((k) => (k === key ? null : k)), 140)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setValue(key, next);
+                setOpenAutocompleteKey(key);
+                const qTrim = next.trim();
+                if (qTrim.length >= 4) {
+                  const exactMatch = studentDirectory.find(
+                    (s) => s.nis === qTrim || norm(s.nama) === norm(qTrim)
+                  );
+                  if (exactMatch) {
+                    applyStudentSelection(exactMatch, { [key]: next });
+                  }
+                }
+              }}
+              placeholder={
+                loadingRelations
+                  ? `Memuat daftar siswa...`
+                  : field.placeholder || `Ketik nama atau NIS siswa...`
+              }
+              className={`w-full h-10 pl-8 pr-8 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
+                err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
+              }`}
+            />
+            {val && (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setValue(key, '');
+                  setOpenAutocompleteKey(key);
+                }}
+                aria-label="Bersihkan pencarian"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {isDropdownOpen && (
+            <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto py-1">
+              {loadingRelations ? (
+                <div className="px-3 py-2.5 text-xs text-slate-500">
+                  Memuat daftar siswa dari Cloud Server...
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="px-3 py-2.5 text-xs text-slate-500">
+                  Tidak ada siswa cocok dengan &quot;{val}&quot;. Anda tetap dapat menyimpan input manual ini.
+                </div>
+              ) : (
+                filtered.map((stu, idx) => {
+                  const isCurrent =
+                    (key === 'nis' && stu.nis === val.trim()) ||
+                    (key !== 'nis' && norm(stu.nama) === query);
+                  return (
+                    <button
+                      type="button"
+                      key={`${stu.nis || stu.nama}_${idx}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyStudentSelection(stu);
+                        setOpenAutocompleteKey(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                        isCurrent ? 'bg-blue-50/80' : ''
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-900 truncate">
+                          {stu.nama}{' '}
+                          <span className="font-mono text-[11px] font-normal text-slate-500">
+                            ({stu.nis || 'Tanpa NIS'})
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {stu.kelas || '-'} · {stu.jurusan || '-'}
+                          {resolvePreferredDudi(stu).dudiTujuan
+                            ? ` · DUDI: ${resolvePreferredDudi(stu).dudiTujuan}`
+                            : ''}
+                        </div>
+                      </div>
+                      {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (field.relationSource === 'dudi') {
+      const selectedJurusanRaw = String(values.jurusan || '').trim();
+      const selectedJurusanNorm = norm(selectedJurusanRaw);
+      const selectedJurusanCode = norm(generateJurusanCode(selectedJurusanRaw));
+
+      const isJurusanMatchedDudi = (d: Dudi): boolean => {
+        if (!selectedJurusanNorm) return false;
+        const bidang = norm(d.bidangKeahlian);
+        const nama = norm(d.namaDudi);
+        return Boolean(
+          (bidang && (bidang.includes(selectedJurusanNorm) || (selectedJurusanCode && bidang.includes(selectedJurusanCode)))) ||
+            (selectedJurusanCode && nama.includes(selectedJurusanCode))
+        );
+      };
+
+      const filteredDudi = masterDudi
+        .filter((d) => {
+          if (!query) return true;
+          return (
+            norm(d.namaDudi).includes(query) ||
+            norm(d.wilayahKota).includes(query) ||
+            norm(d.alamat).includes(query) ||
+            norm(d.bidangKeahlian).includes(query)
+          );
+        })
+        .sort((a, b) => {
+          const aMatch = isJurusanMatchedDudi(a) ? 0 : 1;
+          const bMatch = isJurusanMatchedDudi(b) ? 0 : 1;
+          if (aMatch !== bMatch) return aMatch - bMatch;
+          return String(a.namaDudi || '').localeCompare(String(b.namaDudi || ''));
+        })
+        .slice(0, 25);
+
+      return (
+        <div className="relative">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={val}
+              autoComplete="off"
+              onFocus={() => setOpenAutocompleteKey(key)}
+              onBlur={() => setTimeout(() => setOpenAutocompleteKey((k) => (k === key ? null : k)), 140)}
+              onChange={(e) => {
+                const next = e.target.value;
+                dudiManuallyEditedRef.current = true;
+                setValue(key, next);
+                setOpenAutocompleteKey(key);
+                const exact = masterDudi.find((d) => norm(d.namaDudi) === norm(next));
+                if (exact) {
+                  applyDudiSelection(exact, key, next);
+                }
+              }}
+              placeholder={
+                loadingRelations
+                  ? `Memuat daftar DUDI...`
+                  : field.placeholder || `Ketik atau pilih nama DUDI mitra...`
+              }
+              className={`w-full h-10 pl-8 pr-8 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
+                err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
+              }`}
+            />
+            {val && (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  dudiManuallyEditedRef.current = true;
+                  setValue(key, '');
+                  setOpenAutocompleteKey(key);
+                }}
+                aria-label="Bersihkan pencarian"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {isDropdownOpen && (
+            <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto py-1">
+              {loadingRelations ? (
+                <div className="px-3 py-2.5 text-xs text-slate-500">
+                  Memuat daftar DUDI dari Cloud Server...
+                </div>
+              ) : filteredDudi.length === 0 ? (
+                <div className="px-3 py-2.5 text-xs text-slate-500">
+                  Tidak ada mitra DUDI cocok dengan &quot;{val}&quot;. Anda tetap dapat menggunakan nama manual ini.
+                </div>
+              ) : (
+                filteredDudi.map((d, idx) => {
+                  const isCurrent = norm(d.namaDudi) === query;
+                  const jurusanFit = isJurusanMatchedDudi(d);
+                  return (
+                    <button
+                      type="button"
+                      key={`${d.id || d.namaDudi}_${idx}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyDudiSelection(d, key);
+                        setOpenAutocompleteKey(null);
+                      }}
+                      className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                        isCurrent ? 'bg-blue-50/80' : ''
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                          <span className="truncate">{d.namaDudi}</span>
+                          <span className="text-[11px] font-normal text-slate-500 shrink-0">
+                            ({d.terisi ?? 0}/{d.kuotaMaksimal ?? 0})
+                          </span>
+                          {jurusanFit && (
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded shrink-0">
+                              Sesuai Jurusan
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {d.wilayahKota ? `${d.wilayahKota} · ` : ''}
+                          {d.alamat || '-'}
+                        </div>
+                      </div>
+                      {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   const renderFieldInput = (field: FieldConfig<T>) => {
     const key = String(field.key);
     const val = values[key];
     const err = errors[key];
+    const isDisabled = Boolean(field.disabled);
+
+    if (isDisabled) {
+      return (
+        <div className="relative">
+          <input
+            type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+            value={val ?? ''}
+            disabled
+            readOnly
+            placeholder={field.placeholder || 'Otomatis oleh sistem'}
+            className="w-full h-10 px-3 pr-8 bg-slate-100 border border-slate-200 rounded-lg text-sm text-slate-600 font-medium cursor-not-allowed tabular-nums"
+          />
+          <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
+      );
+    }
+
+    if (
+      field.autocomplete &&
+      field.relationSource &&
+      (field.relationSource === 'siswa' || field.relationSource === 'dudi') &&
+      !manualFields[key]
+    ) {
+      return renderAutocompleteInput(field);
+    }
 
     if (field.relationSource) {
       const dynamicOpts = getRelationOptions(field);
@@ -297,6 +1097,16 @@ export function DynamicFormModal<T extends Record<string, any>>({
     }
 
     const handleFieldChange = (fieldKey: string, nextVal: any) => {
+      // Auto-fill Kode Jurusan when typing Nama Program Keahlian
+      if (moduleId === 'jurusan' && fieldKey === 'nama' && formFieldKeys.has('kode')) {
+        const autoKode = generateJurusanCode(String(nextVal || ''));
+        setMultipleValues({
+          nama: nextVal,
+          kode: autoKode || values.kode || '',
+        });
+        return;
+      }
+
       const gradeKeys = new Set([
         'nilaiK3lh',
         'nilaiSoftskill',
@@ -456,7 +1266,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
           <input
             type="text"
             value={val ?? ''}
-            onChange={(e) => setValue(key, e.target.value)}
+            onChange={(e) => handleFieldChange(key, e.target.value)}
             placeholder={field.placeholder || `Masukkan ${field.label}...`}
             className={`w-full h-10 px-3 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
               err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
@@ -502,6 +1312,8 @@ export function DynamicFormModal<T extends Record<string, any>>({
                 const isFullWidth = field.type === 'textarea' || field.type === 'image';
                 const err = errors[key];
                 const canToggleManual =
+                  !field.disabled &&
+                  !field.autocomplete &&
                   Boolean(field.relationSource) &&
                   Boolean(field.allowCustomValue) &&
                   getRelationOptions(field).length > 0;
@@ -512,8 +1324,15 @@ export function DynamicFormModal<T extends Record<string, any>>({
                     <div className="flex items-center justify-between gap-2 mb-1.5">
                       <label className="block text-xs font-semibold text-slate-700">
                         {field.label}
-                        {field.validation?.required && <span className="text-rose-500 ml-1">*</span>}
+                        {field.validation?.required && !field.disabled && (
+                          <span className="text-rose-500 ml-1">*</span>
+                        )}
                       </label>
+                      {field.disabled && (
+                        <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                          Otomatis
+                        </span>
+                      )}
                       {canToggleManual && (
                         <button
                           type="button"

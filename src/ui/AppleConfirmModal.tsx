@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Save, FileSpreadsheet } from 'lucide-react';
+import { Trash2, Save, Database } from 'lucide-react';
 
 interface AppleConfirmModalProps {
   isOpen: boolean;
@@ -58,11 +58,13 @@ export const AppleConfirmModal: React.FC<AppleConfirmModalProps> = ({
           {description}
         </p>
 
-        {/* Unboxed Target Sheet Metadata */}
-        <div className="mt-3 inline-flex items-center justify-center gap-1.5 text-xs font-mono text-slate-600 mx-auto">
-          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <span>Target: {sheetName}</span>
-        </div>
+        {/* Unboxed Target Server Table Metadata (Hubin only) */}
+        {sheetName?.trim() && (
+          <div className="mt-3 inline-flex items-center justify-center gap-1.5 text-xs font-mono text-slate-600 mx-auto">
+            <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span>Tabel Server: {sheetName}</span>
+          </div>
+        )}
 
         {/* Proportional Action Buttons (h-10) */}
         <div className="grid grid-cols-2 gap-2.5 mt-6 pt-4 border-t border-slate-100">

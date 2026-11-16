@@ -98,7 +98,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 Masuk Portal Pengelola
               </h2>
               <p className="text-[11px] sm:text-xs text-slate-500">
-                SMK PGRI 2 Ponorogo · Autentikasi Cloud GAS &amp; Firebase
+                SMK PGRI 2 Ponorogo · Autentikasi Cloud Server
               </p>
             </div>
           </div>

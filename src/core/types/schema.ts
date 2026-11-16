@@ -39,7 +39,7 @@ export interface Jurusan {
   kode: string; // DKV, RPL, TAB, TBKR, TKR, TKJ, TPM, TPL, TSM
   nama: string;
   namaKakomli: string;
-  nipKakomli: string;
+  nipKakomli?: string;
   kontakWA: string;
   kuotaSiswa: number;
   totalTerdaftar: number;
@@ -72,10 +72,10 @@ export interface Dudi {
 
 export interface Guru {
   id: string;
-  nip: string;
+  nip?: string;
   nama: string;
   kontakWA: string;
-  email: string;
+  email?: string;
   peranUtama: 'Hubin' | 'Kakomli' | 'Wali Kelas' | 'Guru Pendamping';
   jumlahBimbingan: number;
   pin?: string;
@@ -115,13 +115,13 @@ export interface PerizinanPKL {
   jurusan: string;
   kelas: string;
   namaOrtuWali: string;
-  noOrtuWali: string;
+  noOrtuWali?: string;
   statusIzinOrtu: 'Menunggu Izin' | 'Diizinkan Ortu' | 'Tidak Diizinkan';
   noSuratPermohonan: string;
   dudiTujuan: string;
   alamatDudi: string;
   tanggalKirimSurat: string;
-  statusBalasanDudi: 'Belum Dikirim' | 'Menunggu Balasan' | 'Diterima DUDI' | 'Ditolak DUDI';
+  statusBalasanDudi?: 'Belum Dikirim' | 'Menunggu Balasan' | 'Diterima DUDI' | 'Ditolak DUDI';
   tanggalBalasan?: string;
   catatanPerizinan?: string;
   linkBuktiBalasan?: string;

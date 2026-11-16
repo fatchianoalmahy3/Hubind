@@ -15,7 +15,7 @@ import {
   ChevronRight,
   ChevronDown,
   FolderSync,
-  FileSpreadsheet,
+  Database,
   FileSignature,
   Send,
   LogOut,
@@ -324,58 +324,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
 
-          {/* Group 4: Sistem & Pengaturan */}
+          {/* Group 4: Sistem & Server */}
           <div className="space-y-1 pt-2 border-t border-slate-800/80">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-1">
-              Sistem &amp; Cloud
+              Sistem &amp; Server
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                onSelectModule('workspace');
-                onCloseMobile();
-              }}
-              className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                currentModule === 'workspace'
-                  ? 'bg-blue-600 text-white font-semibold'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-              }`}
-            >
-              <FolderSync
-                className={`w-4 h-4 shrink-0 ${
-                  currentModule === 'workspace' ? 'text-white' : 'text-slate-400'
-                }`}
-              />
-              <span className="truncate">Pusat Berkas &amp; Drive</span>
-            </button>
+            {userRole === 'Hubin' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectModule('workspace');
+                    onCloseMobile();
+                  }}
+                  className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                    currentModule === 'workspace'
+                      ? 'bg-blue-600 text-white font-semibold'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                  }`}
+                >
+                  <FolderSync
+                    className={`w-4 h-4 shrink-0 ${
+                      currentModule === 'workspace' ? 'text-white' : 'text-slate-400'
+                    }`}
+                  />
+                  <span className="truncate">Pusat Berkas &amp; Server</span>
+                </button>
 
-            {onOpenSheetConfig && (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenSheetConfig();
-                  onCloseMobile();
-                }}
-                className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <FileSpreadsheet className="w-4 h-4 text-slate-500 shrink-0" />
-                <span className="truncate">Konfigurasi Spreadsheet</span>
-              </button>
-            )}
+                {onOpenSheetConfig && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenSheetConfig();
+                      onCloseMobile();
+                    }}
+                    className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <Database className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="truncate">Konfigurasi Server</span>
+                  </button>
+                )}
 
-            {onOpenTemplateManager && (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenTemplateManager();
-                  onCloseMobile();
-                }}
-                className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <FileText className="w-4 h-4 text-slate-500 shrink-0" />
-                <span className="truncate">Template Google Docs</span>
-              </button>
+                {onOpenTemplateManager && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenTemplateManager();
+                      onCloseMobile();
+                    }}
+                    className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="truncate">Template Dokumen</span>
+                  </button>
+                )}
+              </>
             )}
 
             <button
@@ -390,17 +394,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="truncate">Cetak Dokumen Massal</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                onOpenGas();
-                onCloseMobile();
-              }}
-              className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            >
-              <FileCode2 className="w-4 h-4 text-slate-500 shrink-0" />
-              <span className="truncate">Script Otomasi (GAS)</span>
-            </button>
+            {userRole === 'Hubin' && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenGas();
+                  onCloseMobile();
+                }}
+                className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <FileCode2 className="w-4 h-4 text-slate-500 shrink-0" />
+                <span className="truncate">Integrasi API Server</span>
+              </button>
+            )}
 
             {onOpenAccountManager && (
               <button

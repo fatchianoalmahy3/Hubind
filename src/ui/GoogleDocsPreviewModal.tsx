@@ -160,7 +160,7 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-500">
-                Format administrasi Prakerin langsung dari data Google Spreadsheet aktif
+                Format administrasi Prakerin langsung dari data Cloud Server aktif
               </p>
             </div>
           </div>
@@ -441,7 +441,7 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
                 Belum Ada Data Siswa Dipilih untuk Dicetak
               </h4>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Silakan buka modul data (Pengajuan / Sertifikat / Siswa) yang sudah terhubung ke Google Spreadsheet, pilih satu atau beberapa baris siswa, lalu klik tombol cetak dokumen.
+                Silakan buka modul data (Pengajuan / Sertifikat / Siswa) yang sudah terhubung ke Cloud Server, pilih satu atau beberapa baris siswa, lalu klik tombol cetak dokumen.
               </p>
             </div>
           ) : (

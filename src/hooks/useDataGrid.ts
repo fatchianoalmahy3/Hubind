@@ -43,7 +43,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       lastVisibleFetchRef.current = Date.now();
     } catch (e: any) {
       console.error('Failed to query data', e);
-      setLoadError(e?.message || 'Gagal membaca data dari Google Spreadsheet.');
+      setLoadError(e?.message || 'Gagal membaca data dari Cloud Server.');
     } finally {
       setLoading(false);
     }
@@ -160,9 +160,9 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     setSyncMessage(null);
     setLoadError(null);
     const toastId = ToastManager.getInstance().show(
-      `Menyegarkan Sheet ${sheetName}...`,
+      'Menyegarkan Data Cloud Server...',
       'pending',
-      'Mengambil data terbaru langsung dari Google Spreadsheet.',
+      'Mengambil data terbaru langsung dari Cloud Server.',
       sheetName
     );
     try {
@@ -171,18 +171,18 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       if (repoErr) {
         setLoadError(repoErr);
         setSyncMessage(repoErr);
-        ToastManager.getInstance().update(toastId, 'Gagal Memuat Sheet', 'error', repoErr);
+        ToastManager.getInstance().update(toastId, 'Gagal Memuat Data', 'error', repoErr);
       } else {
-        const msg = `Sheet ${sheetName} berhasil disegarkan dari Google Spreadsheet.`;
+        const msg = 'Data berhasil disegarkan langsung dari Cloud Server.';
         setSyncMessage(msg);
-        ToastManager.getInstance().update(toastId, 'Data Sheet Diperbarui', 'success', msg);
+        ToastManager.getInstance().update(toastId, 'Data Cloud Server Diperbarui', 'success', msg);
       }
       await fetchData();
     } catch (e: any) {
-      const msg = `Gagal sinkronisasi: ${e?.message || 'Koneksi terputus'}`;
+      const msg = `Gagal sinkronisasi: ${e?.message || 'Koneksi ke Cloud Server terputus'}`;
       setLoadError(msg);
       setSyncMessage(msg);
-      ToastManager.getInstance().update(toastId, 'Gagal Menyegarkan Sheet', 'error', msg);
+      ToastManager.getInstance().update(toastId, 'Gagal Menyegarkan Data', 'error', msg);
     } finally {
       setSyncing(false);
     }

@@ -125,7 +125,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           </h1>
 
           <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Sistem informasi resmi SMK PGRI 2 Ponorogo. Memudahkan siswa mengajukan tempat PKL mandiri berbasis NIS, guru melaksanakan supervisi terstruktur per DUDI, dan sekolah mengelola seluruh data langsung di Google Spreadsheet.
+            Sistem informasi resmi SMK PGRI 2 Ponorogo. Memudahkan siswa mengajukan tempat PKL mandiri berbasis NIS, guru melaksanakan supervisi terstruktur per DUDI, dan sekolah mengelola seluruh data langsung di Database Cloud Server.
           </p>
 
           {/* Unboxed Metadata Capabilities */}
@@ -134,14 +134,14 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             <span aria-hidden="true">·</span>
             <span>Supervisi 8 Tahap &amp; 4 Kategori Nilai</span>
             <span aria-hidden="true">·</span>
-            <span>Terhubung Google Spreadsheet Resmi</span>
+            <span>Terhubung Database Cloud Server Resmi</span>
           </div>
 
           {!isPortalConfigured && (
             <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                Koneksi Google Spreadsheet publik sedang disiapkan oleh Admin Hubin.
+                Layanan Cloud Server publik sedang disiapkan oleh Admin Hubin.
               </span>
             </div>
           )}
@@ -160,7 +160,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
                   Pengajuan PKL Siswa Mandiri
                 </h2>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Masukkan NIS Anda untuk verifikasi data otomatis dari Google Spreadsheet, lengkapi kontak wali, dan pilih DUDI mitra resmi sekolah.
+                  Masukkan NIS Anda untuk verifikasi data otomatis dari Cloud Server, lengkapi kontak wali, dan pilih DUDI mitra resmi sekolah.
                 </p>
               </div>
 
@@ -246,7 +246,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
               Alur 4 Tahap Pelaksanaan PKL Sterida {liveYear}
             </h2>
             <p className="text-xs text-slate-500">
-              Setiap tahapan tersinkronisasi langsung dengan Google Spreadsheet Pokja Hubin.
+              Setiap tahapan tersinkronisasi langsung dengan Cloud Server Pokja Hubin.
             </p>
           </div>
 

@@ -98,7 +98,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
         setFormOpen(false);
       }
     } catch (err: any) {
-      const errMsg = err?.message || 'Gagal memuat daftar akun dari Google Spreadsheet.';
+      const errMsg = err?.message || 'Gagal memuat daftar akun dari Cloud Server.';
       setErrorMsg(errMsg);
       ToastManager.getInstance().show('Gagal Memuat Akun', 'error', errMsg);
     } finally {
@@ -151,8 +151,8 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     const toastId = ToastManager.getInstance().show(
       editingId ? 'Memperbarui Akun...' : 'Menambahkan Akun Baru...',
       'pending',
-      `Menyimpan "${cleanUser}" ke sheet [Master_Akun]`,
-      'Master_Akun'
+      `Menyimpan akun "${cleanUser}" ke Database Cloud Server`,
+      isHubin ? 'Master_Akun' : undefined
     );
 
     try {
@@ -183,7 +183,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
         toastId,
         editingId ? 'Akun Berhasil Diperbarui' : 'Akun Baru Ditambahkan',
         'success',
-        `Perubahan untuk username "${cleanUser}" tersimpan di sheet Master_Akun.`
+        `Perubahan untuk username "${cleanUser}" telah tersimpan di Cloud Server.`
       );
     } catch (err: any) {
       const msg = err?.message || 'Gagal menyimpan perubahan akun.';
@@ -200,8 +200,8 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     const toastId = ToastManager.getInstance().show(
       'Menghapus Akun...',
       'pending',
-      'Menghapus data akun dari sheet [Master_Akun]',
-      'Master_Akun'
+      'Menghapus data akun dari Database Cloud Server',
+      isHubin ? 'Master_Akun' : undefined
     );
     try {
       const updated = await LocalAccountAuthService.deleteAccount(id);
@@ -214,7 +214,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
         toastId,
         'Akun Dihapus',
         'info',
-        'Daftar akun di Google Spreadsheet telah diperbarui.'
+        'Daftar akun di Cloud Server telah diperbarui.'
       );
     } catch (err: any) {
       const msg = err?.message || 'Gagal menghapus akun.';
@@ -232,8 +232,8 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     const toastId = ToastManager.getInstance().show(
       'Menyimpan 5 Akun Default...',
       'pending',
-      'Menginisialisasi tab [Master_Akun] di Google Spreadsheet',
-      'Master_Akun'
+      'Menginisialisasi tabel akun di Database Cloud Server',
+      isHubin ? 'Master_Akun' : undefined
     );
     try {
       const saved = await LocalAccountAuthService.bootstrapDefaultAccountsToSheet();
@@ -241,12 +241,12 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       setSyncedToSheet(true);
       ToastManager.getInstance().update(
         toastId,
-        '5 Akun Default Tersimpan ke Sheet',
+        '5 Akun Default Tersimpan ke Server',
         'success',
-        'Tab Master_Akun di Google Spreadsheet sekarang menyimpan akun pengelola.'
+        'Database akun di Cloud Server sekarang menyimpan akun pengelola.'
       );
     } catch (err: any) {
-      const msg = err?.message || 'Gagal menyimpan akun default ke Spreadsheet.';
+      const msg = err?.message || 'Gagal menyimpan akun default ke Cloud Server.';
       setErrorMsg(msg);
       ToastManager.getInstance().update(toastId, 'Gagal Inisialisasi Akun', 'error', msg);
     } finally {
@@ -274,7 +274,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                 {isHubin ? 'Kelola Akun & Password Pengelola' : 'Ubah Username & Password Saya'}
               </h2>
               <p className="text-xs text-slate-500 truncate">
-                Tersimpan di Google Spreadsheet (tab <span className="font-mono font-semibold">Master_Akun</span>) dengan enkripsi SHA-256
+                Tersimpan di Database Cloud Server dengan enkripsi SHA-256
               </p>
             </div>
           </div>
@@ -308,13 +308,13 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
               <div>
                 <div className="font-bold">
                   {syncedToSheet
-                    ? 'Tersinkron ke Google Spreadsheet (Master_Akun)'
+                    ? 'Tersinkron ke Database Cloud Server'
                     : 'Menggunakan 5 Akun Default Bawaan'}
                 </div>
                 <p className="text-[11px] opacity-90 mt-0.5 leading-relaxed">
                   {syncedToSheet
                     ? 'Setiap perubahan username atau password langsung berlaku di semua perangkat saat login berikutnya.'
-                    : 'Tab Master_Akun belum berisi data di Spreadsheet. Klik tombol di samping atau simpan perubahan akun apa saja untuk menyinkronkannya.'}
+                    : 'Database akun belum memiliki data kustom di Cloud Server. Klik tombol di samping atau simpan perubahan akun apa saja untuk menyinkronkannya.'}
                 </p>
               </div>
             </div>
@@ -328,7 +328,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                   className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{bootstrapping ? 'Menyimpan...' : 'Simpan 5 Akun Default ke Sheet'}</span>
+                  <span>{bootstrapping ? 'Menyimpan...' : 'Simpan 5 Akun Default ke Server'}</span>
                 </button>
               )}
               <button

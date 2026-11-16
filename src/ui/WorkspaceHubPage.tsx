@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  FileSpreadsheet,
+  Database,
   FileText,
   FolderSync,
   ExternalLink,
@@ -105,10 +105,10 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Pusat Berkas &amp; Tautan Google Workspace
+            Pusat Berkas &amp; Konfigurasi Server
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Direktori berkas resmi Prakerin SMK PGRI 2 Ponorogo tersimpan di Firebase
+            Direktori berkas resmi Prakerin SMK PGRI 2 Ponorogo tersinkron ke Cloud Server
           </p>
         </div>
 
@@ -120,7 +120,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
             className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
           >
             <Code2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <span>Script Otomasi (GAS)</span>
+            <span>Integrasi API Server</span>
           </button>
 
           {onOpenAutoGenerate && (
@@ -129,8 +129,8 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
               onClick={onOpenAutoGenerate}
               className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Blueprint 10 Sheet</span>
+              <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>Blueprint 10 Tabel Server</span>
             </button>
           )}
 
@@ -150,7 +150,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
               className="h-9 inline-flex items-center gap-1.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
             >
               <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              <span>Setup Wizard</span>
+              <span>Konfigurasi Server</span>
             </button>
           )}
         </div>
@@ -182,10 +182,10 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
             <div className="text-slate-500 text-xs mt-0.5 truncate">
               {config.spreadsheetId ? (
                 <>
-                  File Database: <strong className="text-slate-700 font-medium">{config.spreadsheetName || config.spreadsheetId}</strong>
+                  Database Cloud Server: <strong className="text-slate-700 font-medium">{config.spreadsheetName || config.spreadsheetId}</strong>
                 </>
               ) : (
-                'Belum ada Spreadsheet ID aktif. Klik Atur Spreadsheet ID atau Setup Wizard.'
+                'Belum ada Database Cloud Server aktif. Klik Konfigurasi Server.'
               )}
             </div>
           </div>
@@ -211,33 +211,33 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
               onClick={onOpenSheetConfig}
               className="h-9 px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap"
             >
-              Atur Spreadsheet ID
+              Konfigurasi Server
             </button>
           )}
         </div>
       </div>
 
-      {/* Section 1: Daftar File Google Spreadsheet Per Tahun Ajaran */}
+      {/* Section 1: Daftar Database Cloud Server Per Tahun Ajaran */}
       <section className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
           <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>01. Berkas Google Spreadsheet Per Tahun Ajaran</span>
+            <Database className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>01. Database Cloud Server Per Tahun Ajaran</span>
           </h2>
           <span className="text-xs text-slate-500">
-            Setiap tahun ajaran memiliki file database mandiri di Google Drive
+            Setiap tahun ajaran memiliki node database mandiri di Cloud Server
           </span>
         </div>
 
         {config.academicYears.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center space-y-3">
-            <FileSpreadsheet className="w-8 h-8 text-slate-400 mx-auto" />
+            <Database className="w-8 h-8 text-slate-400 mx-auto" />
             <div className="space-y-1">
               <h3 className="text-sm font-bold text-slate-800">
-                Belum Ada Google Spreadsheet Terhubung
+                Belum Ada Cloud Server Terhubung
               </h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Tambahkan atau buat file Google Spreadsheet resmi sekolah melalui Setup Wizard atau tombol Konfigurasi Spreadsheet.
+                Hubungkan atau inisialisasi Database Cloud Server resmi sekolah melalui tombol Konfigurasi Server.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-1">
@@ -247,7 +247,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
                   onClick={onOpenWizard}
                   className="h-9 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
                 >
-                  Buka Setup Wizard
+                  Wizard Konfigurasi Server
                 </button>
               )}
               <button
@@ -255,7 +255,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
                 onClick={onOpenSheetConfig}
                 className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
               >
-                Masukkan Spreadsheet ID
+                Konfigurasi ID Server
               </button>
             </div>
           </div>
@@ -310,8 +310,8 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
                             rel="noopener noreferrer"
                             className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-xs font-semibold transition-colors whitespace-nowrap"
                           >
-                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                            <span>Buka Sheet</span>
+                            <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Buka Database</span>
                             <ExternalLink className="w-3 h-3 text-slate-400" />
                           </a>
 
@@ -319,8 +319,8 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
                             type="button"
                             onClick={() => copyToClipboard(sheetUrl, ay.year)}
                             className="w-9 h-9 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 inline-flex items-center justify-center transition-colors cursor-pointer"
-                            title="Salin tautan spreadsheet"
-                            aria-label="Salin tautan spreadsheet"
+                            title="Salin tautan database server"
+                            aria-label="Salin tautan database server"
                           >
                             {copiedId === ay.year ? (
                               <Check className="w-4 h-4 text-emerald-600" />
@@ -335,7 +335,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
                           onClick={onOpenSheetConfig}
                           className="h-9 px-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold cursor-pointer"
                         >
-                          Atur ID Spreadsheet
+                          Konfigurasi Server
                         </button>
                       )}
                     </div>
@@ -582,7 +582,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-slate-900">Tambah Tahun Ajaran Baru</h3>
                   <p className="text-xs text-slate-500 truncate">
-                    Menyimpan file Google Spreadsheet mandiri ke Firebase
+                    Menyimpan konfigurasi database tahun ajaran ke Cloud Server
                   </p>
                 </div>
               </div>
@@ -613,18 +613,18 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1.5">
-                  Google Spreadsheet ID atau URL Baru <span className="text-rose-500">*</span>
+                  ID atau URL Database Cloud Server Baru <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={newSpreadsheetId}
                   onChange={(e) => setNewSpreadsheetId(e.target.value)}
-                  placeholder="ID atau URL Google Spreadsheet baru"
+                  placeholder="ID atau URL database server tahun ajaran baru"
                   className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Gunakan &quot;Setup Wizard&quot; untuk membuat Spreadsheet otomatis di Google Drive.
+                  Gunakan menu &quot;Konfigurasi Server&quot; untuk menyiapkan struktur database tahun ajaran baru secara otomatis.
                 </p>
               </div>
 

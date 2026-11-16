@@ -249,7 +249,7 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
                   <span>Yakin ingin menghapus {selectedCount} baris?</span>
                 </div>
                 <p className="text-[11px] text-rose-700">
-                  Data yang dihapus akan disinkronkan ke Google Spreadsheet.
+                  Data yang dihapus akan disinkronkan ke Cloud Server.
                 </p>
                 <div className="flex items-center justify-center gap-2">
                   <button

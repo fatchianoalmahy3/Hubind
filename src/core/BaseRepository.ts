@@ -1,6 +1,12 @@
 import { ModuleMetadata, QueryResult, FilterState, SortState } from './types/metadata';
 import { GoogleSheetClient } from './GoogleSheetClient';
 import { GoogleDriveSheetService } from './GoogleDriveSheetService';
+import {
+  generateJurusanCode,
+  generateNextSequentialId,
+  generateNextSuratPermohonan,
+  getTodayIsoDate,
+} from './utils/autoIdHelpers';
 
 export interface MutationOptions {
   silentToast?: boolean;
@@ -86,7 +92,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         this.memoryData = [];
         this.loadedSpreadsheetId = '';
         this.lastFetchedAt = 0;
-        this.lastError = 'ID Google Spreadsheet belum dikonfigurasi.';
+        this.lastError = 'Koneksi Cloud Server belum dikonfigurasi.';
         return;
       }
 
@@ -99,13 +105,13 @@ export abstract class BaseRepository<T extends { id: string }> {
         this.memoryData = [];
         this.loadedSpreadsheetId = '';
         this.lastFetchedAt = 0;
-        this.lastError = res.error || 'Belum terhubung ke Google Spreadsheet.';
+        this.lastError = res.error || 'Belum terhubung ke Cloud Server.';
       }
     } catch (err: any) {
       this.memoryData = [];
       this.loadedSpreadsheetId = '';
       this.lastFetchedAt = 0;
-      this.lastError = err?.message || `Gagal membaca sheet ${this.tableName}`;
+      this.lastError = err?.message || 'Gagal memuat data dari Cloud Server.';
     } finally {
       this.isInitialized = true;
       this.initPromise = null;
@@ -141,14 +147,44 @@ export abstract class BaseRepository<T extends { id: string }> {
     options?: MutationOptions
   ): Promise<T> {
     await this.ensureInitialized();
+    const rawData: Record<string, any> = { ...(data as Record<string, any>) };
+
+    let resolvedId = String(rawData.id || '').trim();
+    if (!resolvedId) {
+      resolvedId =
+        String(rawData.noPerizinan || '').trim() ||
+        String(rawData.noPengajuan || '').trim() ||
+        String(rawData.idPenempatan || '').trim() ||
+        generateNextSequentialId(this.tableName, this.memoryData as any);
+    }
+    rawData.id = resolvedId;
+
+    if (this.tableName === 'Master_Jurusan' && !String(rawData.kode || '').trim() && rawData.nama) {
+      rawData.kode = generateJurusanCode(String(rawData.nama));
+    }
+    if (this.tableName === 'Data_Pengajuan_PKL' && !String(rawData.noPengajuan || '').trim()) {
+      rawData.noPengajuan = resolvedId;
+    }
+    if (this.tableName === 'Data_Perizinan_PKL') {
+      if (!String(rawData.noPerizinan || '').trim()) {
+        rawData.noPerizinan = resolvedId;
+      }
+      if (!String(rawData.noSuratPermohonan || '').trim()) {
+        rawData.noSuratPermohonan = generateNextSuratPermohonan(this.memoryData as any);
+      }
+      if (!String(rawData.tanggalKirimSurat || '').trim()) {
+        rawData.tanggalKirimSurat = getTodayIsoDate();
+      }
+    }
+    if (this.tableName === 'Plotting_Pemberangkatan' && !String(rawData.idPenempatan || '').trim()) {
+      rawData.idPenempatan = resolvedId;
+    }
+
     const normalizer = GoogleDriveSheetService.getInstance();
     const prepared = normalizer.prepareOutgoingRecord(
       this.tableName,
-      {
-        ...data,
-        id: data.id || `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      },
-      Object.keys(data || {})
+      rawData,
+      Object.keys(rawData)
     ) as T;
 
     this.isCommittingSelf = true;
@@ -160,7 +196,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         options
       );
       if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal menyimpan data baru ke Google Spreadsheet.');
+        throw new Error(commitRes.error || 'Gagal menyimpan data baru ke Cloud Server.');
       }
     } finally {
       this.isCommittingSelf = false;
@@ -196,7 +232,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         options
       );
       if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal memperbarui data di Google Spreadsheet.');
+        throw new Error(commitRes.error || 'Gagal memperbarui data di Cloud Server.');
       }
     } finally {
       this.isCommittingSelf = false;
@@ -223,7 +259,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         options
       );
       if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal menghapus data dari Google Spreadsheet.');
+        throw new Error(commitRes.error || 'Gagal menghapus data dari Cloud Server.');
       }
     } finally {
       this.isCommittingSelf = false;
@@ -252,7 +288,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         options
       );
       if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal menghapus baris terpilih dari Google Spreadsheet.');
+        throw new Error(commitRes.error || 'Gagal menghapus baris terpilih dari Cloud Server.');
       }
     } finally {
       this.isCommittingSelf = false;
@@ -296,7 +332,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         options
       );
       if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal memperbarui baris terpilih di Google Spreadsheet.');
+        throw new Error(commitRes.error || 'Gagal memperbarui baris terpilih di Cloud Server.');
       }
     } finally {
       this.isCommittingSelf = false;
@@ -332,7 +368,7 @@ export abstract class BaseRepository<T extends { id: string }> {
         options
       );
       if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal mengimpor data ke Google Spreadsheet.');
+        throw new Error(commitRes.error || 'Gagal mengimpor data ke Cloud Server.');
       }
     } finally {
       this.isCommittingSelf = false;

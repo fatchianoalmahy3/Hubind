@@ -41,15 +41,14 @@ export const GuruMetadata: ModuleMetadata<Guru> = {
   ],
   fields: [
     {
-      key: 'nip',
-      label: 'NIP / NUPTK',
+      key: 'id',
+      label: 'ID Petugas',
       type: 'text',
-      isTableColumn: true,
+      isTableColumn: false,
       isFormInput: true,
-      isSearchable: true,
-      isSortable: true,
-      validation: { required: true },
-      placeholder: '198001012009011001',
+      disabled: true,
+      placeholder: 'Otomatis (GRU-...)',
+      helperText: 'Terisi otomatis dan dikunci oleh sistem',
     },
     {
       key: 'nama',
@@ -70,15 +69,7 @@ export const GuruMetadata: ModuleMetadata<Guru> = {
       isFormInput: true,
       isSearchable: true,
       placeholder: '0812xxxxxxxx',
-    },
-    {
-      key: 'email',
-      label: 'Email Google',
-      type: 'text',
-      isTableColumn: true,
-      isFormInput: true,
-      isSearchable: true,
-      placeholder: 'nama@smkpgri2ponorogo.sch.id',
+      helperText: 'Jika PIN dikosongkan, 4 digit terakhir No. WA dapat dipakai login Portal Guru',
     },
     {
       key: 'peranUtama',
@@ -103,7 +94,9 @@ export const GuruMetadata: ModuleMetadata<Guru> = {
       isTableColumn: true,
       isFormInput: true,
       isSortable: true,
+      disabled: true,
       defaultValue: 0,
+      helperText: 'Terhitung otomatis dari Data Siswa PKL aktif',
     },
     {
       key: 'pin',

@@ -38,6 +38,8 @@ export interface FieldConfig<T = any> {
   placeholder?: string;
   helperText?: string;
   defaultValue?: any;
+  disabled?: boolean;
+  autocomplete?: boolean;
   allowedRoles?: string[];
   relationSource?: 'jurusan' | 'kelas' | 'dudi' | 'guru' | 'siswa';
   allowCustomValue?: boolean;

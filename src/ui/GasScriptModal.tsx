@@ -631,10 +631,10 @@ function doPost(e) {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-800 tracking-tight">
-                Google Apps Script (GAS) Endpoint &amp; Generator
+                Integrasi API Server &amp; Generator Struktur
               </h3>
               <p className="text-[11px] text-slate-500">
-                Hubungkan Portal Publik Siswa/Guru ke Google Spreadsheet secara real-time
+                Hubungkan Portal Publik Siswa/Guru ke Database Cloud Server secara real-time
               </p>
             </div>
           </div>
@@ -656,7 +656,7 @@ function doPost(e) {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            1. Web App API Endpoint (Wajib untuk Portal Publik)
+            1. Endpoint API Cloud Server (Wajib untuk Portal Publik)
           </button>
           <button
             onClick={() => setActiveTab('bootstrap')}
@@ -666,7 +666,7 @@ function doPost(e) {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            2. Generator Struktur Baru (Tahun Ajaran Baru)
+            2. Generator Struktur Database Baru (Tahun Ajaran Baru)
           </button>
         </div>
 
@@ -677,22 +677,22 @@ function doPost(e) {
               <ShieldCheck className="w-4 h-4 text-purple-600" />
               <span>
                 {activeTab === 'api'
-                  ? 'Cara Pasang Endpoint API Web App di Spreadsheet:'
-                  : 'Cara Kerja Generator Struktur Baru:'}
+                  ? 'Panduan Pemasangan Endpoint API Cloud Server:'
+                  : 'Cara Kerja Generator Struktur Server Baru:'}
               </span>
             </div>
             {activeTab === 'api' ? (
               <ol className="list-decimal list-inside space-y-0.5 text-purple-800 text-[11px] leading-relaxed">
-                <li>Buka Google Spreadsheet aktif &rarr; menu <b>Ekstensi</b> &rarr; <b>Apps Script</b> &rarr; tempel kode lalu <b>Simpan</b>.</li>
+                <li>Buka konsol konektor database aktif &rarr; menu <b>Ekstensi</b> &rarr; <b>Apps Script</b> &rarr; tempel kode lalu <b>Simpan</b>.</li>
                 <li>Klik <b>Deploy</b> &rarr; <b>New deployment</b> &rarr; pilih jenis <b>Web app</b> (jika update kode lama: pilih <b>Manage deployments</b> &rarr; ikon Edit &rarr; Version: <b>New version</b>).</li>
                 <li>Wajib atur <b>Execute as: Me (Saya)</b> dan <b>Who has access: Anyone (Siapa saja)</b> &rarr; klik <b>Deploy</b> &amp; berikan izin akses (*Authorize*).</li>
-                <li>Salin <b>Web app URL</b> berakhiran <code>/exec</code> (bukan <code>/dev</code>). <i>Catatan: Jika memakai akun Workspace sekolah (<code>@sch.id</code>) dan akses &quot;Anyone&quot; diblokir admin domain, deploy memakai akun Gmail biasa yang dijadikan Editor Spreadsheet.</i></li>
+                <li>Salin <b>Endpoint URL</b> berakhiran <code>/exec</code> (bukan <code>/dev</code>) ke menu Konfigurasi Server.</li>
               </ol>
             ) : (
               <ol className="list-decimal list-inside space-y-0.5 text-purple-800 text-[11px] leading-relaxed">
-                <li>Buka <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold">script.google.com</a> &rarr; Klik <b>New Project</b>.</li>
+                <li>Buka konsol generator skrip &rarr; Klik <b>New Project</b>.</li>
                 <li>Tempelkan kode di bawah ini, lalu pilih fungsi <b>setupGoogleWorkspaceEnvironment</b>.</li>
-                <li>Klik tombol <b>Run</b> untuk membuat folder Drive, Spreadsheet 10 sheet, Form, dan 5 Docs kosong.</li>
+                <li>Klik tombol <b>Run</b> untuk menginisialisasi folder arsip, 10 tabel server, formulir, dan 5 templat dokumen.</li>
               </ol>
             )}
           </div>
@@ -714,7 +714,7 @@ function doPost(e) {
         {/* Footer */}
         <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <span className="text-[11px] text-slate-400">
-            Ekosistem Google Workspace SMK PGRI 2 Ponorogo
+            Integrasi Cloud Server SMK PGRI 2 Ponorogo
           </span>
           <button
             onClick={onClose}
