@@ -4,8 +4,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/index.ts": {
-      "includeFiles": "{firebase-applet-config.json,server.ts,src/core/utils/**,src/core/types/**}"
+    "api/index.mjs": {
+      "includeFiles": "firebase-applet-config.json"
     }
   },
   "headers": [

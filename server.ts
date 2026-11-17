@@ -3223,10 +3223,21 @@ app.use('/api', (req: Request, res: Response) => {
   });
 });
 
+app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) => {
+  console.error('[Express Unhandled Error]', err);
+  if (res.headersSent) return;
+  res.status(err?.status || 500).json({
+    success: false,
+    code: err?.code || 'INTERNAL_SERVER_ERROR',
+    message: err?.message || 'Terjadi kesalahan internal pada server.',
+  });
+});
+
 // Serve frontend with Vite dev middleware when running as standalone Node server (not on Vercel Serverless)
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
+  if (process.env.NODE_ENV !== 'production' && !isServerlessRuntime) {
+    const vitePkg = 'vite';
+    const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkg);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

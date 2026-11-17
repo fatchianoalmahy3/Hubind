@@ -1,7 +1,6 @@
-import type { Request, Response } from 'express';
-import app from '../server';
+import app from './_server.mjs';
 
-export default function handler(req: Request, res: Response) {
+export default function handler(req, res) {
   try {
     const rawUrl = req.url || '/api';
     const parsed = new URL(rawUrl, 'http://localhost');
@@ -20,5 +19,21 @@ export default function handler(req: Request, res: Response) {
       req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
     }
   }
-  return app(req, res);
+
+  try {
+    return app(req, res);
+  } catch (err) {
+    console.error('[Vercel API Handler Error]', err);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(
+        JSON.stringify({
+          success: false,
+          code: 'SERVERLESS_HANDLER_ERROR',
+          message: err?.message || 'Gagal memproses permintaan API di server.',
+        })
+      );
+    }
+  }
 }
