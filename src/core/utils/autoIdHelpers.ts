@@ -1,3 +1,5 @@
+import { getTodayWibIsoDate } from './dateHelpers';
+
 /**
  * Utility helpers for deterministic sequential IDs, document numbers,
  * competence codes, and WhatsApp phone normalization across Pokja Hubin modules.
@@ -30,7 +32,7 @@ const PREFIX_BY_SHEET: Record<string, { prefix: string; withYear: boolean }> = {
 };
 
 export function getTodayIsoDate(): string {
-  return new Date().toISOString().split('T')[0];
+  return getTodayWibIsoDate();
 }
 
 export function generateJurusanCode(namaJurusan: string): string {
@@ -122,8 +124,54 @@ export function generateNextSuratPermohonan(
 export function normalizeWhatsAppNumber(rawPhone: string): string {
   const digits = String(rawPhone || '').replace(/\D/g, '');
   if (!digits) return '';
+  if (digits.startsWith('620')) return `62${digits.slice(3)}`;
   if (digits.startsWith('62')) return digits;
   if (digits.startsWith('0')) return `62${digits.slice(1)}`;
   if (digits.startsWith('8')) return `62${digits}`;
   return digits;
+}
+
+const PHONE_FIELD_KEYS = new Set([
+  'nohpsiswa',
+  'noortuwali',
+  'kontakwa',
+  'kontakwalas',
+  'kontakpic',
+  'notelpdudi',
+  'nowa',
+  'telepon',
+  'teleponortu',
+  'nohp',
+  'kontak',
+]);
+
+export function isPhoneFieldKey(fieldKey: string): boolean {
+  return PHONE_FIELD_KEYS.has(String(fieldKey || '').trim().toLowerCase());
+}
+
+export function formatPhoneDisplay(rawPhone: unknown, fallback = '-'): string {
+  if (rawPhone === undefined || rawPhone === null) return fallback;
+  const trimmed = String(rawPhone).trim();
+  if (!trimmed || trimmed === '-') return fallback;
+
+  // Restore leading zero if spreadsheet stripped it from an Indonesian 08xx number
+  if (/^8\d{8,13}$/.test(trimmed)) {
+    return `0${trimmed}`;
+  }
+  return trimmed;
+}
+
+export function getWhatsAppHref(rawPhone: unknown, message?: string): string | null {
+  if (rawPhone === undefined || rawPhone === null) return null;
+  const trimmed = String(rawPhone).trim();
+  if (!trimmed || trimmed === '-') return null;
+
+  const normalized = normalizeWhatsAppNumber(trimmed);
+  if (!normalized || normalized.length < 9 || /^0+$/.test(normalized) || /^620*$/.test(normalized)) {
+    return null;
+  }
+
+  return message
+    ? `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`
+    : `https://wa.me/${normalized}`;
 }

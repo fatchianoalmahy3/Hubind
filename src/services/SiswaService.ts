@@ -2,6 +2,7 @@ import { BaseRepository } from '../core/BaseRepository';
 import { Siswa } from '../core/types/schema';
 import { SiswaMetadata } from '../modules/siswa.meta.ts';
 import { initialSiswa } from './InitialData';
+import { stripNisSymbols } from '../core/utils/nisHelpers';
 
 export class SiswaService extends BaseRepository<Siswa> {
   private static instance: SiswaService;
@@ -19,6 +20,11 @@ export class SiswaService extends BaseRepository<Siswa> {
 
   public async getByNis(nis: string): Promise<Siswa | null> {
     const list = await this.getAll();
+    const targetDigits = stripNisSymbols(nis);
+    if (targetDigits) {
+      const matched = list.find((s) => stripNisSymbols(s.nis) === targetDigits);
+      if (matched) return matched;
+    }
     return list.find((s) => s.nis === nis) || null;
   }
 

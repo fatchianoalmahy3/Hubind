@@ -23,6 +23,14 @@ import { PengajuanService } from '../services/PengajuanService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { MonitoringService } from '../services/MonitoringService';
 import { Dudi, Guru, Pengajuan, PenempatanPKL, Monitoring } from '../core/types/schema';
+import {
+  formatIndonesianDate,
+  formatIndonesianDateRange,
+  getTodayWibIsoDate,
+} from '../core/utils/dateHelpers';
+import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
+import { stripStructuredTagsFromNote } from '../core/utils/monitoringHelpers';
+import { formatPhoneDisplay, getWhatsAppHref } from '../core/utils/autoIdHelpers';
 
 export type DocumentHubKey =
   | 'doc_mou'
@@ -124,11 +132,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   const [paperSize, setPaperSize] = useState<'A4' | 'F4'>('A4');
   const [nomorSurat, setNomorSurat] = useState(DOC_META[activeDocKey].defaultNoSurat);
   const [tanggalSurat, setTanggalSurat] = useState(() =>
-    new Date().toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    })
+    formatIndonesianDate(getTodayWibIsoDate())
   );
   const [kepalaSekolah, setKepalaSekolah] = useState('Kepala SMK PGRI 2 Ponorogo');
 
@@ -218,28 +222,32 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         }));
     }
     if (activeDocKey === 'doc_pengajuan') {
+      const qDigits = stripNisSymbols(q);
       return pengajuanList
         .filter(
           (p) =>
             !q ||
-            `${p.namaSiswa} ${p.nis} ${p.dudiTujuan} ${p.noPengajuan}`.toLowerCase().includes(q)
+            `${p.namaSiswa} ${p.nis} ${p.dudiTujuan} ${p.noPengajuan}`.toLowerCase().includes(q) ||
+            (qDigits && stripNisSymbols(p.nis).includes(qDigits))
         )
         .map((p) => ({
           id: p.id,
-          title: `${p.namaSiswa} (${p.nis})`,
+          title: `${p.namaSiswa} (${formatNisVisual(p.nis)})`,
           subtitle: `${p.dudiTujuan} · ${p.statusKakomli}`,
           raw: p,
         }));
     }
+    const qDigits = stripNisSymbols(q);
     return penempatanList
       .filter(
         (p) =>
           !q ||
-          `${p.namaSiswa} ${p.nis} ${p.namaDudi} ${p.guruPendamping}`.toLowerCase().includes(q)
+          `${p.namaSiswa} ${p.nis} ${p.namaDudi} ${p.guruPendamping}`.toLowerCase().includes(q) ||
+          (qDigits && stripNisSymbols(p.nis).includes(qDigits))
       )
       .map((p) => ({
         id: p.id,
-        title: `${p.namaSiswa} (${p.nis})`,
+        title: `${p.namaSiswa} (${formatNisVisual(p.nis)})`,
         subtitle: `${p.namaDudi} · Guru: ${p.guruPendamping || '-'}`,
         raw: p,
       }));
@@ -598,7 +606,20 @@ function renderDocumentBody(params: {
             <tr>
               <td className="py-1 font-bold align-top">2. PIHAK KEDUA</td>
               <td className="py-1">
-                <b>{dudi.namaDudi}</b> ({dudi.bidangKeahlian || 'Mitra Industri'}), berkedudukan di {dudi.alamat || '-'}, {dudi.wilayahKota || ''}, dalam hal ini diwakili oleh <b>{dudi.namaPic || 'Pimpinan / HRD'}</b> (Kontak: {dudi.kontakPic || '-'}).
+                <b>{dudi.namaDudi}</b> ({dudi.bidangKeahlian || 'Mitra Industri'}), berkedudukan di {dudi.alamat || '-'}, {dudi.wilayahKota || ''}, dalam hal ini diwakili oleh <b>{dudi.namaPic || 'Pimpinan / HRD'}</b> (Kontak:{' '}
+                {getWhatsAppHref(dudi.kontakPic) ? (
+                  <a
+                    href={getWhatsAppHref(dudi.kontakPic)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-emerald-700 hover:underline print:text-slate-900 print:no-underline"
+                  >
+                    {formatPhoneDisplay(dudi.kontakPic)}
+                  </a>
+                ) : (
+                  formatPhoneDisplay(dudi.kontakPic)
+                )}
+                ).
               </td>
             </tr>
           </tbody>
@@ -674,7 +695,21 @@ function renderDocumentBody(params: {
             </tr>
             <tr className="border-b border-slate-200">
               <td className="py-1.5 font-bold">Kontak WhatsApp</td>
-              <td className="py-1.5 font-mono">: {guru.kontakWA || '-'}</td>
+              <td className="py-1.5 font-mono">
+                :{' '}
+                {getWhatsAppHref(guru.kontakWA) ? (
+                  <a
+                    href={getWhatsAppHref(guru.kontakWA)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-700 hover:underline print:text-slate-900 print:no-underline"
+                  >
+                    {formatPhoneDisplay(guru.kontakWA)}
+                  </a>
+                ) : (
+                  formatPhoneDisplay(guru.kontakWA)
+                )}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -704,11 +739,11 @@ function renderDocumentBody(params: {
               assignedStudents.map((s, idx) => (
                 <tr key={`${s.id || 'stu'}_${idx}`}>
                   <td className="border border-slate-300 p-1.5 text-center">{idx + 1}</td>
-                  <td className="border border-slate-300 p-1.5 font-mono">{s.nis}</td>
+                  <td className="border border-slate-300 p-1.5 font-mono">{formatNisVisual(s.nis)}</td>
                   <td className="border border-slate-300 p-1.5 font-semibold">{s.namaSiswa}</td>
                   <td className="border border-slate-300 p-1.5">{s.namaDudi}</td>
-                  <td className="border border-slate-300 p-1.5 font-mono text-[11px]">
-                    {s.tanggalBerangkat || '-'} s/d {s.tanggalRencanaTarik || '-'}
+                  <td className="border border-slate-300 p-1.5 text-[11px]">
+                    {formatIndonesianDateRange(s.tanggalBerangkat, s.tanggalRencanaTarik)}
                   </td>
                 </tr>
               ))
@@ -754,7 +789,7 @@ function renderDocumentBody(params: {
             </tr>
             <tr className="border-b border-slate-200">
               <td className="py-1.5 font-bold">NIS</td>
-              <td className="py-1.5 font-mono">: {req.nis}</td>
+              <td className="py-1.5 font-mono">: {formatNisVisual(req.nis)}</td>
             </tr>
             <tr className="border-b border-slate-200">
               <td className="py-1.5 font-bold">Kompetensi Keahlian / Kelas</td>
@@ -839,7 +874,7 @@ function renderDocumentBody(params: {
 
         <p className="text-justify text-xs">
           Dengan hormat,<br />
-          Berdasarkan surat balasan kesediaan tempat PKL Tahun Ajaran {activeYear}, bersama ini kami menyerahkan peserta didik SMK PGRI 2 Ponorogo untuk melaksanakan Praktik Kerja Industri terhitung mulai tanggal <b>{penempatan.tanggalBerangkat || '-'}</b> s.d. <b>{penempatan.tanggalRencanaTarik || '-'}</b> di bawah pendampingan <b>{penempatan.guruPendamping || '-'}</b>:
+          Berdasarkan surat balasan kesediaan tempat PKL Tahun Ajaran {activeYear}, bersama ini kami menyerahkan peserta didik SMK PGRI 2 Ponorogo untuk melaksanakan Praktik Kerja Industri terhitung mulai tanggal <b>{formatIndonesianDate(penempatan.tanggalBerangkat)}</b> s.d. <b>{formatIndonesianDate(penempatan.tanggalRencanaTarik)}</b> di bawah pendampingan <b>{penempatan.guruPendamping || '-'}</b>:
         </p>
 
         <table className="w-full text-xs font-sans border border-slate-300 border-collapse">
@@ -855,7 +890,7 @@ function renderDocumentBody(params: {
             {(groupPeers.length > 0 ? groupPeers : [penempatan]).map((s, idx) => (
               <tr key={`${s.id || 'peer'}_${idx}`}>
                 <td className="border border-slate-300 p-1.5 text-center">{idx + 1}</td>
-                <td className="border border-slate-300 p-1.5 font-mono">{s.nis}</td>
+                <td className="border border-slate-300 p-1.5 font-mono">{formatNisVisual(s.nis)}</td>
                 <td className="border border-slate-300 p-1.5 font-semibold">{s.namaSiswa}</td>
                 <td className="border border-slate-300 p-1.5 font-mono">{s.idPenempatan}</td>
               </tr>
@@ -902,7 +937,7 @@ function renderDocumentBody(params: {
         <div className="grid grid-cols-2 gap-2 text-xs font-sans bg-slate-50 p-3 rounded-lg border border-slate-200">
           <div><b>Mitra DUDI:</b> {penempatan.namaDudi}</div>
           <div><b>Guru Pendamping:</b> {penempatan.guruPendamping || '-'}</div>
-          <div><b>Siswa Utama:</b> {penempatan.namaSiswa} ({penempatan.nis})</div>
+          <div><b>Siswa Utama:</b> {penempatan.namaSiswa} ({formatNisVisual(penempatan.nis)})</div>
           <div><b>Kelompok di Lokasi:</b> {groupPeers.length || 1} Siswa</div>
         </div>
 
@@ -922,8 +957,8 @@ function renderDocumentBody(params: {
                 <tr key={`${log.id || 'log'}_${i}`}>
                   <td className="border border-slate-300 p-2 text-center">{i + 1}</td>
                   <td className="border border-slate-300 p-2 font-semibold">{log.tahap}</td>
-                  <td className="border border-slate-300 p-2 font-mono">{log.tanggalKunjungan || '-'}</td>
-                  <td className="border border-slate-300 p-2">{log.catatanKunjungan || '-'}</td>
+                  <td className="border border-slate-300 p-2">{formatIndonesianDate(log.tanggalKunjungan)}</td>
+                  <td className="border border-slate-300 p-2">{stripStructuredTagsFromNote(log.catatanKunjungan) || '-'}</td>
                   <td className="border border-slate-300 p-2 font-semibold">{log.statusTahap}</td>
                 </tr>
               ))
@@ -991,7 +1026,7 @@ function renderDocumentBody(params: {
 
       <p className="text-justify text-xs">
         Dengan hormat,<br />
-        Sehubungan dengan berakhirnya masa pelaksanaan Praktik Kerja Industri (PKL) siswa SMK PGRI 2 Ponorogo Tahun Ajaran {activeYear} (rencana tanggal selesai: <b>{penempatan.tanggalRencanaTarik || tanggalSurat}</b>), kami menugaskan <b>{penempatan.guruPendamping || '-'}</b> untuk melakukan penarikan resmi peserta didik berikut:
+        Sehubungan dengan berakhirnya masa pelaksanaan Praktik Kerja Industri (PKL) siswa SMK PGRI 2 Ponorogo Tahun Ajaran {activeYear} (rencana tanggal selesai: <b>{formatIndonesianDate(penempatan.tanggalRencanaTarik, tanggalSurat)}</b>), kami menugaskan <b>{penempatan.guruPendamping || '-'}</b> untuk melakukan penarikan resmi peserta didik berikut:
       </p>
 
       <table className="w-full text-xs font-sans border border-slate-300 border-collapse">
@@ -1007,10 +1042,10 @@ function renderDocumentBody(params: {
           {(groupPeers.length > 0 ? groupPeers : [penempatan]).map((s, idx) => (
             <tr key={`${s.id || 'pull'}_${idx}`}>
               <td className="border border-slate-300 p-1.5 text-center">{idx + 1}</td>
-              <td className="border border-slate-300 p-1.5 font-mono">{s.nis}</td>
+              <td className="border border-slate-300 p-1.5 font-mono">{formatNisVisual(s.nis)}</td>
               <td className="border border-slate-300 p-1.5 font-semibold">{s.namaSiswa}</td>
-              <td className="border border-slate-300 p-1.5 font-mono">
-                {s.tanggalBerangkat || '-'} s/d {s.tanggalRencanaTarik || '-'}
+              <td className="border border-slate-300 p-1.5">
+                {formatIndonesianDateRange(s.tanggalBerangkat, s.tanggalRencanaTarik)}
               </td>
             </tr>
           ))}

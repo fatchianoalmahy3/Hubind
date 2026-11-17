@@ -12,6 +12,7 @@ import {
   generateNextSuratPermohonan,
   getTodayIsoDate,
 } from '../core/utils/autoIdHelpers';
+import { stripNisSymbols } from '../core/utils/nisHelpers';
 
 export class PerizinanService extends BaseRepository<PerizinanPKL> {
   private static instance: PerizinanService;
@@ -36,10 +37,11 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     options?: { silentToast?: boolean }
   ): Promise<PerizinanPKL> {
     const existingList = await this.getAll();
+    const pengajuanNis = stripNisSymbols(pengajuan.nis) || String(pengajuan.nis || '').trim();
     const alreadyExists = existingList.find(
       (p) =>
         (pengajuan.noPengajuan && p.noPengajuan === pengajuan.noPengajuan) ||
-        (p.nis === pengajuan.nis &&
+        ((stripNisSymbols(p.nis) || p.nis) === pengajuanNis &&
           p.dudiTujuan.trim().toLowerCase() === pengajuan.dudiTujuan.trim().toLowerCase())
     );
 
@@ -47,8 +49,8 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
       return alreadyExists;
     }
 
-    const siswa = pengajuan.nis
-      ? await SiswaService.getInstance().getByNis(pengajuan.nis).catch(() => null)
+    const siswa = pengajuanNis
+      ? await SiswaService.getInstance().getByNis(pengajuanNis).catch(() => null)
       : null;
 
     const noPerizinan = generateNextSequentialId('Data_Perizinan_PKL', existingList as any);
@@ -59,7 +61,7 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
         id: noPerizinan,
         noPerizinan,
         noPengajuan: pengajuan.noPengajuan || pengajuan.id,
-        nis: pengajuan.nis,
+        nis: pengajuanNis,
         namaSiswa: pengajuan.namaSiswa,
         jurusan: pengajuan.jurusan,
         kelas: pengajuan.kelas,
@@ -139,9 +141,10 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     );
 
     const existingPlottings = await SiswaPklService.getInstance().getAll();
+    const itemNis = stripNisSymbols(item.nis) || String(item.nis || '').trim();
     const existingActive = existingPlottings.find(
       (p) =>
-        p.nis === item.nis &&
+        (stripNisSymbols(p.nis) || p.nis) === itemNis &&
         p.namaDudi.trim().toLowerCase() === item.dudiTujuan.trim().toLowerCase() &&
         p.statusPenempatan !== 'Dibatalkan'
     );
@@ -169,7 +172,7 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
         {
           id: idPenempatan,
           idPenempatan,
-          nis: item.nis,
+          nis: itemNis,
           namaSiswa: item.namaSiswa,
           idDudi: matchedDudi?.id || '',
           namaDudi: item.dudiTujuan,

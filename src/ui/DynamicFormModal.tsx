@@ -9,14 +9,36 @@ import { KelasService } from '../services/KelasService';
 import { PengajuanService } from '../services/PengajuanService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
-import { getPredikatFromScore } from '../core/utils/monitoringHelpers';
 import {
+  getPredikatFromScore,
+  stripStructuredTagsFromNote,
+} from '../core/utils/monitoringHelpers';
+import { getTodayWibIsoDate, normalizeToIsoDate } from '../core/utils/dateHelpers';
+import {
+  formatNisVisual,
+  handleNisKeyDown,
+  processNisInputChange,
+  stripNisSymbols,
+} from '../core/utils/nisHelpers';
+import {
+  formatPhoneDisplay,
   generateJurusanCode,
   generateNextSequentialId,
   generateNextSuratPermohonan,
-  getTodayIsoDate,
+  getWhatsAppHref,
+  isPhoneFieldKey,
 } from '../core/utils/autoIdHelpers';
-import { X, Save, Upload, AlertCircle, Link2, Search, Lock, Check } from 'lucide-react';
+import {
+  X,
+  Save,
+  Upload,
+  AlertCircle,
+  Link2,
+  Search,
+  Lock,
+  Check,
+  MessageCircle,
+} from 'lucide-react';
 
 interface DynamicFormModalProps<T = any> {
   isOpen: boolean;
@@ -134,6 +156,20 @@ export function DynamicFormModal<T extends Record<string, any>>({
     const seed: Record<string, any> = { ...(initialData as Record<string, any>) };
     const existingList = Array.isArray(existingRows) ? existingRows : [];
 
+    formFields.forEach((f) => {
+      const k = String(f.key);
+      if (f.type === 'date' && seed[k]) {
+        const iso = normalizeToIsoDate(seed[k]);
+        if (iso) seed[k] = iso;
+      }
+    });
+    if (seed.nis !== undefined && seed.nis !== null && String(seed.nis).trim() !== '-') {
+      seed.nis = stripNisSymbols(seed.nis) || String(seed.nis).trim();
+    }
+    if (moduleId === 'monitoring' && seed.catatanKunjungan) {
+      seed.catatanKunjungan = stripStructuredTagsFromNote(seed.catatanKunjungan);
+    }
+
     if (formFieldKeys.has('id') && !String(seed.id || '').trim()) {
       seed.id = generateNextSequentialId(resolvedTableName, existingList as any);
     }
@@ -154,7 +190,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
       formFieldKeys.has('tanggalKirimSurat') &&
       !String(seed.tanggalKirimSurat || '').trim()
     ) {
-      seed.tanggalKirimSurat = getTodayIsoDate();
+      seed.tanggalKirimSurat = getTodayWibIsoDate();
     }
     if (formFieldKeys.has('idPenempatan') && !String(seed.idPenempatan || '').trim()) {
       seed.idPenempatan =
@@ -166,7 +202,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
       formFieldKeys.has('tanggalTerbit') &&
       !String(seed.tanggalTerbit || '').trim()
     ) {
-      seed.tanggalTerbit = getTodayIsoDate();
+      seed.tanggalTerbit = getTodayWibIsoDate();
     }
 
     resetForm(seed as Partial<T>);
@@ -287,11 +323,18 @@ export function DynamicFormModal<T extends Record<string, any>>({
       return score;
     };
 
+    const normalizeNisKey = (raw: unknown): string => {
+      const digits = stripNisSymbols(raw);
+      if (digits) return `nis:${digits}`;
+      const s = norm(raw);
+      return s && s !== '-' ? `nis:${s}` : '';
+    };
+
     const pengajuanByKey = new Map<string, Pengajuan>();
     for (const req of masterPengajuan) {
       if (norm(req.statusKakomli) === 'ditolak') continue;
       const candidateScore = scorePengajuan(req);
-      const nisKey = req.nis && req.nis !== '-' ? `nis:${norm(req.nis)}` : '';
+      const nisKey = normalizeNisKey(req.nis);
       const nameKey = req.namaSiswa ? `nama:${norm(req.namaSiswa)}` : '';
 
       if (nisKey) {
@@ -321,7 +364,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
     for (const p of masterPenempatan) {
       if (norm(p.statusPenempatan) === 'dibatalkan') continue;
       const candidateScore = scorePenempatan(p);
-      const nisKey = p.nis && p.nis !== '-' ? `nis:${norm(p.nis)}` : '';
+      const nisKey = normalizeNisKey(p.nis);
       const nameKey = p.namaSiswa ? `nama:${norm(p.namaSiswa)}` : '';
 
       if (nisKey) {
@@ -343,7 +386,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
       for (const row of existingRows) {
         if (initialData?.id && row?.id === initialData.id) continue;
         if (!cleanPlaceholderDash(row?.dudiTujuan)) continue;
-        const nisKey = row?.nis && row.nis !== '-' ? `nis:${norm(row.nis)}` : '';
+        const nisKey = normalizeNisKey(row?.nis);
         const nameKey = row?.namaSiswa ? `nama:${norm(row.namaSiswa)}` : '';
         if (nisKey && !perizinanByKey.has(nisKey)) perizinanByKey.set(nisKey, row);
         if (nameKey && !perizinanByKey.has(nameKey)) perizinanByKey.set(nameKey, row);
@@ -353,21 +396,21 @@ export function DynamicFormModal<T extends Record<string, any>>({
     const map = new Map<string, DirectoryEntry>();
 
     for (const s of masterSiswa) {
-      const nisNorm = s.nis && s.nis !== '-' ? norm(s.nis) : '';
+      const nisKey = normalizeNisKey(s.nis);
       const namaNorm = norm(s.nama);
-      const key = nisNorm ? `nis:${nisNorm}` : `nama:${namaNorm}`;
+      const key = nisKey || `nama:${namaNorm}`;
       const matchedReq =
-        (nisNorm && pengajuanByKey.get(`nis:${nisNorm}`)) ||
+        (nisKey && pengajuanByKey.get(nisKey)) ||
         (namaNorm ? pengajuanByKey.get(`nama:${namaNorm}`) : undefined);
       const matchedPlt =
-        (nisNorm && penempatanByKey.get(`nis:${nisNorm}`)) ||
+        (nisKey && penempatanByKey.get(nisKey)) ||
         (namaNorm ? penempatanByKey.get(`nama:${namaNorm}`) : undefined);
       const matchedIzn =
-        (nisNorm && perizinanByKey.get(`nis:${nisNorm}`)) ||
+        (nisKey && perizinanByKey.get(nisKey)) ||
         (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined);
 
       map.set(key, {
-        nis: String(s.nis || '').trim(),
+        nis: stripNisSymbols(s.nis) || String(s.nis || '').trim(),
         nama: String(s.nama || '').trim(),
         jurusan: String(s.jurusan || matchedReq?.jurusan || '').trim(),
         kelas: String(s.kelas || matchedReq?.kelas || '').trim(),
@@ -386,9 +429,9 @@ export function DynamicFormModal<T extends Record<string, any>>({
 
     for (const req of masterPengajuan) {
       if (norm(req.statusKakomli) === 'ditolak') continue;
-      const nisNorm = req.nis && req.nis !== '-' ? norm(req.nis) : '';
+      const nisKey = normalizeNisKey(req.nis);
       const namaNorm = norm(req.namaSiswa);
-      const key = nisNorm ? `nis:${nisNorm}` : `nama:${namaNorm}`;
+      const key = nisKey || `nama:${namaNorm}`;
       const existing =
         map.get(key) ||
         (namaNorm
@@ -400,13 +443,13 @@ export function DynamicFormModal<T extends Record<string, any>>({
       }
       if (req.namaSiswa || req.nis) {
         const matchedPlt =
-          (nisNorm && penempatanByKey.get(`nis:${nisNorm}`)) ||
+          (nisKey && penempatanByKey.get(nisKey)) ||
           (namaNorm ? penempatanByKey.get(`nama:${namaNorm}`) : undefined);
         const matchedIzn =
-          (nisNorm && perizinanByKey.get(`nis:${nisNorm}`)) ||
+          (nisKey && perizinanByKey.get(nisKey)) ||
           (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined);
         map.set(key, {
-          nis: String(req.nis || '').trim(),
+          nis: stripNisSymbols(req.nis) || String(req.nis || '').trim(),
           nama: String(req.namaSiswa || '').trim(),
           jurusan: String(req.jurusan || '').trim(),
           kelas: String(req.kelas || '').trim(),
@@ -423,9 +466,9 @@ export function DynamicFormModal<T extends Record<string, any>>({
 
     for (const plt of masterPenempatan) {
       if (norm(plt.statusPenempatan) === 'dibatalkan') continue;
-      const nisNorm = plt.nis && plt.nis !== '-' ? norm(plt.nis) : '';
+      const nisKey = normalizeNisKey(plt.nis);
       const namaNorm = norm(plt.namaSiswa);
-      const key = nisNorm ? `nis:${nisNorm}` : `nama:${namaNorm}`;
+      const key = nisKey || `nama:${namaNorm}`;
       const existing =
         map.get(key) ||
         (namaNorm
@@ -437,7 +480,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
       }
       if (plt.namaSiswa || plt.nis) {
         map.set(key, {
-          nis: String(plt.nis || '').trim(),
+          nis: stripNisSymbols(plt.nis) || String(plt.nis || '').trim(),
           nama: String(plt.namaSiswa || '').trim(),
           jurusan: '',
           kelas: '',
@@ -446,7 +489,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
           noWa: '',
           penempatan: penempatanByKey.get(key) || plt,
           existingPerizinan:
-            (nisNorm && perizinanByKey.get(`nis:${nisNorm}`)) ||
+            (nisKey && perizinanByKey.get(nisKey)) ||
             (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined),
         });
       }
@@ -498,11 +541,16 @@ export function DynamicFormModal<T extends Record<string, any>>({
     if (!isOpen) return;
 
     const currentNis = String(values.nis || '').trim();
+    const currentNisDigits = stripNisSymbols(currentNis);
     const currentNama = norm(values.namaSiswa);
 
     const matched =
       (currentNis && currentNis !== '-'
-        ? studentDirectory.find((s) => norm(s.nis) === norm(currentNis))
+        ? studentDirectory.find(
+            (s) =>
+              (currentNisDigits && stripNisSymbols(s.nis) === currentNisDigits) ||
+              norm(s.nis) === norm(currentNis)
+          )
         : undefined) ||
       (currentNama ? studentDirectory.find((s) => norm(s.nama) === currentNama) : undefined);
 
@@ -510,7 +558,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
 
     if (matched) {
       if (formFieldKeys.has('nis') && !currentNis && matched.nis) {
-        patch.nis = matched.nis;
+        patch.nis = stripNisSymbols(matched.nis) || matched.nis;
       }
       if (formFieldKeys.has('namaSiswa') && !currentNama && matched.nama) {
         patch.namaSiswa = matched.nama;
@@ -597,7 +645,9 @@ export function DynamicFormModal<T extends Record<string, any>>({
   const applyStudentSelection = (matched: (typeof studentDirectory)[number], triggerPatch: Record<string, any> = {}) => {
     dudiManuallyEditedRef.current = false;
     const patch: Record<string, any> = { ...triggerPatch };
-    if (formFieldKeys.has('nis') && matched.nis) patch.nis = matched.nis;
+    if (formFieldKeys.has('nis') && matched.nis) {
+      patch.nis = stripNisSymbols(matched.nis) || matched.nis;
+    }
     if (formFieldKeys.has('namaSiswa') && matched.nama) patch.namaSiswa = matched.nama;
     if (formFieldKeys.has('jurusan') && matched.jurusan) patch.jurusan = matched.jurusan;
     if (formFieldKeys.has('kelas') && matched.kelas) patch.kelas = matched.kelas;
@@ -670,7 +720,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
       formFieldKeys.has('tanggalKirimSurat') &&
       !String(values.tanggalKirimSurat || '').trim()
     ) {
-      patch.tanggalKirimSurat = getTodayIsoDate();
+      patch.tanggalKirimSurat = getTodayWibIsoDate();
     }
 
     setMultipleValues(patch);
@@ -704,9 +754,11 @@ export function DynamicFormModal<T extends Record<string, any>>({
     }
 
     if (field.relationSource === 'siswa') {
+      const selectedDigits = stripNisSymbols(selectedValue);
       const matched = studentDirectory.find((s) =>
         key === 'nis'
-          ? String(s.nis).trim() === selectedValue.trim()
+          ? (selectedDigits && stripNisSymbols(s.nis) === selectedDigits) ||
+            String(s.nis).trim() === selectedValue.trim()
           : norm(s.nama) === norm(selectedValue)
       );
       if (matched) {
@@ -781,8 +833,14 @@ export function DynamicFormModal<T extends Record<string, any>>({
       case 'siswa':
         return studentDirectory.map((s) =>
           key === 'nis'
-            ? { label: `${s.nis} — ${s.nama} (${s.kelas || '-'})`, value: s.nis }
-            : { label: `${s.nama} (${s.nis || '-'} · ${s.kelas || '-'})`, value: s.nama }
+            ? {
+                label: `${formatNisVisual(s.nis)} — ${s.nama} (${s.kelas || '-'})`,
+                value: stripNisSymbols(s.nis) || s.nis,
+              }
+            : {
+                label: `${s.nama} (${formatNisVisual(s.nis)} · ${s.kelas || '-'})`,
+                value: s.nama,
+              }
         );
       default:
         return (field.options || []).map((o) => ({
@@ -800,19 +858,35 @@ export function DynamicFormModal<T extends Record<string, any>>({
     const query = norm(val);
 
     if (field.relationSource === 'siswa') {
+      const isNisField = key === 'nis';
+      const nisDigits = isNisField ? stripNisSymbols(val) : '';
+      const displayVal = isNisField ? formatNisVisual(nisDigits, '') : val;
+      const queryDigits = stripNisSymbols(val);
+
       const filtered = studentDirectory
         .filter((s) => {
-          if (!query) return true;
+          if (!query && !queryDigits) return true;
           return (
             norm(s.nama).includes(query) ||
             norm(s.nis).includes(query) ||
+            (queryDigits && stripNisSymbols(s.nis).includes(queryDigits)) ||
             norm(s.kelas).includes(query) ||
             norm(s.jurusan).includes(query)
           );
         })
         .sort((a, b) => {
-          const aStarts = norm(a.nama).startsWith(query) || norm(a.nis).startsWith(query) ? 0 : 1;
-          const bStarts = norm(b.nama).startsWith(query) || norm(b.nis).startsWith(query) ? 0 : 1;
+          const aStarts =
+            norm(a.nama).startsWith(query) ||
+            (queryDigits && stripNisSymbols(a.nis).startsWith(queryDigits)) ||
+            norm(a.nis).startsWith(query)
+              ? 0
+              : 1;
+          const bStarts =
+            norm(b.nama).startsWith(query) ||
+            (queryDigits && stripNisSymbols(b.nis).startsWith(queryDigits)) ||
+            norm(b.nis).startsWith(query)
+              ? 0
+              : 1;
           if (aStarts !== bStarts) return aStarts - bStarts;
           return a.nama.localeCompare(b.nama);
         })
@@ -824,11 +898,52 @@ export function DynamicFormModal<T extends Record<string, any>>({
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              value={val}
+              inputMode={isNisField ? 'numeric' : undefined}
+              value={displayVal}
               autoComplete="off"
               onFocus={() => setOpenAutocompleteKey(key)}
               onBlur={() => setTimeout(() => setOpenAutocompleteKey((k) => (k === key ? null : k)), 140)}
+              onKeyDown={(e) => {
+                if (!isNisField) return;
+                handleNisKeyDown(e, nisDigits, (nextDigits, nextPos) => {
+                  const inputEl = e.currentTarget;
+                  setValue(key, nextDigits);
+                  setOpenAutocompleteKey(key);
+                  if (nextDigits.length >= 4) {
+                    const exactMatch = studentDirectory.find(
+                      (s) => stripNisSymbols(s.nis) === nextDigits
+                    );
+                    if (exactMatch) {
+                      applyStudentSelection(exactMatch, { [key]: nextDigits });
+                    }
+                  }
+                  if (nextPos !== undefined) {
+                    requestAnimationFrame(() => {
+                      try {
+                        inputEl.setSelectionRange(nextPos, nextPos);
+                      } catch {
+                        // ignore
+                      }
+                    });
+                  }
+                });
+              }}
               onChange={(e) => {
+                if (isNisField) {
+                  processNisInputChange(e, (nextDigits) => {
+                    setValue(key, nextDigits);
+                    setOpenAutocompleteKey(key);
+                    if (nextDigits.length >= 4) {
+                      const exactMatch = studentDirectory.find(
+                        (s) => stripNisSymbols(s.nis) === nextDigits
+                      );
+                      if (exactMatch) {
+                        applyStudentSelection(exactMatch, { [key]: nextDigits });
+                      }
+                    }
+                  });
+                  return;
+                }
                 const next = e.target.value;
                 setValue(key, next);
                 setOpenAutocompleteKey(key);
@@ -845,13 +960,15 @@ export function DynamicFormModal<T extends Record<string, any>>({
               placeholder={
                 loadingRelations
                   ? `Memuat daftar siswa...`
+                  : isNisField
+                  ? 'Ketik angka NIS (cth: 23241/001/001)...'
                   : field.placeholder || `Ketik nama atau NIS siswa...`
               }
               className={`w-full h-10 pl-8 pr-8 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
-                err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
-              }`}
+                isNisField ? 'font-mono tabular-nums' : ''
+              } ${err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'}`}
             />
-            {val && (
+            {displayVal && (
               <button
                 type="button"
                 onMouseDown={(e) => {
@@ -875,12 +992,12 @@ export function DynamicFormModal<T extends Record<string, any>>({
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="px-3 py-2.5 text-xs text-slate-500">
-                  Tidak ada siswa cocok dengan &quot;{val}&quot;. Anda tetap dapat menyimpan input manual ini.
+                  Tidak ada siswa cocok dengan &quot;{displayVal}&quot;. Anda tetap dapat menyimpan input manual ini.
                 </div>
               ) : (
                 filtered.map((stu, idx) => {
                   const isCurrent =
-                    (key === 'nis' && stu.nis === val.trim()) ||
+                    (key === 'nis' && nisDigits !== '' && stripNisSymbols(stu.nis) === nisDigits) ||
                     (key !== 'nis' && norm(stu.nama) === query);
                   return (
                     <button
@@ -899,7 +1016,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
                         <div className="text-xs font-semibold text-slate-900 truncate">
                           {stu.nama}{' '}
                           <span className="font-mono text-[11px] font-normal text-slate-500">
-                            ({stu.nis || 'Tanpa NIS'})
+                            ({stu.nis ? formatNisVisual(stu.nis) : 'Tanpa NIS'})
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
@@ -1290,7 +1407,70 @@ export function DynamicFormModal<T extends Record<string, any>>({
         );
 
       case 'text':
-      default:
+      default: {
+        if (key === 'nis') {
+          const nisDigits = stripNisSymbols(val);
+          return (
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={formatNisVisual(nisDigits, '')}
+              onKeyDown={(e) =>
+                handleNisKeyDown(e, nisDigits, (nextDigits, nextPos) => {
+                  const inputEl = e.currentTarget;
+                  handleFieldChange(key, nextDigits);
+                  if (nextPos !== undefined) {
+                    requestAnimationFrame(() => {
+                      try {
+                        inputEl.setSelectionRange(nextPos, nextPos);
+                      } catch {
+                        // ignore
+                      }
+                    });
+                  }
+                })
+              }
+              onChange={(e) =>
+                processNisInputChange(e, (nextDigits) => handleFieldChange(key, nextDigits))
+              }
+              placeholder={field.placeholder || 'Contoh: 23241/001/001'}
+              className={`w-full h-10 px-3 bg-white border rounded-lg text-sm text-slate-800 font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
+                err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
+              }`}
+            />
+          );
+        }
+        if (isPhoneFieldKey(key)) {
+          const waHref = getWhatsAppHref(val);
+          const displayPhone = formatPhoneDisplay(val, '');
+          return (
+            <div className="flex items-center gap-2">
+              <input
+                type="tel"
+                inputMode="tel"
+                value={val ?? ''}
+                onChange={(e) => handleFieldChange(key, e.target.value)}
+                placeholder={field.placeholder || `Masukkan ${field.label}...`}
+                className={`flex-1 min-w-0 h-10 px-3 bg-white border rounded-lg text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
+                  err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
+                }`}
+              />
+              {waHref && (
+                <a
+                  href={waHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Buka chat WhatsApp ke ${displayPhone}`}
+                  className="h-10 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-semibold text-xs inline-flex items-center gap-1.5 shrink-0 transition-colors"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Chat WA</span>
+                </a>
+              )}
+            </div>
+          );
+        }
         return (
           <input
             type="text"
@@ -1302,6 +1482,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
             }`}
           />
         );
+      }
     }
   };
 

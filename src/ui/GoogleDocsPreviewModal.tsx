@@ -18,6 +18,8 @@ import {
   LogOut,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
+import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
+import { formatNisVisual } from '../core/utils/nisHelpers';
 
 export type DocType =
   | 'pengajuan'
@@ -59,13 +61,9 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
   const [customNomorSurat, setCustomNomorSurat] = useState(
     `421.5 / ___ / Hubin / SMK.PGRI2 / ${new Date().getFullYear()}`
   );
-  const [documentDate, setDocumentDate] = useState(() => {
-    return new Date().toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
-  });
+  const [documentDate, setDocumentDate] = useState(() =>
+    formatIndonesianDate(getTodayWibIsoDate())
+  );
   const [isOverprintOnly, setIsOverprintOnly] = useState(false);
 
   if (!isOpen) return null;
@@ -556,7 +554,7 @@ function renderDocContent(
 ) {
   const { activeYear, documentDate, customNomorSurat, includeQrCode, isOverprintOnly } = options;
   const studentName = student.nama || student.namaSiswa || student.nama_siswa || '-';
-  const studentNis = student.nis || student.NIS || '-';
+  const studentNis = formatNisVisual(student.nis || student.NIS || '');
   const studentNik = student.nik || student.NIK || '-';
   const studentJurusan = student.jurusan || student.Jurusan || '-';
   const studentKelas = student.kelas || student.Kelas || '-';
@@ -854,8 +852,14 @@ function renderDocContent(
 
   if (docType === 'pengantaran') {
     const guruName = student.guruPendamping || student.Guru_Pendamping || '-';
-    const tglBerangkat = student.tanggalBerangkat || student.Tanggal_Berangkat || documentDate;
-    const tglTarik = student.tanggalRencanaTarik || student.Tanggal_Rencana_Tarik || '-';
+    const tglBerangkat = formatIndonesianDate(
+      student.tanggalBerangkat || student.Tanggal_Berangkat,
+      documentDate
+    );
+    const tglTarik = formatIndonesianDate(
+      student.tanggalRencanaTarik || student.Tanggal_Rencana_Tarik,
+      '-'
+    );
     return (
       <div className="space-y-4">
         <div className="flex justify-between font-sans text-xs">
@@ -920,7 +924,10 @@ function renderDocContent(
 
   if (docType === 'penarikan') {
     const guruName = student.guruPendamping || student.Guru_Pendamping || '-';
-    const tglTarik = student.tanggalRencanaTarik || student.Tanggal_Rencana_Tarik || documentDate;
+    const tglTarik = formatIndonesianDate(
+      student.tanggalRencanaTarik || student.Tanggal_Rencana_Tarik,
+      documentDate
+    );
     return (
       <div className="space-y-4">
         <div className="flex justify-between font-sans text-xs">

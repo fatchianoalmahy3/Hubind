@@ -232,13 +232,20 @@ function readSheetRowsFast(ss, sheetName, ssId, ver, bypassCache) {
   }
 
   const headers = data[0];
+  const tz = ss.getSpreadsheetTimeZone() || 'Asia/Jakarta';
   const rows = [];
   for (let i = 1; i < data.length; i++) {
     const row = {};
     let hasValue = false;
     for (let j = 0; j < headers.length; j++) {
-      row[headers[j]] = data[i][j];
-      if (String(data[i][j] || '').trim() !== '') hasValue = true;
+      let cellVal = data[i][j];
+      if (Object.prototype.toString.call(cellVal) === '[object Date]' && !isNaN(cellVal.getTime())) {
+        const hNorm = normalizeKey(headers[j]);
+        const fmt = (hNorm === 'timestamp' || hNorm === 'updatedat') ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd';
+        cellVal = Utilities.formatDate(cellVal, tz, fmt);
+      }
+      row[headers[j]] = cellVal;
+      if (String(cellVal === null || cellVal === undefined ? '' : cellVal).trim() !== '') hasValue = true;
     }
     if (hasValue) {
       row._sheetRowNumber = i + 1;
@@ -457,17 +464,24 @@ function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicit
   const userColIdx = findColumnIndex(headers, ['username']);
   const namaColIdx = findColumnIndex(headers, ['namasiswa', 'namalengkap', 'namadudi']);
 
+  const stripNis = function(v) {
+    return String(v || '').replace(/\\D/g, '');
+  };
+
   // 1. If explicit physical row number hint exists, verify it first
   if (rowNumHint >= 2 && rowNumHint <= values.length) {
     const idx = rowNumHint - 1;
     const cellId = String(values[idx][idColIdx] || '').trim();
     const nisWanted = String((rowObj && (rowObj.NIS || rowObj.nis)) || '').trim();
+    const nisWantedDigits = stripNis(nisWanted);
     const cellNis = nisColIdx !== -1 ? String(values[idx][nisColIdx] || '').trim() : '';
+    const cellNisDigits = stripNis(cellNis);
+    const nisMatches = (nisWanted && cellNis === nisWanted) || (nisWantedDigits && cellNisDigits === nisWantedDigits);
 
     if (
       (cleanId && cellId === cleanId) ||
-      (!cellId && (!nisWanted || !cellNis || cellNis === nisWanted)) ||
-      (nisWanted && cellNis === nisWanted)
+      (!cellId && (!nisWanted || !cellNis || nisMatches)) ||
+      nisMatches
     ) {
       return idx;
     }
@@ -487,9 +501,11 @@ function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicit
   // 3. Fallback secondary unique key match (NIS / Username / Nama) when ID_Penempatan/ID is blank or missing
   const nisWanted = String((rowObj && (rowObj.NIS || rowObj.nis)) || '').trim() ||
     ((sheetName === 'Nilai_Dan_Sertifikat' || sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') ? cleanId : '');
+  const nisWantedDigits = stripNis(nisWanted);
   if (nisWanted && nisColIdx !== -1) {
     for (let r2 = 1; r2 < values.length; r2++) {
-      if (String(values[r2][nisColIdx] || '').trim() === nisWanted) {
+      const rowNisStr = String(values[r2][nisColIdx] || '').trim();
+      if (rowNisStr === nisWanted || (nisWantedDigits && stripNis(rowNisStr) === nisWantedDigits)) {
         return r2;
       }
     }

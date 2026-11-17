@@ -6,6 +6,8 @@ import { KelasService } from '../services/KelasService';
 import { SiswaService } from '../services/SiswaService';
 import { PengajuanService } from '../services/PengajuanService';
 import { ToastManager } from '../core/ToastManager';
+import { getTodayWibDateTime } from '../core/utils/dateHelpers';
+import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 
 interface StudentGFormSimulatorModalProps {
   isOpen: boolean;
@@ -99,12 +101,13 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
         matchedStudent.jurusan.substring(0, 3).toUpperCase() ||
         'SMK';
       const newNoPengajuan = `REQ-${new Date().getFullYear()}-${kodeJurusan}-${Math.floor(100 + Math.random() * 900)}`;
-      const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const timestamp = getTodayWibDateTime();
+      const cleanNis = stripNisSymbols(matchedStudent.nis) || matchedStudent.nis;
 
       const created = await pengajuanService.create({
         noPengajuan: newNoPengajuan,
         timestamp,
-        nis: matchedStudent.nis,
+        nis: cleanNis,
         namaSiswa: matchedStudent.nama,
         jurusan: selectedJurusan,
         kelas: selectedKelas,
@@ -117,7 +120,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
         statusHubin: 'Menunggu ACC Kakomli',
       });
 
-      await siswaService.updateStatusPKL(matchedStudent.nis, 'Diajukan');
+      await siswaService.updateStatusPKL(cleanNis, 'Diajukan');
 
       setSubmittedData(created);
       setStep(5);
@@ -344,7 +347,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                       <option value="">-- Pilih Nama Siswa --</option>
                       {availableStudents.map((s, idx) => (
                         <option key={`${s.id || s.nis || 'sis'}_${idx}`} value={s.nama}>
-                          {s.nama} (NIS: {s.nis})
+                          {s.nama} (NIS: {formatNisVisual(s.nis)})
                         </option>
                       ))}
                     </select>
@@ -366,7 +369,7 @@ export const StudentGFormSimulatorModal: React.FC<StudentGFormSimulatorModalProp
                         <span>Data Otomatis Terkunci (Bebas Salah Ketik):</span>
                       </div>
                       <div className="text-purple-800">
-                        NIS: <b>{matchedStudent.nis}</b> | NIK: <b>{matchedStudent.nik || '-'}</b>
+                        NIS: <b>{formatNisVisual(matchedStudent.nis)}</b> | NIK: <b>{matchedStudent.nik || '-'}</b>
                       </div>
                       <div className="text-purple-800">
                         Jenis Kelamin: <b>{matchedStudent.jenisKelamin || '-'}</b>

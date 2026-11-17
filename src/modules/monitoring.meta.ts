@@ -1,5 +1,6 @@
 import { ModuleMetadata } from '../core/types/metadata';
 import { Monitoring } from '../core/types/schema';
+import { stripStructuredTagsFromNote } from '../core/utils/monitoringHelpers';
 
 export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
   id: 'monitoring',
@@ -205,12 +206,16 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'catatanKunjungan',
-      label: 'Catatan Supervisi / Absensi / Nilai',
+      label: 'Catatan Supervisi',
       type: 'textarea',
       isTableColumn: true,
       isFormInput: true,
       isSearchable: true,
-      placeholder: 'Catatan kondisi siswa, absensi S/I/A, perkembangan PKL...',
+      placeholder: 'Catatan kondisi siswa, perkembangan PKL, dan tindak lanjut...',
+      renderCell: (val, row) =>
+        stripStructuredTagsFromNote(
+          val ?? (row as any)?.catatanKunjungan ?? (row as any)?.Catatan_Kunjungan ?? ''
+        ) || '-',
     },
     {
       key: 'nilaiPklMuncul',

@@ -19,6 +19,7 @@ import {
   Award,
   Pencil,
   Loader2,
+  MessageCircle,
 } from 'lucide-react';
 import { ToastManager } from '../core/ToastManager';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -28,6 +29,9 @@ import {
   getPredikatFromScore,
   getStageValueByNumber,
 } from '../core/utils/monitoringHelpers';
+import { getTodayWibIsoDate } from '../core/utils/dateHelpers';
+import { formatNisVisual } from '../core/utils/nisHelpers';
+import { formatPhoneDisplay, getWhatsAppHref } from '../core/utils/autoIdHelpers';
 
 interface TeacherMonitoringPortalProps {
   isOpen: boolean;
@@ -473,7 +477,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         guru_id: selectedPetugasId || '',
         guru_pembimbing: selectedPetugasNama,
         tahap_monitoring: activeStudent.submittedGradeSummary?.tahapDiinput || stageLabel,
-        tanggal: new Date().toISOString().split('T')[0],
+        tanggal: getTodayWibIsoDate(),
         nilai_k3lh: activeGradeEditDraft.nilaiK3lh,
         nilai_softskill: activeGradeEditDraft.nilaiSoftskill,
         nilai_kompetensi_teknis: activeGradeEditDraft.nilaiKompetensiTeknis,
@@ -550,7 +554,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         guru_id: selectedPetugasId || '',
         guru_pembimbing: selectedPetugasNama,
         tahap_monitoring: stageLabel,
-        tanggal: new Date().toISOString().split('T')[0],
+        tanggal: getTodayWibIsoDate(),
         sakit: activeDraft.sakit,
         izin: activeDraft.izin,
         alpha: activeDraft.alpha,
@@ -974,10 +978,25 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                         </div>
                       </div>
 
-                      <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-500 truncate">
-                          PIC: <b className="text-slate-700">{dudi.pic}</b>
-                        </span>
+                      <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[11px] text-slate-500 truncate block">
+                            PIC: <b className="text-slate-700">{dudi.pic}</b>
+                          </span>
+                          {getWhatsAppHref(dudi.kontak) && (
+                            <a
+                              href={getWhatsAppHref(dudi.kontak)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              title={`Chat WhatsApp ke ${formatPhoneDisplay(dudi.kontak)}`}
+                              className="inline-flex items-center gap-1 mt-0.5 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 hover:underline underline-offset-2"
+                            >
+                              <MessageCircle className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>{formatPhoneDisplay(dudi.kontak)}</span>
+                            </a>
+                          )}
+                        </div>
                         <button
                           type="button"
                           className="min-h-[38px] px-3 py-1.5 rounded-lg bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition-all shrink-0"
@@ -1012,7 +1031,21 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                   </div>
                 </div>
 
-                <div className="text-[11px] text-slate-600 flex items-center gap-2 shrink-0">
+                <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-2 shrink-0">
+                  {getWhatsAppHref(selectedDudi.kontak) && (
+                    <>
+                      <a
+                        href={getWhatsAppHref(selectedDudi.kontak)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono font-semibold text-emerald-700 hover:text-emerald-900 hover:underline underline-offset-2"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{formatPhoneDisplay(selectedDudi.kontak)}</span>
+                      </a>
+                      <span aria-hidden="true">·</span>
+                    </>
+                  )}
                   <span>Petugas: <b>{selectedPetugasNama}</b></span>
                   <span aria-hidden="true">·</span>
                   <span className="text-blue-700 font-bold">
@@ -1087,7 +1120,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500">
-                              <span>NIS: {student.nis}</span>
+                              <span>NIS: {formatNisVisual(student.nis)}</span>
                               <span className="font-semibold text-slate-600">
                                 Tahap {completedCount}/8{hasGrade ? ' · Nilai ✓' : ''}
                               </span>
@@ -1111,7 +1144,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                             Supervisi: {activeStudent.nama}
                           </h4>
                           <p className="text-xs text-slate-500">
-                            NIS: {activeStudent.nis} · Kelas: {activeStudent.kelas} · Jurusan: {activeStudent.jurusan}
+                            NIS: {formatNisVisual(activeStudent.nis)} · Kelas: {activeStudent.kelas} · Jurusan: {activeStudent.jurusan}
                           </p>
                         </div>
                         <div className="text-xs font-semibold text-blue-700">

@@ -1,4 +1,6 @@
 import { HUBIN_SHEETS_BLUEPRINT } from './types/sheetBlueprint';
+import { isIsoTimestampString, normalizeToIsoDate } from './utils/dateHelpers';
+import { stripNisSymbols } from './utils/nisHelpers';
 
 /**
  * Pure schema header & row normalizer for Google Spreadsheet rows
@@ -159,6 +161,20 @@ export class GoogleDriveSheetService {
     'blangkosertifikatbawa',
   ]);
 
+  private static readonly DATE_HEADER_KEYS = new Set<string>([
+    'tglberangkat',
+    'tanggalberangkat',
+    'tanggalrencanatarik',
+    'tglkirimsurat',
+    'tanggalkirimsurat',
+    'tglbalasan',
+    'tanggalbalasan',
+    'tanggalkunjungan',
+    'tglkunjungan',
+    'tglterbit',
+    'tanggalterbit',
+  ]);
+
   private static normalizeKey(key: string): string {
     return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   }
@@ -298,7 +314,14 @@ export class GoogleDriveSheetService {
       }
 
       if (chosenVal !== undefined) {
-        const formatted = this.formatCellValue(chosenVal);
+        let formatted = this.formatCellValue(chosenVal);
+        if (GoogleDriveSheetService.DATE_HEADER_KEYS.has(cleanHeader) && formatted !== '') {
+          const iso = normalizeToIsoDate(formatted);
+          if (iso) formatted = iso;
+        } else if (cleanHeader === 'nis' && formatted !== '') {
+          const digits = stripNisSymbols(formatted);
+          if (digits) formatted = digits;
+        }
         out[header] = formatted;
         // Also keep legacy/variant header aliases in sync so older/custom sheet headers receive updates too
         for (const alias of aliases) {
@@ -401,10 +424,22 @@ export class GoogleDriveSheetService {
 
       const cleanHeader = GoogleDriveSheetService.normalizeKey(header);
       const isBooleanHeader = GoogleDriveSheetService.BOOLEAN_HEADER_KEYS.has(cleanHeader);
+      const isDateHeader = GoogleDriveSheetService.DATE_HEADER_KEYS.has(cleanHeader);
 
-      let parsedVal: any = cellVal;
-      if (typeof cellVal === 'string') {
-        const trimmed = cellVal.trim();
+      let normalizedRawCell: any = cellVal;
+      if (isDateHeader || (cleanHeader !== 'timestamp' && isIsoTimestampString(cellVal))) {
+        const iso = normalizeToIsoDate(cellVal);
+        if (iso) normalizedRawCell = iso;
+      } else if (cleanHeader === 'nis' && typeof cellVal === 'string') {
+        const digits = stripNisSymbols(cellVal);
+        if (digits) normalizedRawCell = digits;
+      } else if (cleanHeader === 'nis' && typeof cellVal === 'number' && Number.isFinite(cellVal)) {
+        normalizedRawCell = String(Math.trunc(cellVal));
+      }
+
+      let parsedVal: any = normalizedRawCell;
+      if (typeof normalizedRawCell === 'string') {
+        const trimmed = normalizedRawCell.trim();
         const lower = trimmed.toLowerCase();
         if (isBooleanHeader && (lower === 'ya' || lower === 'true' || lower === 'sudah')) {
           parsedVal = true;
@@ -430,7 +465,7 @@ export class GoogleDriveSheetService {
       if (record[primaryKey] === undefined || record[primaryKey] === '' || parsedVal !== '') {
         record[primaryKey] = parsedVal;
       }
-      record[header] = cellVal;
+      record[header] = normalizedRawCell;
     });
 
     const sheetRowNum = rowIndex + 2;

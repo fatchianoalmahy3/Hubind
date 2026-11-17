@@ -18,6 +18,12 @@ import {
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { PublicPortalClient } from '../core/PublicPortalClient';
 import { ToastManager } from '../core/ToastManager';
+import {
+  formatNisVisual,
+  handleNisKeyDown,
+  processNisInputChange,
+  stripNisSymbols,
+} from '../core/utils/nisHelpers';
 
 interface StudentApplicationWizardProps {
   isOpen: boolean;
@@ -127,9 +133,9 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
   };
 
   const handleLookupNis = async (nisToSearch?: string) => {
-    const nis = (nisToSearch || nisInput).trim();
+    const nis = stripNisSymbols(nisToSearch ?? nisInput);
     if (!nis) {
-      setSearchError('Silakan masukkan NIS Anda terlebih dahulu.');
+      setSearchError('Silakan masukkan NIS (angka saja) terlebih dahulu.');
       return;
     }
 
@@ -156,7 +162,8 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
         setTeleponOrtu(json.student.telepon_wali || '');
       } else {
         setSearchError(
-          json.message || `Siswa dengan NIS [${nis}] tidak ditemukan di Database Sekolah.`
+          json.message ||
+            `Siswa dengan NIS [${formatNisVisual(nis)}] tidak ditemukan di Database Sekolah.`
         );
       }
     } catch (e: any) {
@@ -286,7 +293,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
     setSubmitting(true);
     try {
       const payload = {
-        nis: studentData.nis,
+        nis: stripNisSymbols(studentData.nis) || studentData.nis,
         nama: studentData.nama,
         kelas: studentData.kelas,
         jurusan: studentData.jurusan,
@@ -462,7 +469,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                 <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Nama Siswa</span>
                   <span className="font-bold text-slate-800 text-right">
-                    {submissionResult.nama_siswa} ({submissionResult.nis})
+                    {submissionResult.nama_siswa} ({formatNisVisual(submissionResult.nis)})
                   </span>
                 </div>
                 <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
@@ -549,16 +556,38 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          value={nisInput}
-                          onChange={(e) => setNisInput(e.target.value)}
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={formatNisVisual(nisInput, '')}
+                          onChange={(e) => {
+                            processNisInputChange(e, (nextDigits) => {
+                              setNisInput(nextDigits);
+                              setSearchError('');
+                            });
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
                               handleLookupNis();
+                              return;
                             }
+                            handleNisKeyDown(e, nisInput, (nextDigits, nextPos) => {
+                              const inputEl = e.currentTarget;
+                              setNisInput(nextDigits);
+                              setSearchError('');
+                              if (nextPos !== undefined) {
+                                requestAnimationFrame(() => {
+                                  try {
+                                    inputEl.setSelectionRange(nextPos, nextPos);
+                                  } catch {
+                                    // ignore
+                                  }
+                                });
+                              }
+                            });
                           }}
-                          placeholder="Masukkan NIS Anda sesuai data sekolah..."
-                          className="w-full min-h-[44px] pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white font-mono"
+                          placeholder="Masukkan angka NIS Anda (cth: 23241/001/001)..."
+                          className="w-full min-h-[44px] pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white font-mono tabular-nums"
                         />
                       </div>
                       <button
@@ -628,7 +657,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                           <span>Data Siswa Terverifikasi di Server</span>
                         </div>
                         <span className="text-xs font-mono font-semibold text-slate-500">
-                          NIS: {studentData.nis}
+                          NIS: {formatNisVisual(studentData.nis)}
                         </span>
                       </div>
 
@@ -709,7 +738,9 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                   <div className="p-3.5 bg-blue-50/80 border border-blue-200/80 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900">
                     <div>
                       <span className="font-bold">{studentData.nama}</span>
-                      <span className="text-blue-700"> · NIS {studentData.nis} · {studentData.kelas}</span>
+                      <span className="text-blue-700">
+                        {' '}· NIS {formatNisVisual(studentData.nis)} · {studentData.kelas}
+                      </span>
                     </div>
                     <button
                       type="button"

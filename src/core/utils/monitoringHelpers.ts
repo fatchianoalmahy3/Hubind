@@ -1,4 +1,6 @@
 import { MONITORING_STAGES } from '../types/schema';
+import { normalizeToIsoDate } from './dateHelpers';
+import { stripNisSymbols } from './nisHelpers';
 
 export interface ParsedGradeSummary {
   monitoringId?: string;
@@ -165,7 +167,7 @@ export function parseGradesFromMonitoringRow(row: Record<string, any>): ParsedGr
       alurBisnis: bisnisCol,
       rataRata: avgCol ?? calculateEqualWeightedAverage(k3lhCol, softCol, tekCol, bisnisCol),
       tahapDiinput: String(row.Tahap ?? row.tahap ?? ''),
-      tanggal: String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
+      tanggal: normalizeToIsoDate(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? '') || String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
     };
   }
 
@@ -182,7 +184,7 @@ export function parseGradesFromMonitoringRow(row: Record<string, any>): ParsedGr
       alurBisnis: Number(newFmt[4]),
       rataRata: Number(newFmt[5]),
       tahapDiinput: String(row.Tahap ?? row.tahap ?? ''),
-      tanggal: String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
+      tanggal: normalizeToIsoDate(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? '') || String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
     };
   }
 
@@ -196,7 +198,7 @@ export function parseGradesFromMonitoringRow(row: Record<string, any>): ParsedGr
       alurBisnis: null,
       rataRata: Number(legacyFmt[1]),
       tahapDiinput: String(row.Tahap ?? row.tahap ?? ''),
-      tanggal: String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
+      tanggal: normalizeToIsoDate(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? '') || String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
     };
   }
 
@@ -212,7 +214,7 @@ export function parseGradesFromMonitoringRow(row: Record<string, any>): ParsedGr
       alurBisnis: bisnisCol,
       rataRata: avgCol,
       tahapDiinput: String(row.Tahap ?? row.tahap ?? ''),
-      tanggal: String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
+      tanggal: normalizeToIsoDate(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? '') || String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
     };
   }
 
@@ -225,21 +227,26 @@ export function buildStudentMonitoringSummary(
   nilaiRows: any[]
 ): StudentMonitoringSummary {
   const norm = (v: any) => String(v ?? '').trim().toLowerCase();
-  const targetNis = String(student.nis || '').trim();
+  const targetNisRaw = String(student.nis || '').trim();
+  const targetNisDigits = stripNisSymbols(targetNisRaw);
   const targetPlt = String(student.idPenempatan || '').trim();
   const targetNama = norm(student.nama);
   const targetDudi = norm(student.dudi_name);
 
   const matchedMonitoring = (Array.isArray(monitoringRows) ? monitoringRows : []).filter((row) => {
-    const rowNis = String(row.NIS ?? row.nis ?? '').trim();
+    const rowNisRaw = String(row.NIS ?? row.nis ?? '').trim();
+    const rowNisDigits = stripNisSymbols(rowNisRaw);
     const rowPlt = String(row.ID_Penempatan ?? row.idPenempatan ?? '').trim();
     const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? '');
+    const rowDaftarDigits = stripNisSymbols(rowDaftar);
     const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? '');
     const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? '');
 
-    if (targetNis && targetNis !== '-' && rowNis === targetNis) return true;
+    if (targetNisDigits && rowNisDigits === targetNisDigits) return true;
+    if (targetNisRaw && targetNisRaw !== '-' && rowNisRaw === targetNisRaw) return true;
     if (targetPlt && rowPlt && rowPlt === targetPlt) return true;
-    if (targetNis && targetNis !== '-' && rowDaftar.includes(targetNis.toLowerCase())) return true;
+    if (targetNisDigits && rowDaftarDigits.includes(targetNisDigits)) return true;
+    if (targetNisRaw && targetNisRaw !== '-' && rowDaftar.includes(targetNisRaw.toLowerCase())) return true;
     if (
       targetNama &&
       (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) &&
@@ -277,7 +284,7 @@ export function buildStudentMonitoringSummary(
         izin: att.izin,
         alpha: att.alpha,
         catatan: stripStructuredTagsFromNote(row.Catatan_Kunjungan ?? row.catatanKunjungan ?? ''),
-        tanggal: String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
+        tanggal: normalizeToIsoDate(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? '') || String(row.Tanggal_Kunjungan ?? row.tanggalKunjungan ?? ''),
         status,
       };
     }
@@ -291,7 +298,8 @@ export function buildStudentMonitoringSummary(
   // Fallback or enrich with Nilai_Dan_Sertifikat sheet
   if (Array.isArray(nilaiRows)) {
     const matchedNilai = nilaiRows.find((n) => {
-      const rowNis = String(n.NIS ?? n.nis ?? '').trim();
+      const rowNisRaw = String(n.NIS ?? n.nis ?? '').trim();
+      const rowNisDigits = stripNisSymbols(rowNisRaw);
       const rowPlt = String(n.ID_Penempatan ?? n.idPenempatan ?? '').trim();
       const rowNama = norm(n.Nama_Siswa ?? n.namaSiswa ?? '');
       const k3 = Number(n.Nilai_K3LH ?? n.nilaiK3lh ?? 0) || 0;
@@ -309,7 +317,8 @@ export function buildStudentMonitoringSummary(
           0
       );
       if (rawAvg <= 0 && (k3 <= 0 || ss <= 0 || tk <= 0 || ab <= 0)) return false;
-      if (targetNis && targetNis !== '-' && rowNis === targetNis) return true;
+      if (targetNisDigits && rowNisDigits === targetNisDigits) return true;
+      if (targetNisRaw && targetNisRaw !== '-' && rowNisRaw === targetNisRaw) return true;
       if (targetPlt && rowPlt === targetPlt) return true;
       return Boolean(targetNama && rowNama === targetNama);
     });
@@ -348,7 +357,7 @@ export function buildStudentMonitoringSummary(
           alurBisnis,
           rataRata: finalAvg,
           tahapDiinput: 'Nilai_Dan_Sertifikat',
-          tanggal: String(matchedNilai.Tgl_Terbit ?? matchedNilai.tanggalTerbit ?? ''),
+          tanggal: normalizeToIsoDate(matchedNilai.Tgl_Terbit ?? matchedNilai.tanggalTerbit ?? '') || String(matchedNilai.Tgl_Terbit ?? matchedNilai.tanggalTerbit ?? ''),
         };
       }
     }

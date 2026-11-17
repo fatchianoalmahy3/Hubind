@@ -7,6 +7,7 @@ import {
   generateNextSuratPermohonan,
   getTodayIsoDate,
 } from './utils/autoIdHelpers';
+import { stripNisSymbols } from './utils/nisHelpers';
 
 export interface MutationOptions {
   silentToast?: boolean;
@@ -555,6 +556,7 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     if (search.trim()) {
       const q = search.toLowerCase().trim();
+      const qDigits = !/[a-z]/i.test(search) ? stripNisSymbols(search) : '';
       const searchableKeys = this.metadata.fields
         .filter((f) => f.isSearchable !== false)
         .map((f) => String(f.key));
@@ -563,7 +565,12 @@ export abstract class BaseRepository<T extends { id: string }> {
         return searchableKeys.some((k) => {
           const val = (row as any)[k];
           if (val === null || val === undefined) return false;
-          return String(val).toLowerCase().includes(q);
+          const strVal = String(val);
+          if (strVal.toLowerCase().includes(q)) return true;
+          if (qDigits.length >= 3 && (k === 'nis' || k === 'daftarSiswa' || k === 'nik')) {
+            return stripNisSymbols(strVal).includes(qDigits);
+          }
+          return false;
         });
       });
     }

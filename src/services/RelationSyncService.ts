@@ -6,6 +6,7 @@ import { KelasService } from './KelasService';
 import { SiswaPklService } from './SiswaPklService';
 import { SiswaService } from './SiswaService';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
+import { stripNisSymbols } from '../core/utils/nisHelpers';
 
 export interface RelationSyncSummary {
   updatedPlacements: number;
@@ -23,9 +24,13 @@ function normalize(val: unknown): string {
 }
 
 function getStudentIdentityKey(nis?: unknown, nama?: unknown, kelas?: unknown): string {
-  const cleanNis = String(nis ?? '').trim();
-  if (cleanNis && cleanNis !== '-') {
-    return `nis:${cleanNis.toLowerCase()}`;
+  const rawNis = String(nis ?? '').trim();
+  const digitsNis = stripNisSymbols(rawNis);
+  if (digitsNis) {
+    return `nis:${digitsNis}`;
+  }
+  if (rawNis && rawNis !== '-') {
+    return `nis:${rawNis.toLowerCase()}`;
   }
   const cleanNama = normalize(nama);
   const cleanKelas = normalize(kelas);
@@ -148,7 +153,9 @@ export class RelationSyncService {
     const siswaByNis = new Map<string, Siswa>();
     const siswaByName = new Map<string, Siswa>();
     for (const s of siswaList) {
-      if (s.nis) siswaByNis.set(String(s.nis).trim().toLowerCase(), s);
+      const nisDigits = stripNisSymbols(s.nis);
+      if (nisDigits) siswaByNis.set(nisDigits, s);
+      else if (s.nis) siswaByNis.set(String(s.nis).trim().toLowerCase(), s);
       if (s.nama) siswaByName.set(normalize(s.nama), s);
     }
 
@@ -177,8 +184,9 @@ export class RelationSyncService {
 
     for (const req of pengajuanList) {
       if (normalize(req.statusKakomli) === 'ditolak') continue;
+      const reqNisKey = stripNisSymbols(req.nis) || String(req.nis || '').trim().toLowerCase();
       const matchedSiswa: Siswa | undefined =
-        (req.nis ? siswaByNis.get(String(req.nis).trim().toLowerCase()) : undefined) ||
+        (reqNisKey ? siswaByNis.get(reqNisKey) : undefined) ||
         (req.namaSiswa ? siswaByName.get(normalize(req.namaSiswa)) : undefined);
       const jurName = req.jurusan || matchedSiswa?.jurusan;
       const matchedJur = jurName ? jurusanByKey.get(normalize(jurName)) : undefined;
@@ -193,8 +201,9 @@ export class RelationSyncService {
     }
 
     for (const izn of perizinanList) {
+      const iznNisKey = stripNisSymbols(izn.nis) || String(izn.nis || '').trim().toLowerCase();
       const matchedSiswa: Siswa | undefined =
-        (izn.nis ? siswaByNis.get(String(izn.nis).trim().toLowerCase()) : undefined) ||
+        (iznNisKey ? siswaByNis.get(iznNisKey) : undefined) ||
         (izn.namaSiswa ? siswaByName.get(normalize(izn.namaSiswa)) : undefined);
       const jurName = izn.jurusan || matchedSiswa?.jurusan;
       const matchedJur = jurName ? jurusanByKey.get(normalize(jurName)) : undefined;
@@ -210,8 +219,9 @@ export class RelationSyncService {
 
     for (const p of placements) {
       if (normalize(p.statusPenempatan) === 'dibatalkan') continue;
+      const pNisKey = stripNisSymbols(p.nis) || String(p.nis || '').trim().toLowerCase();
       const matchedSiswa: Siswa | undefined =
-        (p.nis ? siswaByNis.get(String(p.nis).trim().toLowerCase()) : undefined) ||
+        (pNisKey ? siswaByNis.get(pNisKey) : undefined) ||
         (p.namaSiswa ? siswaByName.get(normalize(p.namaSiswa)) : undefined);
       const matchedJur = matchedSiswa?.jurusan
         ? jurusanByKey.get(normalize(matchedSiswa.jurusan))
@@ -360,7 +370,9 @@ export class RelationSyncService {
 
     const siswaByNis = new Map<string, Siswa>();
     for (const s of siswaList) {
-      if (s.nis) siswaByNis.set(String(s.nis).trim(), s);
+      const nisDigits = stripNisSymbols(s.nis);
+      if (nisDigits) siswaByNis.set(nisDigits, s);
+      else if (s.nis) siswaByNis.set(String(s.nis).trim(), s);
     }
 
     const dudiById = new Map<string, Dudi>();
@@ -402,7 +414,10 @@ export class RelationSyncService {
           if (p.guruPendamping !== matchedGuru.nama) patch.guruPendamping = matchedGuru.nama;
         }
 
-        const matchedSiswa = p.nis ? siswaByNis.get(String(p.nis).trim()) : undefined;
+        const pNisDigits = stripNisSymbols(p.nis);
+        const matchedSiswa =
+          (pNisDigits ? siswaByNis.get(pNisDigits) : undefined) ||
+          (p.nis ? siswaByNis.get(String(p.nis).trim()) : undefined);
         if (matchedSiswa && (!p.namaSiswa || p.namaSiswa === '-')) {
           patch.namaSiswa = matchedSiswa.nama;
         }

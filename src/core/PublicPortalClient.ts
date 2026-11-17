@@ -9,6 +9,12 @@ import {
   getStageValueByNumber,
   stripStructuredTagsFromNote,
 } from './utils/monitoringHelpers';
+import {
+  getTodayWibDateTime,
+  getTodayWibIsoDate,
+  normalizeToIsoDate,
+} from './utils/dateHelpers';
+import { stripNisSymbols } from './utils/nisHelpers';
 import { IndexedDbSheetCache } from './cache/IndexedDbSheetCache';
 import {
   safeFetchJson,
@@ -437,24 +443,34 @@ export const PublicPortalClient = {
     message?: string;
     student?: any;
   }> {
-    const searchNis = nis.trim();
+    const rawSearchNis = nis.trim();
+    const searchNisDigits = stripNisSymbols(rawSearchNis);
+    const lookupKey = searchNisDigits || rawSearchNis;
     return callPublicEndpoint(
-      () => safeFetchJson(`/api/public/student-lookup/${encodeURIComponent(searchNis)}`),
+      () => safeFetchJson(`/api/public/student-lookup/${encodeURIComponent(lookupKey)}`),
       async () => {
         const rows = await readMasterSiswaDirect();
         const student = rows.find((s: any) => {
           const rowNis = pickField(s, 'NIS', 'nis');
+          const rowNisDigits = stripNisSymbols(rowNis);
           const rowNik = pickField(s, 'NIK', 'nik');
-          return rowNis === searchNis || rowNik === searchNis;
+          const rowNikDigits = stripNisSymbols(rowNik);
+          if (searchNisDigits && (rowNisDigits === searchNisDigits || rowNikDigits === searchNisDigits)) {
+            return true;
+          }
+          return rowNis === rawSearchNis || rowNik === rawSearchNis;
         });
 
         if (!student) {
           return {
             success: true,
             found: false,
-            message: `Siswa dengan NIS [${searchNis}] tidak ditemukan di Database Sekolah.`,
+            message: `Siswa dengan NIS [${rawSearchNis}] tidak ditemukan di Database Sekolah.`,
           };
         }
+
+        const canonicalNisRaw = pickField(student, 'NIS', 'nis');
+        const canonicalNis = stripNisSymbols(canonicalNisRaw) || canonicalNisRaw;
 
         return {
           success: true,
@@ -462,7 +478,7 @@ export const PublicPortalClient = {
           student: {
             id: pickField(student, 'ID', 'id', 'NIS', 'nis'),
             nama: pickField(student, 'Nama_Lengkap', 'nama', 'namaLengkap'),
-            nis: pickField(student, 'NIS', 'nis'),
+            nis: canonicalNis,
             nik: pickField(student, 'NIK', 'nik'),
             kelas: pickField(student, 'Kelas', 'kelas'),
             jurusan: pickField(student, 'ID_Jurusan', 'jurusan', 'Jurusan', 'idJurusan'),
@@ -525,7 +541,8 @@ export const PublicPortalClient = {
           const noPengajuan = `REQ-${new Date().getFullYear()}-${String(payload.jurusan || 'PKL')
             .substring(0, 3)
             .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
-          const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+          const timestamp = getTodayWibDateTime();
+          const cleanNis = stripNisSymbols(payload.nis) || String(payload.nis).trim();
 
           const namaPemimpin = String(payload.nama_pemimpin || '').trim();
           const namaPic = String(payload.nama_pic || '').trim();
@@ -553,8 +570,8 @@ export const PublicPortalClient = {
             noPengajuan,
             Timestamp: timestamp,
             timestamp,
-            NIS: String(payload.nis).trim(),
-            nis: String(payload.nis).trim(),
+            NIS: cleanNis,
+            nis: cleanNis,
             Nama_Siswa: String(payload.nama).trim(),
             namaSiswa: String(payload.nama).trim(),
             nama_siswa: String(payload.nama).trim(),
@@ -979,6 +996,8 @@ export const PublicPortalClient = {
         const siswaByNis = new Map<string, any>();
         for (const s of siswaRows) {
           const nis = pickField(s, 'NIS', 'nis');
+          const nisDigits = stripNisSymbols(nis);
+          if (nisDigits) siswaByNis.set(nisDigits, s);
           if (nis) siswaByNis.set(nis, s);
         }
 
@@ -1007,17 +1026,18 @@ export const PublicPortalClient = {
             }
           }
 
-          const nis = pickField(p, 'NIS', 'nis');
-          const masterSiswa = nis ? siswaByNis.get(nis) : undefined;
+          const rawNis = pickField(p, 'NIS', 'nis');
+          const cleanNis = stripNisSymbols(rawNis) || rawNis;
+          const masterSiswa = (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
           const nama =
             pickField(p, 'Nama_Siswa', 'namaSiswa') || pickField(masterSiswa || {}, 'Nama_Lengkap', 'nama');
-          if (!nis && !nama) continue;
+          if (!cleanNis && !nama) continue;
 
-          const key = nis || normalizeStr(nama);
+          const key = cleanNis || normalizeStr(nama);
           studentsMap.set(key, {
             id: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || key,
             idPenempatan: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || '',
-            nis: nis || '-',
+            nis: cleanNis || '-',
             nama: nama || 'Siswa Prakerin',
             kelas: pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
             jurusan: pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan', 'Jurusan') || '-',
@@ -1046,18 +1066,19 @@ export const PublicPortalClient = {
             }
           }
 
-          const nis = pickField(reqRow, 'NIS', 'nis');
-          const masterSiswa = nis ? siswaByNis.get(nis) : undefined;
+          const rawNis = pickField(reqRow, 'NIS', 'nis');
+          const cleanNis = stripNisSymbols(rawNis) || rawNis;
+          const masterSiswa = (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
           const nama =
             pickField(reqRow, 'Nama_Siswa', 'namaSiswa') || pickField(masterSiswa || {}, 'Nama_Lengkap', 'nama');
-          if (!nis && !nama) continue;
+          if (!cleanNis && !nama) continue;
 
-          const key = nis || normalizeStr(nama);
+          const key = cleanNis || normalizeStr(nama);
           if (!studentsMap.has(key)) {
             studentsMap.set(key, {
               id: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || key,
               idPenempatan: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || '',
-              nis: nis || '-',
+              nis: cleanNis || '-',
               nama: nama || 'Siswa Prakerin',
               kelas: pickField(reqRow, 'Kelas', 'kelas') || pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
               jurusan:
@@ -1106,11 +1127,12 @@ export const PublicPortalClient = {
             throw new Error('NIS, Nama Siswa, dan Tahap Monitoring wajib diisi.');
           }
 
+          const cleanNis = stripNisSymbols(payload.nis) || String(payload.nis).trim();
           const existingMonId = String(payload.existing_monitoring_id || '').trim();
           const isUpdate = Boolean(existingMonId);
           const idMonitoring =
             existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-          const tglVal = payload.tanggal || new Date().toISOString().split('T')[0];
+          const tglVal = normalizeToIsoDate(payload.tanggal) || getTodayWibIsoDate();
 
           const sakit = Math.max(0, Math.round(Number(payload.sakit ?? 0) || 0));
           const izin = Math.max(0, Math.round(Number(payload.izin ?? 0) || 0));
@@ -1122,7 +1144,6 @@ export const PublicPortalClient = {
           let teknis = 0;
           let alurBisnis = 0;
           let avgScore = 0;
-          let predikat = '';
 
           if (nilaiMuncul) {
             k3lh = Math.min(100, Math.max(0, Number(payload.nilai_k3lh ?? 0) || 0));
@@ -1130,19 +1151,9 @@ export const PublicPortalClient = {
             teknis = Math.min(100, Math.max(0, Number(payload.nilai_kompetensi_teknis ?? 0) || 0));
             alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
             avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
-            predikat = payload.predikat || getPredikatFromScore(avgScore);
           }
 
-          const cleanNote = stripStructuredTagsFromNote(payload.catatan_perkembangan);
-          const noteParts = [
-            `[Absensi: S=${sakit}, I=${izin}, A=${alpha}]`,
-            nilaiMuncul && avgScore > 0
-              ? `[Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`
-              : '',
-            cleanNote,
-          ].filter(Boolean);
-
-          const noteCombined = noteParts.join(' ');
+          const noteCombined = stripStructuredTagsFromNote(payload.catatan_perkembangan);
           const stageStr = String(payload.tahap_monitoring);
           const stageNum = extractStageNumber(stageStr);
 
@@ -1150,20 +1161,20 @@ export const PublicPortalClient = {
             id: idMonitoring,
             ID_Monitoring: idMonitoring,
             idMonitoring,
-            ID_Penempatan: String(payload.id_penempatan || `PLT-${payload.nis}`),
-            idPenempatan: String(payload.id_penempatan || `PLT-${payload.nis}`),
+            ID_Penempatan: String(payload.id_penempatan || `PLT-${cleanNis}`),
+            idPenempatan: String(payload.id_penempatan || `PLT-${cleanNis}`),
             ID_DUDI: String(payload.dudi_id || ''),
             idDudi: String(payload.dudi_id || ''),
             DUDI_Tujuan: String(payload.nama_dudi || ''),
             dudiTujuan: String(payload.nama_dudi || ''),
             Alamat_DUDI: String(payload.alamat_dudi || ''),
             alamatDudi: String(payload.alamat_dudi || ''),
-            NIS: String(payload.nis || ''),
-            nis: String(payload.nis || ''),
+            NIS: cleanNis,
+            nis: cleanNis,
             Nama_Siswa: String(payload.nama_siswa || ''),
             namaSiswa: String(payload.nama_siswa || ''),
-            Daftar_Siswa: `${payload.nama_siswa} (${payload.nis})`,
-            daftarSiswa: `${payload.nama_siswa} (${payload.nis})`,
+            Daftar_Siswa: `${payload.nama_siswa} (${cleanNis})`,
+            daftarSiswa: `${payload.nama_siswa} (${cleanNis})`,
             Jurusan: String(payload.jurusan || ''),
             jurusan: String(payload.jurusan || ''),
             ID_Guru_Pendamping: String(payload.guru_id || ''),
@@ -1216,9 +1227,10 @@ export const PublicPortalClient = {
               const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true, true);
               const existingNilai = nilaiRows.find((n: any) => {
                 const rowNis = pickField(n, 'NIS', 'nis');
+                const rowNisDigits = stripNisSymbols(rowNis);
                 const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
                 return (
-                  (payload.nis && rowNis === String(payload.nis).trim()) ||
+                  (cleanNis && (rowNisDigits === cleanNis || rowNis === cleanNis)) ||
                   (payload.id_penempatan && rowPlt === String(payload.id_penempatan).trim())
                 );
               });
@@ -1230,7 +1242,7 @@ export const PublicPortalClient = {
                   id: pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id'),
                   ID_Penempatan:
                     pickField(existingNilai, 'ID_Penempatan', 'idPenempatan') ||
-                    String(payload.id_penempatan || `PLT-${payload.nis}`),
+                    String(payload.id_penempatan || `PLT-${cleanNis}`),
                   Nilai_K3LH: k3lh,
                   nilaiK3lh: k3lh,
                   Nilai_Softskills: softskill,
@@ -1253,13 +1265,13 @@ export const PublicPortalClient = {
                   statusRaport: 'Siap Cetak',
                 });
               } else {
-                const idPlt = String(payload.id_penempatan || `PLT-${payload.nis}`);
+                const idPlt = String(payload.id_penempatan || `PLT-${cleanNis}`);
                 await writeSheetDirect('Nilai_Dan_Sertifikat', 'CREATE', {
                   id: idPlt,
                   ID_Penempatan: idPlt,
                   idPenempatan: idPlt,
-                  NIS: String(payload.nis || ''),
-                  nis: String(payload.nis || ''),
+                  NIS: cleanNis,
+                  nis: cleanNis,
                   Nama_Siswa: String(payload.nama_siswa || ''),
                   namaSiswa: String(payload.nama_siswa || ''),
                   Jurusan: String(payload.jurusan || ''),
@@ -1395,7 +1407,7 @@ export const PublicPortalClient = {
             body: JSON.stringify(payload),
           }),
         async () => {
-          const nis = String(payload.nis || '').trim();
+          const nis = stripNisSymbols(payload.nis) || String(payload.nis || '').trim();
           const namaSiswa = String(payload.nama_siswa || '').trim();
           const idPenempatan = String(payload.id_penempatan || (nis ? `PLT-${nis}` : '')).trim();
           if (!nis || !namaSiswa) {
@@ -1408,16 +1420,17 @@ export const PublicPortalClient = {
           const alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
           const avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
           const predikat = getPredikatFromScore(avgScore);
-          const tglVal = String(payload.tanggal || new Date().toISOString().split('T')[0]);
+          const tglVal = normalizeToIsoDate(payload.tanggal) || getTodayWibIsoDate();
 
           const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true);
           const targetMonId = String(payload.monitoring_id || '').trim();
           const matchedRows = monRows.filter((r: any) => {
             const rMonId = pickField(r, 'ID_Monitoring', 'idMonitoring', 'id');
             const rNis = pickField(r, 'NIS', 'nis');
+            const rNisDigits = stripNisSymbols(rNis);
             const rPlt = pickField(r, 'ID_Penempatan', 'idPenempatan');
             if (targetMonId && rMonId === targetMonId) return true;
-            if (nis && rNis === nis) return true;
+            if (nis && (rNisDigits === nis || rNis === nis)) return true;
             if (idPenempatan && rPlt === idPenempatan) return true;
             return false;
           });
@@ -1439,19 +1452,9 @@ export const PublicPortalClient = {
           if (targetRow) {
             resolvedMonId = pickField(targetRow, 'ID_Monitoring', 'idMonitoring', 'id');
             resolvedStage = pickField(targetRow, 'Tahap', 'tahap') || resolvedStage;
-            const existingSakit = Math.max(0, Math.round(Number(targetRow.Sakit ?? targetRow.sakit ?? 0) || 0));
-            const existingIzin = Math.max(0, Math.round(Number(targetRow.Izin ?? targetRow.izin ?? 0) || 0));
-            const existingAlpha = Math.max(0, Math.round(Number(targetRow.Alpha ?? targetRow.alpha ?? 0) || 0));
             const cleanNote = stripStructuredTagsFromNote(
               targetRow.Catatan_Kunjungan ?? targetRow.catatanKunjungan ?? ''
             );
-            const updatedNote = [
-              `[Absensi: S=${existingSakit}, I=${existingIzin}, A=${existingAlpha}]`,
-              `[Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`,
-              cleanNote,
-            ]
-              .filter(Boolean)
-              .join(' ');
 
             await writeSheetDirect('Monitoring_5_Tahap', 'UPDATE', {
               ...targetRow,
@@ -1476,13 +1479,12 @@ export const PublicPortalClient = {
               nilaiRataRata: avgScore,
               Nilai_DUDI_Terkumpul: 'Ya',
               nilaiDudiTerkumpul: true,
-              Catatan_Kunjungan: updatedNote,
-              catatanKunjungan: updatedNote,
+              Catatan_Kunjungan: cleanNote,
+              catatanKunjungan: cleanNote,
             });
           } else {
             resolvedMonId = `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
             const stageNum = extractStageNumber(resolvedStage) || 5;
-            const noteCombined = `[Absensi: S=0, I=0, A=0] [Nilai PKL: K3LH=${k3lh}, Softskill=${softskill}, Teknis=${teknis}, AlurBisnis=${alurBisnis} | Rata-rata=${avgScore} (${predikat})]`;
             await writeSheetDirect('Monitoring_5_Tahap', 'CREATE', {
               id: resolvedMonId,
               ID_Monitoring: resolvedMonId,
@@ -1512,7 +1514,7 @@ export const PublicPortalClient = {
               Nilai_Alur_Bisnis: alurBisnis,
               Nilai_rata_rata: avgScore,
               Nilai_Rata_Rata: avgScore,
-              Catatan_Kunjungan: noteCombined,
+              Catatan_Kunjungan: '',
               Nilai_DUDI_Terkumpul: 'Ya',
               Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
               Status_Tahap: 'Terlaksana',
@@ -1524,8 +1526,9 @@ export const PublicPortalClient = {
             const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true, true);
             const existingNilai = nilaiRows.find((n: any) => {
               const rowNis = pickField(n, 'NIS', 'nis');
+              const rowNisDigits = stripNisSymbols(rowNis);
               const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
-              return (nis && rowNis === nis) || (idPenempatan && rowPlt === idPenempatan);
+              return (nis && (rowNisDigits === nis || rowNis === nis)) || (idPenempatan && rowPlt === idPenempatan);
             });
             const roundedDudi = Math.round(avgScore * 10) / 10;
             const finalPredikat = getPredikatFromScore(roundedDudi);

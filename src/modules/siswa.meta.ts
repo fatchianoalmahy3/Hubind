@@ -69,7 +69,8 @@ export const SiswaMetadata: ModuleMetadata<Siswa> = {
       isSearchable: true,
       isSortable: true,
       validation: { required: true },
-      placeholder: 'Contoh: 23241001',
+      placeholder: 'Contoh: 23241/001/001',
+      helperText: 'Ketik angka saja (11 atau 12 digit); pemisah / otomatis tampil.',
     },
     {
       key: 'nik',

@@ -37,6 +37,13 @@ import { Guru } from '../core/types/schema';
 import { ToastManager } from '../core/ToastManager';
 import { getTodayIsoDate, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import {
+  formatIndonesianDate,
+  getOffsetWibIsoDate,
+  getTodayWibIsoDate,
+  normalizeToIsoDate,
+} from '../core/utils/dateHelpers';
+import { formatNisVisual } from '../core/utils/nisHelpers';
+import {
   calculateEqualWeightedAverage,
   getPredikatFromScore,
 } from '../core/utils/monitoringHelpers';
@@ -146,8 +153,8 @@ export function ModulePage<T extends { id: string }>({
     row: null,
     reason: 'Kompetensi tidak linier',
     guruPendamping: '',
-    tanggalBerangkat: new Date().toISOString().split('T')[0],
-    tanggalRencanaTarik: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    tanggalBerangkat: getTodayWibIsoDate(),
+    tanggalRencanaTarik: getOffsetWibIsoDate(120),
     submitting: false,
   });
   const [guruList, setGuruList] = useState<Guru[]>([]);
@@ -351,7 +358,7 @@ export function ModulePage<T extends { id: string }>({
         row: item,
         reason: 'Kompetensi tidak linier dengan bidang pekerjaan DUDI',
         guruPendamping: '',
-        tanggalBerangkat: new Date().toISOString().split('T')[0],
+        tanggalBerangkat: getTodayWibIsoDate(),
         tanggalRencanaTarik: '',
         submitting: false,
       });
@@ -363,7 +370,7 @@ export function ModulePage<T extends { id: string }>({
         row: item,
         reason: '',
         guruPendamping: item.guruPendamping || '',
-        tanggalBerangkat: item.tanggalBerangkat || new Date().toISOString().split('T')[0],
+        tanggalBerangkat: normalizeToIsoDate(item.tanggalBerangkat) || getTodayWibIsoDate(),
         tanggalRencanaTarik: '',
         submitting: false,
       });
@@ -387,7 +394,7 @@ export function ModulePage<T extends { id: string }>({
         matchedPengajuan?.noTelpDudi ||
         '';
       const cleanPhone = rawPhone === '-' ? '' : rawPhone;
-      const tglSurat = item.tanggalKirimSurat || getTodayIsoDate();
+      const tglSurat = formatIndonesianDate(item.tanggalKirimSurat || getTodayIsoDate());
       const alamat =
         (item.alamatDudi && item.alamatDudi !== '-' ? item.alamatDudi : '') ||
         matchedDudi?.alamat ||
@@ -405,7 +412,7 @@ export function ModulePage<T extends { id: string }>({
         `• No. Perizinan: ${item.noPerizinan || item.id || '-'}`,
         `• No. Surat: ${item.noSuratPermohonan || '-'}`,
         `• Tanggal Surat: ${tglSurat}`,
-        `• Nama Siswa: ${item.namaSiswa || '-'} (NIS: ${item.nis || '-'})`,
+        `• Nama Siswa: ${item.namaSiswa || '-'} (NIS: ${formatNisVisual(item.nis)})`,
         `• Kelas / Jurusan: ${item.kelas || '-'} / ${item.jurusan || '-'}`,
         `• Nama Ortu / Wali: ${item.namaOrtuWali || '-'} (${item.statusIzinOrtu || 'Menunggu Izin'})`,
         `• Lokasi DUDI: ${item.dudiTujuan || '-'}`,
@@ -444,16 +451,15 @@ export function ModulePage<T extends { id: string }>({
       });
     } else if (actionName === 'promote_to_pkl') {
       await loadGuruOptions();
-      const fourMonthsLater = new Date(Date.now() + 120 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0];
+      const todayWib = getTodayWibIsoDate();
+      const fourMonthsLater = getOffsetWibIsoDate(120, todayWib);
       setActionModal({
         isOpen: true,
         type: 'promote_to_pkl',
         row: item,
         reason: '',
         guruPendamping: '',
-        tanggalBerangkat: new Date().toISOString().split('T')[0],
+        tanggalBerangkat: todayWib,
         tanggalRencanaTarik: fourMonthsLater,
         submitting: false,
       });
@@ -986,7 +992,7 @@ export function ModulePage<T extends { id: string }>({
                   {actionModal.type === 'promote_to_pkl' && 'Terbitkan ke Data Siswa PKL'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5 truncate">
-                  {actionModal.row.namaSiswa} ({actionModal.row.nis}) · {actionModal.row.dudiTujuan}
+                  {actionModal.row.namaSiswa} ({formatNisVisual(actionModal.row.nis)}) · {actionModal.row.dudiTujuan}
                 </p>
               </div>
               <button

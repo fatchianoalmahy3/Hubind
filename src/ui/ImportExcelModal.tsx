@@ -3,6 +3,8 @@ import { FieldConfig } from '../core/types/metadata';
 import { X, Upload, FileSpreadsheet, Download, Check, AlertCircle } from 'lucide-react';
 
 import type * as XLSXTypes from 'xlsx';
+import { formatIndonesianDate, normalizeToIsoDate } from '../core/utils/dateHelpers';
+import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 
 interface ImportExcelModalProps<T = any> {
   isOpen: boolean;
@@ -101,6 +103,10 @@ export function ImportExcelModal<T extends Record<string, any>>({
           const rawVal = matchedHeader ? rowObj[matchedHeader] : rowObj[String(col.key)] ?? rowObj[col.label] ?? '';
           if (col.type === 'number') {
             mapped[col.key] = Number(rawVal) || 0;
+          } else if (col.type === 'date') {
+            mapped[col.key] = normalizeToIsoDate(rawVal) || String(rawVal ?? '');
+          } else if (String(col.key) === 'nis') {
+            mapped[col.key] = stripNisSymbols(rawVal) || String(rawVal ?? '').trim();
           } else {
             mapped[col.key] = String(rawVal ?? '');
           }
@@ -281,7 +287,11 @@ export function ImportExcelModal<T extends Record<string, any>>({
                       <tr key={idx} className="hover:bg-slate-50">
                         {validColumns.slice(0, 4).map((c) => (
                           <td key={String(c.key)} className="p-2 text-slate-700">
-                            {row[c.key] || '-'}
+                            {String(c.key) === 'nis'
+                              ? formatNisVisual(row[c.key])
+                              : c.type === 'date'
+                              ? formatIndonesianDate(row[c.key])
+                              : row[c.key] || '-'}
                           </td>
                         ))}
                       </tr>

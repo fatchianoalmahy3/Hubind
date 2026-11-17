@@ -16,7 +16,19 @@ import {
   Image as ImageIcon,
   MoreVertical,
   Loader2,
+  MessageCircle,
 } from 'lucide-react';
+import {
+  formatIndonesianDate,
+  getWibCalendarParts,
+  isIsoTimestampString,
+} from '../core/utils/dateHelpers';
+import { formatNisInsideText, formatNisVisual } from '../core/utils/nisHelpers';
+import {
+  formatPhoneDisplay,
+  getWhatsAppHref,
+  isPhoneFieldKey,
+} from '../core/utils/autoIdHelpers';
 
 export interface CustomRowAction {
   name: string;
@@ -292,7 +304,70 @@ export function DynamicDataGrid<T extends { id: string }>({
     }
 
     if (field.type === 'date' && val) {
-      return <span className="font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">{val}</span>;
+      return (
+        <span className="text-xs font-medium text-slate-700 whitespace-nowrap">
+          {formatIndonesianDate(val)}
+        </span>
+      );
+    }
+
+    if (field.key === 'timestamp' && val) {
+      const rawTs = String(val).trim();
+      if (isIsoTimestampString(rawTs)) {
+        const datePart = formatIndonesianDate(rawTs);
+        const parts = getWibCalendarParts(new Date(rawTs));
+        const hasTime = !(parts.hour === '00' && parts.minute === '00' && parts.second === '00');
+        return (
+          <span className="text-xs text-slate-700 whitespace-nowrap">
+            {hasTime ? `${datePart}, ${parts.hour}:${parts.minute} WIB` : datePart}
+          </span>
+        );
+      }
+      const spaceTsMatch = rawTs.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?::\d{2})?$/);
+      if (spaceTsMatch) {
+        return (
+          <span className="text-xs text-slate-700 whitespace-nowrap">
+            {formatIndonesianDate(spaceTsMatch[1])}, {spaceTsMatch[2]} WIB
+          </span>
+        );
+      }
+    }
+
+    if (field.key === 'nis' && val !== null && val !== undefined && val !== '') {
+      return (
+        <span className="font-mono text-xs font-semibold text-slate-800 tabular-nums whitespace-nowrap">
+          {formatNisVisual(val)}
+        </span>
+      );
+    }
+
+    if (field.key === 'daftarSiswa' && val !== null && val !== undefined && val !== '') {
+      return <span className="text-slate-700 text-[13px]">{formatNisInsideText(val)}</span>;
+    }
+
+    if (isPhoneFieldKey(String(field.key)) && val !== null && val !== undefined && val !== '') {
+      const displayPhone = formatPhoneDisplay(val);
+      const waHref = getWhatsAppHref(val);
+      if (waHref) {
+        return (
+          <a
+            href={waHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={`Chat WhatsApp ke ${displayPhone}`}
+            className="inline-flex items-center gap-1.5 max-w-full font-mono text-xs font-semibold text-emerald-700 hover:text-emerald-900 hover:underline decoration-emerald-500/70 underline-offset-2 whitespace-nowrap transition-colors"
+          >
+            <MessageCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="truncate">{displayPhone}</span>
+          </a>
+        );
+      }
+      return (
+        <span className="font-mono text-xs text-slate-700 whitespace-nowrap">
+          {displayPhone}
+        </span>
+      );
     }
 
     if (typeof val === 'number') {

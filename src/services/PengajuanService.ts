@@ -9,6 +9,8 @@ import { SiswaPklService } from './SiswaPklService';
 import { PerizinanService } from './PerizinanService';
 import { RelationSyncService } from './RelationSyncService';
 import { generateNextSequentialId } from '../core/utils/autoIdHelpers';
+import { getOffsetWibIsoDate } from '../core/utils/dateHelpers';
+import { stripNisSymbols } from '../core/utils/nisHelpers';
 
 export class PengajuanService extends BaseRepository<Pengajuan> {
   private static instance: PengajuanService;
@@ -131,17 +133,15 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       (d) => d.namaDudi.trim().toLowerCase() === targetDudiNorm
     );
 
+    const itemNis = stripNisSymbols(item.nis) || String(item.nis || '').trim();
     const existingActive = existingPlottings.find(
       (p) =>
-        p.nis === item.nis &&
+        (stripNisSymbols(p.nis) || p.nis) === itemNis &&
         p.namaDudi.trim().toLowerCase() === targetDudiNorm &&
         p.statusPenempatan !== 'Dibatalkan'
     );
 
-    const startDateMs = new Date(tanggalBerangkat).getTime();
-    const defaultTarik = !Number.isNaN(startDateMs)
-      ? new Date(startDateMs + 120 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      : '';
+    const defaultTarik = tanggalBerangkat ? getOffsetWibIsoDate(120, tanggalBerangkat) : '';
 
     if (existingActive) {
       await SiswaPklService.getInstance().update(
@@ -165,7 +165,7 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
         {
           id: idPenempatan,
           idPenempatan,
-          nis: item.nis,
+          nis: itemNis,
           namaSiswa: item.namaSiswa,
           idDudi: matchedDudi?.id || '',
           namaDudi: matchedDudi?.namaDudi || item.dudiTujuan,
