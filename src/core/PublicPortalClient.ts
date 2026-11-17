@@ -259,7 +259,11 @@ async function callPublicEndpoint<T>(
       );
     }
 
-    const isInfraFailure = INFRA_ERROR_CODES.has(errCode) || status >= 500;
+    const isProxyRouteMissing =
+      (status === 404 && errCode !== 'PETUGAS_NOT_FOUND') ||
+      status === 405 ||
+      errCode === 'API_ROUTE_NOT_FOUND';
+    const isInfraFailure = INFRA_ERROR_CODES.has(errCode) || status >= 500 || isProxyRouteMissing;
     if (!isInfraFailure) {
       throw new Error(data?.message || `Permintaan ditolak (HTTP ${status}).`);
     }
@@ -340,7 +344,10 @@ export const PublicPortalClient = {
 
         const res = await callPublicEndpoint(
           async () => {
-            const fetched = await safeFetchJson('/api/public/dudi-list', { headers });
+            const url = options?.forceRefresh
+              ? `/api/public/dudi-list?fresh=1&_ts=${Date.now()}`
+              : '/api/public/dudi-list';
+            const fetched = await safeFetchJson(url, { headers });
             if (fetched.notModified) {
               const cachedNow = await readCached();
               if (cachedNow) {
@@ -666,7 +673,10 @@ export const PublicPortalClient = {
 
         const res = await callPublicEndpoint(
           async () => {
-            const fetched = await safeFetchJson('/api/public/petugas-list', { headers });
+            const url = options?.forceRefresh
+              ? `/api/public/petugas-list?fresh=1&_ts=${Date.now()}`
+              : '/api/public/petugas-list';
+            const fetched = await safeFetchJson(url, { headers });
             if (fetched.notModified) {
               const cachedNow = await readCached();
               if (cachedNow) {

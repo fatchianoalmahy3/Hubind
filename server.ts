@@ -12,8 +12,12 @@ import {
   stripStructuredTagsFromNote,
 } from './src/core/utils/monitoringHelpers';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirnameResolved =
+  typeof __dirname !== 'undefined'
+    ? __dirname
+    : import.meta?.url
+    ? path.dirname(fileURLToPath(import.meta.url))
+    : process.cwd();
 
 const isServerlessRuntime = Boolean(
   process.env.VERCEL ||
@@ -28,20 +32,35 @@ const PORT = Number(process.env.PORT) || 3000;
 const jsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
   // Vercel @vercel/node may pre-parse req.body and drain the request stream before handing off to Express
-  if (
-    isServerlessRuntime &&
-    req.body !== undefined &&
-    typeof req.body === 'object' &&
-    req.body !== null
-  ) {
-    (req as any)._body = true;
-    return next();
+  if (isServerlessRuntime && req.body !== undefined) {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = req.body.trim() ? JSON.parse(req.body) : {};
+      } catch {
+        // leave as-is if not JSON
+      }
+    }
+    if (typeof req.body === 'object' && req.body !== null) {
+      (req as any)._body = true;
+      return next();
+    }
   }
   return jsonParser(req, res, next);
 });
 
+const PUBLIC_EDGE_CACHEABLE_PATHS = new Set([
+  '/public/config-summary',
+  '/public/dudi-list',
+  '/public/petugas-list',
+]);
+
 app.use('/api', (req, res, next) => {
-  if ((req.path.startsWith('/v1') || req.path.startsWith('/public')) && req.method === 'GET') {
+  const isFreshBypass = String(req.query?.fresh || '') === '1';
+  if (req.method === 'GET' && !isFreshBypass && PUBLIC_EDGE_CACHEABLE_PATHS.has(req.path)) {
+    // Public non-PII directories: allow Vercel Edge CDN fast serve + background SWR
+    res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=300');
+    res.setHeader('Vary', 'Accept-Encoding');
+  } else if ((req.path.startsWith('/v1') || req.path.startsWith('/public')) && req.method === 'GET' && !isFreshBypass) {
     res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
     res.setHeader('Vary', 'Authorization, Accept-Encoding');
   } else {
@@ -61,10 +80,10 @@ interface FirebaseAppletConfig {
 
 function loadFirebaseConfig(): FirebaseAppletConfig {
   const candidates = [
-    path.join(__dirname, 'firebase-applet-config.json'),
+    path.join(__dirnameResolved, 'firebase-applet-config.json'),
     path.join(process.cwd(), 'firebase-applet-config.json'),
-    path.resolve(__dirname, '../firebase-applet-config.json'),
-    path.resolve(__dirname, '../../firebase-applet-config.json'),
+    path.resolve(__dirnameResolved, '../firebase-applet-config.json'),
+    path.resolve(__dirnameResolved, '../../firebase-applet-config.json'),
   ];
 
   for (const cfgPath of candidates) {
@@ -115,8 +134,19 @@ let cachedWorkspaceConfig: { config: WorkspaceConfig; fetchedAt: number } | null
 let inFlightConfigFetch: Promise<WorkspaceConfig> | null = null;
 const sheetCache = new Map<string, { data: any[]; fetchedAt: number }>();
 const inFlightSheetFetches = new Map<string, Promise<{ rows: any[]; config: WorkspaceConfig }>>();
-const inFlightBackgroundRevalidations = new Set<string>();
+const inFlightBackgroundRevalidations = new Map<string, number>();
+const BACKGROUND_REVALIDATION_LOCK_MAX_MS = 20_000;
 const siswaIndexCache = new Map<string, { byKey: Map<string, any>; fetchedAt: number }>();
+
+function isBackgroundRevalidationActive(cacheKey: string): boolean {
+  const startedAt = inFlightBackgroundRevalidations.get(cacheKey);
+  if (!startedAt) return false;
+  if (Date.now() - startedAt > BACKGROUND_REVALIDATION_LOCK_MAX_MS) {
+    inFlightBackgroundRevalidations.delete(cacheKey);
+    return false;
+  }
+  return true;
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -345,10 +375,10 @@ function parseGasJsonSafely(rawText: string, sheetName: string, status: number):
 }
 
 function triggerBackgroundSheetRefresh(sheetName: string, cacheKey: string): void {
-  if (inFlightBackgroundRevalidations.has(cacheKey) || inFlightSheetFetches.has(cacheKey)) {
+  if (isBackgroundRevalidationActive(cacheKey) || inFlightSheetFetches.has(cacheKey)) {
     return;
   }
-  inFlightBackgroundRevalidations.add(cacheKey);
+  inFlightBackgroundRevalidations.set(cacheKey, Date.now());
   void fetchLiveSheetViaGas(sheetName, true)
     .catch(() => {})
     .finally(() => {
@@ -484,7 +514,7 @@ async function fetchBatchSheetsViaGas(
       }
       if (age < SHEET_CACHE_STALE_MAX_MS) {
         sheetsResult[name] = cached.data;
-        if (!inFlightBackgroundRevalidations.has(cacheKey)) {
+        if (!isBackgroundRevalidationActive(cacheKey)) {
           staleSheets.push(name);
         }
         continue;
@@ -495,7 +525,8 @@ async function fetchBatchSheetsViaGas(
 
   if (staleSheets.length > 0 && !forceRefresh) {
     const staleKeys = staleSheets.map((n) => `${config.spreadsheetId}::${n}`);
-    staleKeys.forEach((k) => inFlightBackgroundRevalidations.add(k));
+    const lockTs = Date.now();
+    staleKeys.forEach((k) => inFlightBackgroundRevalidations.set(k, lockTs));
     void fetchBatchSheetsViaGas(staleSheets, optionalSheets, true)
       .catch(() => {})
       .finally(() => {
@@ -2208,7 +2239,8 @@ app.get('/api/public/student-lookup/:nis', async (req: Request, res: Response) =
 // Public DUDI List directly from Master_DUDI (with ETag 304 support)
 app.get('/api/public/dudi-list', async (req: Request, res: Response) => {
   try {
-    const { rows, config } = await fetchLiveSheetViaGas('Master_DUDI');
+    const fresh = String(req.query.fresh || '') === '1';
+    const { rows, config } = await fetchLiveSheetViaGas('Master_DUDI', fresh);
     const mapped = rows
       .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
       .map((d: any, idx: number) => {
@@ -2236,7 +2268,7 @@ app.get('/api/public/dudi-list', async (req: Request, res: Response) => {
 
     const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: 'public_dudi', mapped });
     res.setHeader('ETag', etag);
-    if (isEtagMatched(req, etag)) {
+    if (!fresh && isEtagMatched(req, etag)) {
       return res.status(304).end();
     }
 
@@ -2348,7 +2380,8 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
 // Public Petugas List directly from Master_Guru_Pendamping (ZERO fallback mock array + ETag 304)
 app.get('/api/public/petugas-list', async (req: Request, res: Response) => {
   try {
-    const { rows, config } = await fetchLiveSheetViaGas('Master_Guru_Pendamping');
+    const fresh = String(req.query.fresh || '') === '1';
+    const { rows, config } = await fetchLiveSheetViaGas('Master_Guru_Pendamping', fresh);
     const mapped = rows
       .filter((g: any) => pickField(g, 'Nama_Lengkap', 'nama', 'Nama') !== '')
       .map((g: any, idx: number) => ({
@@ -2359,15 +2392,17 @@ app.get('/api/public/petugas-list', async (req: Request, res: Response) => {
         email: pickField(g, 'Email_Google', 'email', 'emailGoogle'),
       }));
 
-    // Background non-blocking warmup for Step 2 (Plotting_Pemberangkatan + Master_DUDI)
-    void fetchBatchSheetsViaGas(
-      ['Plotting_Pemberangkatan', 'Master_DUDI'],
-      new Set(['Plotting_Pemberangkatan', 'Master_DUDI'])
-    ).catch(() => {});
+    // Background non-blocking warmup for Step 2 only in persistent Node runtime (serverless freezes after res.json)
+    if (!isServerlessRuntime) {
+      void fetchBatchSheetsViaGas(
+        ['Plotting_Pemberangkatan', 'Master_DUDI'],
+        new Set(['Plotting_Pemberangkatan', 'Master_DUDI'])
+      ).catch(() => {});
+    }
 
     const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: 'public_petugas', mapped });
     res.setHeader('ETag', etag);
-    if (isEtagMatched(req, etag)) {
+    if (!fresh && isEtagMatched(req, etag)) {
       return res.status(304).end();
     }
 
@@ -2400,6 +2435,7 @@ app.post('/api/public/verify-petugas-pin', async (req: Request, res: Response) =
     if (!teacher) {
       return res.status(404).json({
         success: false,
+        code: 'PETUGAS_NOT_FOUND',
         message: 'Data petugas tidak ditemukan di Database Cloud Server.',
       });
     }
@@ -3168,6 +3204,25 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
   }
 });
 
+// Health check & structured JSON 404 for unmatched /api/* routes
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    status: 'ok',
+    runtime: isServerlessRuntime ? 'vercel-serverless' : 'node-server',
+    firestoreConfigured: Boolean(firebaseCfg.projectId),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.use('/api', (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    code: 'API_ROUTE_NOT_FOUND',
+    message: `Endpoint API [${req.method} ${req.originalUrl || req.url}] tidak ditemukan.`,
+  });
+});
+
 // Serve frontend with Vite dev middleware when running as standalone Node server (not on Vercel Serverless)
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -3178,9 +3233,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use(express.static(path.join(__dirnameResolved, 'dist')));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.join(__dirnameResolved, 'dist', 'index.html'));
     });
   }
 
