@@ -297,6 +297,7 @@ export default function App() {
     setCurrentUser(user);
     setUserRole(user.role as UserRole);
     setAppMode('admin');
+    void googleClient.bootstrapAdminTables(false).catch(() => false);
   };
 
   const handleLogout = async () => {

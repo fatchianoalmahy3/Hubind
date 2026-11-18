@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   AlertCircle,
@@ -146,6 +146,8 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   const [savingGradeEdit, setSavingGradeEdit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const activeTeacherKeyRef = useRef('');
+  const activeDudiKeyRef = useRef('');
 
   useEffect(() => {
     if (isOpen) {
@@ -207,10 +209,30 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   };
 
   const loadAssignedDudi = async (teacherName: string, teacherId: string) => {
+    const teacherKey = `${teacherId}::${teacherName}`;
+    activeTeacherKeyRef.current = teacherKey;
     setLoadingDudi(true);
     setDudiError('');
+
+    const prefetchTopDudiStudents = (list: any[]) => {
+      list.slice(0, 2).forEach((dudi) => {
+        if (dudi?.nama) {
+          void PublicPortalClient.getDudiStudents(dudi.nama, dudi.id || '', teacherName).catch(() => {});
+        }
+      });
+    };
+
     try {
-      const json = await PublicPortalClient.getPetugasDudi(teacherName, teacherId);
+      const json = await PublicPortalClient.getPetugasDudi(teacherName, teacherId, {
+        onUpdate: (freshJson) => {
+          if (activeTeacherKeyRef.current !== teacherKey) return;
+          if (freshJson?.success && Array.isArray(freshJson.data)) {
+            setAssignedDudiList(freshJson.data);
+            prefetchTopDudiStudents(freshJson.data);
+          }
+        },
+      });
+      if (activeTeacherKeyRef.current !== teacherKey) return;
       if (!json.success) {
         const errMsg = 'Gagal memuat daftar DUDI bimbingan dari Cloud Server.';
         setAssignedDudiList([]);
@@ -218,14 +240,19 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         ToastManager.getInstance().show('Gagal Memuat DUDI Bimbingan', 'error', errMsg);
         return;
       }
-      setAssignedDudiList(Array.isArray(json.data) ? json.data : []);
+      const list = Array.isArray(json.data) ? json.data : [];
+      setAssignedDudiList(list);
+      prefetchTopDudiStudents(list);
     } catch (e: any) {
+      if (activeTeacherKeyRef.current !== teacherKey) return;
       const errMsg = e?.message || 'Gagal terhubung ke Cloud Server.';
       setAssignedDudiList([]);
       setDudiError(errMsg);
       ToastManager.getInstance().show('Gagal Memuat DUDI Bimbingan', 'error', errMsg);
     } finally {
-      setLoadingDudi(false);
+      if (activeTeacherKeyRef.current === teacherKey) {
+        setLoadingDudi(false);
+      }
     }
   };
 
@@ -298,6 +325,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   };
 
   const handleSelectDudi = async (dudi: any) => {
+    const dudiKey = `${dudi.id || ''}::${dudi.nama || ''}::${selectedPetugasNama}`;
+    activeDudiKeyRef.current = dudiKey;
+
     setSelectedDudi(dudi);
     setCurrentStep(3);
     setLoadingStudents(true);
@@ -310,20 +340,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     setEditingGradeByStudent({});
     setGradeEditDrafts({});
 
-    try {
-      const json = await PublicPortalClient.getDudiStudents(
-        dudi.nama,
-        dudi.id || '',
-        selectedPetugasNama
-      );
-      if (!json.success) {
-        const errMsg = 'Gagal memuat daftar siswa dari Cloud Server.';
-        setStudentsError(errMsg);
-        ToastManager.getInstance().show('Gagal Memuat Daftar Siswa', 'error', errMsg);
-        return;
-      }
-
-      const students = Array.isArray(json.data) ? json.data : [];
+    const applyStudentsPayload = (students: any[], isBackgroundRefresh: boolean) => {
       const initStages: Record<string, number> = {};
       const initDrafts: Record<string, StudentStageDraft> = {};
 
@@ -346,15 +363,49 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         }
       });
 
-      setStageByStudent(initStages);
-      setDraftsByKey(initDrafts);
+      if (isBackgroundRefresh) {
+        setStageByStudent((prev) => ({ ...initStages, ...prev }));
+        setDraftsByKey((prev) => ({ ...initDrafts, ...prev }));
+      } else {
+        setStageByStudent(initStages);
+        setDraftsByKey(initDrafts);
+      }
       setDudiStudents(students);
+    };
+
+    try {
+      const json = await PublicPortalClient.getDudiStudents(
+        dudi.nama,
+        dudi.id || '',
+        selectedPetugasNama,
+        {
+          onUpdate: (freshJson) => {
+            if (activeDudiKeyRef.current !== dudiKey) return;
+            if (freshJson?.success && Array.isArray(freshJson.data)) {
+              applyStudentsPayload(freshJson.data, true);
+            }
+          },
+        }
+      );
+      if (activeDudiKeyRef.current !== dudiKey) return;
+      if (!json.success) {
+        const errMsg = 'Gagal memuat daftar siswa dari Cloud Server.';
+        setStudentsError(errMsg);
+        ToastManager.getInstance().show('Gagal Memuat Daftar Siswa', 'error', errMsg);
+        return;
+      }
+
+      const students = Array.isArray(json.data) ? json.data : [];
+      applyStudentsPayload(students, false);
     } catch (e: any) {
+      if (activeDudiKeyRef.current !== dudiKey) return;
       const errMsg = e?.message || 'Gagal menghubungi Cloud Server.';
       setStudentsError(errMsg);
       ToastManager.getInstance().show('Gagal Memuat Siswa DUDI', 'error', errMsg);
     } finally {
-      setLoadingStudents(false);
+      if (activeDudiKeyRef.current === dudiKey) {
+        setLoadingStudents(false);
+      }
     }
   };
 

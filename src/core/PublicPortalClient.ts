@@ -29,10 +29,27 @@ import {
 
 const DIRECT_SHEET_CACHE_TTL_MS = 45_000;
 const PUBLIC_SWR_SOFT_TTL_MS = 45_000;
+const PUBLIC_TEACHER_SWR_TTL_MS = 20_000;
 const directSheetCache = new Map<string, { rows: any[]; fetchedAt: number }>();
 const inFlightDirectReads = new Map<string, Promise<any[]>>();
 const publicListMemCache = new Map<string, { data: any[]; etag?: string; updatedAt: number }>();
 const inFlightPublicRevalidations = new Map<string, Promise<{ success: boolean; total: number; data: any[] }>>();
+const trackedPublicCacheKeys = new Set<string>();
+
+function invalidatePublicTeacherCaches() {
+  const idb = IndexedDbSheetCache.getInstance();
+  for (const key of Array.from(trackedPublicCacheKeys)) {
+    if (key.includes('public::dudi-students::') || key.includes('public::petugas-dudi::')) {
+      publicListMemCache.delete(key);
+      idb.delete(key).catch(() => {});
+    }
+  }
+  for (const key of Array.from(publicListMemCache.keys())) {
+    if (key.includes('public::dudi-students::') || key.includes('public::petugas-dudi::')) {
+      publicListMemCache.delete(key);
+    }
+  }
+}
 
 function pickField(row: Record<string, any>, ...keys: string[]): string {
   for (const k of keys) {
@@ -294,8 +311,6 @@ export const PublicPortalClient = {
     hasGasUrl: boolean;
     spreadsheetName: string;
   }> {
-    const cfg = await ensureHydratedConfig();
-
     try {
       const { ok, data } = await safeFetchJson('/api/public/config-summary');
       if (ok && data?.success) {
@@ -305,6 +320,7 @@ export const PublicPortalClient = {
       // Static SPA host -> fall back cleanly to Firestore config
     }
 
+    const cfg = await ensureHydratedConfig();
     return {
       success: true,
       activeYear: cfg.activeYear,
@@ -845,261 +861,449 @@ export const PublicPortalClient = {
 
   async getPetugasDudi(
     petugasNama: string,
-    petugasId: string
+    petugasId: string,
+    options?: {
+      forceRefresh?: boolean;
+      onUpdate?: (res: { success: boolean; total: number; data: any[] }) => void;
+    }
   ): Promise<{ success: boolean; total: number; data: any[] }> {
-    return callPublicEndpoint(
-      () =>
-        safeFetchJson(
-          `/api/public/petugas-dudi?petugasNama=${encodeURIComponent(
-            petugasNama
-          )}&petugasId=${encodeURIComponent(petugasId)}`
-        ),
-      async () => {
-        const [plottingRows, dudiRows, pengajuanRows] = await Promise.all([
-          readSheetDirect('Plotting_Pemberangkatan', true),
-          readSheetDirect('Master_DUDI'),
-          readSheetDirect('Data_Pengajuan_PKL', true),
-        ]);
-
-        const dudiMapById = new Map<string, any>();
-        const dudiMapByName = new Map<string, any>();
-        for (const d of dudiRows) {
-          const id = pickField(d, 'ID', 'id');
-          const nama = pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi');
-          if (id) dudiMapById.set(id, d);
-          if (nama) dudiMapByName.set(normalizeStr(nama), d);
-        }
-
-        const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
-        const targetNamaNorm = normalizeStr(petugasNama);
-
-        for (const p of plottingRows) {
-          const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
-          if (statusPlt === 'dibatalkan' || statusPlt === 'batal') continue;
-
-          const rowGuruId = pickField(p, 'ID_Guru_Pendamping', 'idGuruPendamping');
-          const rowGuruNama = normalizeStr(pickField(p, 'Guru_Pendamping', 'guruPendamping'));
-          const isMatch =
-            (petugasId && rowGuruId && rowGuruId === petugasId) ||
-            (targetNamaNorm &&
-              rowGuruNama &&
-              (rowGuruNama === targetNamaNorm ||
-                rowGuruNama.includes(targetNamaNorm) ||
-                targetNamaNorm.includes(rowGuruNama)));
-
-          if (!isMatch) continue;
-
-          const dudiId = pickField(p, 'ID_DUDI', 'idDudi');
-          const dudiNamaRaw = pickField(p, 'Nama_DUDI', 'namaDudi');
-          const master =
-            (dudiId && dudiMapById.get(dudiId)) || (dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw)));
-
-          const resolvedName = pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw;
-          if (!resolvedName) continue;
-
-          const key = normalizeStr(resolvedName);
-          if (!grouped.has(key)) {
-            grouped.set(key, {
-              dudi: {
-                id: pickField(master || {}, 'ID', 'id') || dudiId || key,
-                nama: resolvedName,
-                alamat: pickField(master || {}, 'Alamat', 'alamat') || '-',
-                bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || '-',
-                pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-                kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
-                kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
-              },
-              studentNisSet: new Set<string>(),
-            });
-          }
-          const nis = pickField(p, 'NIS', 'nis') || pickField(p, 'Nama_Siswa', 'namaSiswa');
-          if (nis) grouped.get(key)!.studentNisSet.add(nis);
-        }
-
-        for (const reqRow of pengajuanRows) {
-          const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
-          const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
-          if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
-
-          const rowGuruId = pickField(reqRow, 'ID_Guru_Pendamping', 'idGuruPendamping');
-          const rowGuruNama = normalizeStr(pickField(reqRow, 'Guru_Pendamping', 'guruPendamping'));
-          const isMatch =
-            (petugasId && rowGuruId && rowGuruId === petugasId) ||
-            (targetNamaNorm &&
-              rowGuruNama &&
-              (rowGuruNama === targetNamaNorm ||
-                rowGuruNama.includes(targetNamaNorm) ||
-                targetNamaNorm.includes(rowGuruNama)));
-          if (!isMatch) continue;
-
-          const dudiId = pickField(reqRow, 'ID_DUDI', 'idDudi');
-          const dudiNamaRaw = pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan');
-          if (!dudiNamaRaw) continue;
-          const master = (dudiId && dudiMapById.get(dudiId)) || dudiMapByName.get(normalizeStr(dudiNamaRaw));
-          const key = normalizeStr(dudiNamaRaw);
-
-          if (!grouped.has(key)) {
-            grouped.set(key, {
-              dudi: {
-                id: pickField(master || {}, 'ID', 'id') || dudiId || key,
-                nama: pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw,
-                alamat:
-                  pickField(master || {}, 'Alamat', 'alamat') ||
-                  pickField(reqRow, 'Alamat_DUDI', 'alamatDudi') ||
-                  '-',
-                bidang:
-                  pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') ||
-                  pickField(reqRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') ||
-                  '-',
-                pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-                kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
-                kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
-              },
-              studentNisSet: new Set<string>(),
-            });
-          }
-          const nis = pickField(reqRow, 'NIS', 'nis') || pickField(reqRow, 'Nama_Siswa', 'namaSiswa');
-          if (nis) grouped.get(key)!.studentNisSet.add(nis);
-        }
-
-        const result = Array.from(grouped.values()).map((entry) => ({
-          ...entry.dudi,
-          jumlahSiswa: entry.studentNisSet.size,
-        }));
-
-        return { success: true, total: result.length, data: result };
-      }
+    const cfg = GoogleSheetClient.getInstance().getConfig();
+    const teacherKey = `${String(petugasId || '').trim()}::${normalizeStr(petugasNama)}`;
+    const idbKey = IndexedDbSheetCache.buildKey(
+      cfg.spreadsheetId || 'public',
+      cfg.activeYear || 'active',
+      `public::petugas-dudi::${teacherKey}`
     );
+    trackedPublicCacheKeys.add(idbKey);
+
+    const readCached = async () => {
+      const mem = publicListMemCache.get(idbKey);
+      if (mem) return mem;
+      const syncHit = IndexedDbSheetCache.getInstance().getSync(idbKey);
+      if (syncHit) {
+        const entry = { data: syncHit.data, etag: syncHit.etag, updatedAt: syncHit.updatedAt };
+        publicListMemCache.set(idbKey, entry);
+        return entry;
+      }
+      const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
+      if (fromIdb) {
+        const entry = { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
+        publicListMemCache.set(idbKey, entry);
+        return entry;
+      }
+      return null;
+    };
+
+    const fetchFresh = async (priorEtag?: string): Promise<{ success: boolean; total: number; data: any[]; notModified?: boolean }> => {
+      const inflightKey = `petugas_dudi::${idbKey}`;
+      const existing = inFlightPublicRevalidations.get(inflightKey);
+      if (existing) return existing;
+
+      const task = (async () => {
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (priorEtag && !options?.forceRefresh) {
+          headers['If-None-Match'] = priorEtag;
+        }
+
+        const res = await callPublicEndpoint(
+          async () => {
+            const url = `/api/public/petugas-dudi?petugasNama=${encodeURIComponent(
+              petugasNama
+            )}&petugasId=${encodeURIComponent(petugasId)}`;
+            const fetched = await safeFetchJson(url, { headers });
+            if (fetched.notModified) {
+              const cachedNow = await readCached();
+              if (cachedNow) {
+                const refreshed = { ...cachedNow, updatedAt: Date.now(), etag: fetched.etag || cachedNow.etag };
+                publicListMemCache.set(idbKey, refreshed);
+                IndexedDbSheetCache.getInstance().set(idbKey, refreshed.data, refreshed.etag).catch(() => {});
+                return {
+                  ok: true,
+                  status: 200,
+                  data: { success: true, total: cachedNow.data.length, data: cachedNow.data, notModified: true },
+                };
+              }
+            }
+            if (fetched.ok && fetched.data?.success && Array.isArray(fetched.data.data)) {
+              const etagVal = fetched.etag || fetched.data.etag;
+              const entry = { data: fetched.data.data, etag: etagVal, updatedAt: Date.now() };
+              publicListMemCache.set(idbKey, entry);
+              IndexedDbSheetCache.getInstance().set(idbKey, entry.data, etagVal).catch(() => {});
+            }
+            return fetched;
+          },
+          async () => {
+            const [plottingRows, dudiRows, pengajuanRows] = await Promise.all([
+              readSheetDirect('Plotting_Pemberangkatan', true),
+              readSheetDirect('Master_DUDI'),
+              readSheetDirect('Data_Pengajuan_PKL', true),
+            ]);
+
+            const dudiMapById = new Map<string, any>();
+            const dudiMapByName = new Map<string, any>();
+            for (const d of dudiRows) {
+              const id = pickField(d, 'ID', 'id');
+              const nama = pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi');
+              if (id) dudiMapById.set(id, d);
+              if (nama) dudiMapByName.set(normalizeStr(nama), d);
+            }
+
+            const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
+            const targetNamaNorm = normalizeStr(petugasNama);
+
+            for (const p of plottingRows) {
+              const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
+              if (statusPlt === 'dibatalkan' || statusPlt === 'batal') continue;
+
+              const rowGuruId = pickField(p, 'ID_Guru_Pendamping', 'idGuruPendamping');
+              const rowGuruNama = normalizeStr(pickField(p, 'Guru_Pendamping', 'guruPendamping'));
+              const isMatch =
+                (petugasId && rowGuruId && rowGuruId === petugasId) ||
+                (targetNamaNorm &&
+                  rowGuruNama &&
+                  (rowGuruNama === targetNamaNorm ||
+                    rowGuruNama.includes(targetNamaNorm) ||
+                    targetNamaNorm.includes(rowGuruNama)));
+
+              if (!isMatch) continue;
+
+              const dudiId = pickField(p, 'ID_DUDI', 'idDudi');
+              const dudiNamaRaw = pickField(p, 'Nama_DUDI', 'namaDudi');
+              const master =
+                (dudiId && dudiMapById.get(dudiId)) || (dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw)));
+
+              const resolvedName = pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw;
+              if (!resolvedName) continue;
+
+              const key = normalizeStr(resolvedName);
+              if (!grouped.has(key)) {
+                grouped.set(key, {
+                  dudi: {
+                    id: pickField(master || {}, 'ID', 'id') || dudiId || key,
+                    nama: resolvedName,
+                    alamat: pickField(master || {}, 'Alamat', 'alamat') || '-',
+                    bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || '-',
+                    pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
+                    kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
+                    kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
+                  },
+                  studentNisSet: new Set<string>(),
+                });
+              }
+              const nis = pickField(p, 'NIS', 'nis') || pickField(p, 'Nama_Siswa', 'namaSiswa');
+              if (nis) grouped.get(key)!.studentNisSet.add(nis);
+            }
+
+            for (const reqRow of pengajuanRows) {
+              const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
+              const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
+              if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
+
+              const rowGuruId = pickField(reqRow, 'ID_Guru_Pendamping', 'idGuruPendamping');
+              const rowGuruNama = normalizeStr(pickField(reqRow, 'Guru_Pendamping', 'guruPendamping'));
+              const isMatch =
+                (petugasId && rowGuruId && rowGuruId === petugasId) ||
+                (targetNamaNorm &&
+                  rowGuruNama &&
+                  (rowGuruNama === targetNamaNorm ||
+                    rowGuruNama.includes(targetNamaNorm) ||
+                    targetNamaNorm.includes(rowGuruNama)));
+              if (!isMatch) continue;
+
+              const dudiId = pickField(reqRow, 'ID_DUDI', 'idDudi');
+              const dudiNamaRaw = pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan');
+              if (!dudiNamaRaw) continue;
+              const master = (dudiId && dudiMapById.get(dudiId)) || dudiMapByName.get(normalizeStr(dudiNamaRaw));
+              const key = normalizeStr(dudiNamaRaw);
+
+              if (!grouped.has(key)) {
+                grouped.set(key, {
+                  dudi: {
+                    id: pickField(master || {}, 'ID', 'id') || dudiId || key,
+                    nama: pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw,
+                    alamat:
+                      pickField(master || {}, 'Alamat', 'alamat') ||
+                      pickField(reqRow, 'Alamat_DUDI', 'alamatDudi') ||
+                      '-',
+                    bidang:
+                      pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') ||
+                      pickField(reqRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') ||
+                      '-',
+                    pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
+                    kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
+                    kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
+                  },
+                  studentNisSet: new Set<string>(),
+                });
+              }
+              const nis = pickField(reqRow, 'NIS', 'nis') || pickField(reqRow, 'Nama_Siswa', 'namaSiswa');
+              if (nis) grouped.get(key)!.studentNisSet.add(nis);
+            }
+
+            const result = Array.from(grouped.values()).map((entry) => ({
+              ...entry.dudi,
+              jumlahSiswa: entry.studentNisSet.size,
+            }));
+
+            const entry = { data: result, updatedAt: Date.now() };
+            publicListMemCache.set(idbKey, entry);
+            IndexedDbSheetCache.getInstance().set(idbKey, result).catch(() => {});
+            return { success: true, total: result.length, data: result };
+          }
+        );
+        return res;
+      })().finally(() => {
+        inFlightPublicRevalidations.delete(inflightKey);
+      });
+
+      inFlightPublicRevalidations.set(inflightKey, task);
+      return task;
+    };
+
+    if (!options?.forceRefresh) {
+      const cached = await readCached();
+      if (cached && Array.isArray(cached.data)) {
+        if (Date.now() - cached.updatedAt > PUBLIC_TEACHER_SWR_TTL_MS) {
+          void fetchFresh(cached.etag)
+            .then((freshRes: any) => {
+              if (!freshRes?.notModified && freshRes?.success) {
+                options?.onUpdate?.({ success: true, total: freshRes.data.length, data: freshRes.data });
+              }
+            })
+            .catch(() => {});
+        }
+        return { success: true, total: cached.data.length, data: cached.data };
+      }
+    }
+
+    const res = await fetchFresh();
+    return { success: Boolean(res?.success), total: res?.total ?? res?.data?.length ?? 0, data: res?.data || [] };
   },
 
   async getDudiStudents(
     dudiNama: string,
     dudiId: string,
-    petugasNama: string
+    petugasNama: string,
+    options?: {
+      forceRefresh?: boolean;
+      onUpdate?: (res: { success: boolean; total: number; data: any[] }) => void;
+    }
   ): Promise<{ success: boolean; total: number; data: any[] }> {
-    return callPublicEndpoint(
-      () =>
-        safeFetchJson(
-          `/api/public/dudi-students?dudiNama=${encodeURIComponent(
-            dudiNama
-          )}&dudiId=${encodeURIComponent(dudiId || '')}&petugasNama=${encodeURIComponent(petugasNama)}`
-        ),
-      async () => {
-        const [plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows] = await Promise.all([
-          readSheetDirect('Plotting_Pemberangkatan', true),
-          readSheetDirect('Data_Pengajuan_PKL', true),
-          readMasterSiswaDirect().catch(() => [] as any[]),
-          readSheetDirect('Monitoring_5_Tahap', true),
-          readSheetDirect('Nilai_Dan_Sertifikat', true),
-        ]);
-
-        const siswaByNis = new Map<string, any>();
-        for (const s of siswaRows) {
-          const nis = pickField(s, 'NIS', 'nis');
-          const nisDigits = stripNisSymbols(nis);
-          if (nisDigits) siswaByNis.set(nisDigits, s);
-          if (nis) siswaByNis.set(nis, s);
-        }
-
-        const studentsMap = new Map<string, any>();
-        const targetDudiNorm = normalizeStr(dudiNama);
-        const targetPetugasNorm = normalizeStr(petugasNama);
-
-        for (const p of plottingRows) {
-          const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
-          if (statusPlt === 'dibatalkan' || statusPlt === 'batal') continue;
-
-          const rowDudiId = pickField(p, 'ID_DUDI', 'idDudi');
-          const rowDudiNama = normalizeStr(pickField(p, 'Nama_DUDI', 'namaDudi'));
-          const dudiMatches =
-            (dudiId && rowDudiId && rowDudiId === dudiId) ||
-            (targetDudiNorm &&
-              rowDudiNama &&
-              (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm)));
-
-          if (!dudiMatches) continue;
-
-          if (targetPetugasNorm) {
-            const rowGuru = normalizeStr(pickField(p, 'Guru_Pendamping', 'guruPendamping'));
-            if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
-              continue;
-            }
-          }
-
-          const rawNis = pickField(p, 'NIS', 'nis');
-          const cleanNis = stripNisSymbols(rawNis) || rawNis;
-          const masterSiswa = (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
-          const nama =
-            pickField(p, 'Nama_Siswa', 'namaSiswa') || pickField(masterSiswa || {}, 'Nama_Lengkap', 'nama');
-          if (!cleanNis && !nama) continue;
-
-          const key = cleanNis || normalizeStr(nama);
-          studentsMap.set(key, {
-            id: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || key,
-            idPenempatan: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || '',
-            nis: cleanNis || '-',
-            nama: nama || 'Siswa Prakerin',
-            kelas: pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
-            jurusan: pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan', 'Jurusan') || '-',
-            dudi_name: dudiNama || pickField(p, 'Nama_DUDI', 'namaDudi'),
-          });
-        }
-
-        for (const reqRow of pengajuanRows) {
-          const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
-          const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
-          if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
-
-          const rowDudiId = pickField(reqRow, 'ID_DUDI', 'idDudi');
-          const rowDudiNama = normalizeStr(pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'));
-          const dudiMatches =
-            (dudiId && rowDudiId && rowDudiId === dudiId) ||
-            (targetDudiNorm &&
-              rowDudiNama &&
-              (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm)));
-          if (!dudiMatches) continue;
-
-          if (targetPetugasNorm) {
-            const rowGuru = normalizeStr(pickField(reqRow, 'Guru_Pendamping', 'guruPendamping'));
-            if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
-              continue;
-            }
-          }
-
-          const rawNis = pickField(reqRow, 'NIS', 'nis');
-          const cleanNis = stripNisSymbols(rawNis) || rawNis;
-          const masterSiswa = (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
-          const nama =
-            pickField(reqRow, 'Nama_Siswa', 'namaSiswa') || pickField(masterSiswa || {}, 'Nama_Lengkap', 'nama');
-          if (!cleanNis && !nama) continue;
-
-          const key = cleanNis || normalizeStr(nama);
-          if (!studentsMap.has(key)) {
-            studentsMap.set(key, {
-              id: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || key,
-              idPenempatan: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || '',
-              nis: cleanNis || '-',
-              nama: nama || 'Siswa Prakerin',
-              kelas: pickField(reqRow, 'Kelas', 'kelas') || pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
-              jurusan:
-                pickField(reqRow, 'Jurusan', 'jurusan') ||
-                pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan') ||
-                '-',
-              dudi_name: dudiNama || pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'),
-            });
-          }
-        }
-
-        const result = Array.from(studentsMap.values()).map((stu) => {
-          const summary = buildStudentMonitoringSummary(stu, monitoringRows, nilaiRows);
-          return {
-            ...stu,
-            ...summary,
-          };
-        });
-        return { success: true, total: result.length, data: result };
-      }
+    const cfg = GoogleSheetClient.getInstance().getConfig();
+    const dudiKey = `${String(dudiId || '').trim()}::${normalizeStr(dudiNama)}::${normalizeStr(petugasNama)}`;
+    const idbKey = IndexedDbSheetCache.buildKey(
+      cfg.spreadsheetId || 'public',
+      cfg.activeYear || 'active',
+      `public::dudi-students::${dudiKey}`
     );
+    trackedPublicCacheKeys.add(idbKey);
+
+    const readCached = async () => {
+      const mem = publicListMemCache.get(idbKey);
+      if (mem) return mem;
+      const syncHit = IndexedDbSheetCache.getInstance().getSync(idbKey);
+      if (syncHit) {
+        const entry = { data: syncHit.data, etag: syncHit.etag, updatedAt: syncHit.updatedAt };
+        publicListMemCache.set(idbKey, entry);
+        return entry;
+      }
+      const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
+      if (fromIdb) {
+        const entry = { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
+        publicListMemCache.set(idbKey, entry);
+        return entry;
+      }
+      return null;
+    };
+
+    const fetchFresh = async (priorEtag?: string): Promise<{ success: boolean; total: number; data: any[]; notModified?: boolean }> => {
+      const inflightKey = `dudi_students::${idbKey}`;
+      const existing = inFlightPublicRevalidations.get(inflightKey);
+      if (existing) return existing;
+
+      const task = (async () => {
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (priorEtag && !options?.forceRefresh) {
+          headers['If-None-Match'] = priorEtag;
+        }
+
+        const res = await callPublicEndpoint(
+          async () => {
+            const url = `/api/public/dudi-students?dudiNama=${encodeURIComponent(
+              dudiNama
+            )}&dudiId=${encodeURIComponent(dudiId || '')}&petugasNama=${encodeURIComponent(petugasNama)}${
+              options?.forceRefresh ? `&fresh=1&_ts=${Date.now()}` : ''
+            }`;
+            const fetched = await safeFetchJson(url, { headers });
+            if (fetched.notModified) {
+              const cachedNow = await readCached();
+              if (cachedNow) {
+                const refreshed = { ...cachedNow, updatedAt: Date.now(), etag: fetched.etag || cachedNow.etag };
+                publicListMemCache.set(idbKey, refreshed);
+                IndexedDbSheetCache.getInstance().set(idbKey, refreshed.data, refreshed.etag).catch(() => {});
+                return {
+                  ok: true,
+                  status: 200,
+                  data: { success: true, total: cachedNow.data.length, data: cachedNow.data, notModified: true },
+                };
+              }
+            }
+            if (fetched.ok && fetched.data?.success && Array.isArray(fetched.data.data)) {
+              const etagVal = fetched.etag || fetched.data.etag;
+              const entry = { data: fetched.data.data, etag: etagVal, updatedAt: Date.now() };
+              publicListMemCache.set(idbKey, entry);
+              IndexedDbSheetCache.getInstance().set(idbKey, entry.data, etagVal).catch(() => {});
+            }
+            return fetched;
+          },
+          async () => {
+            const [plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows] = await Promise.all([
+              readSheetDirect('Plotting_Pemberangkatan', true),
+              readSheetDirect('Data_Pengajuan_PKL', true),
+              readMasterSiswaDirect().catch(() => [] as any[]),
+              readSheetDirect('Monitoring_5_Tahap', true),
+              readSheetDirect('Nilai_Dan_Sertifikat', true),
+            ]);
+
+            const siswaByNis = new Map<string, any>();
+            for (const s of siswaRows) {
+              const nis = pickField(s, 'NIS', 'nis');
+              const nisDigits = stripNisSymbols(nis);
+              if (nisDigits) siswaByNis.set(nisDigits, s);
+              if (nis) siswaByNis.set(nis, s);
+            }
+
+            const studentsMap = new Map<string, any>();
+            const targetDudiNorm = normalizeStr(dudiNama);
+            const targetPetugasNorm = normalizeStr(petugasNama);
+
+            for (const p of plottingRows) {
+              const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
+              if (statusPlt === 'dibatalkan' || statusPlt === 'batal') continue;
+
+              const rowDudiId = pickField(p, 'ID_DUDI', 'idDudi');
+              const rowDudiNama = normalizeStr(pickField(p, 'Nama_DUDI', 'namaDudi'));
+              const dudiMatches =
+                (dudiId && rowDudiId && rowDudiId === dudiId) ||
+                (targetDudiNorm &&
+                  rowDudiNama &&
+                  (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm)));
+
+              if (!dudiMatches) continue;
+
+              if (targetPetugasNorm) {
+                const rowGuru = normalizeStr(pickField(p, 'Guru_Pendamping', 'guruPendamping'));
+                if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
+                  continue;
+                }
+              }
+
+              const rawNis = pickField(p, 'NIS', 'nis');
+              const cleanNis = stripNisSymbols(rawNis) || rawNis;
+              const masterSiswa =
+                (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
+              const nama =
+                pickField(p, 'Nama_Siswa', 'namaSiswa') || pickField(masterSiswa || {}, 'Nama_Lengkap', 'nama');
+              if (!cleanNis && !nama) continue;
+
+              const key = cleanNis || normalizeStr(nama);
+              studentsMap.set(key, {
+                id: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || key,
+                idPenempatan: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || '',
+                nis: cleanNis || '-',
+                nama: nama || 'Siswa Prakerin',
+                kelas: pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
+                jurusan: pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan', 'Jurusan') || '-',
+                dudi_name: dudiNama || pickField(p, 'Nama_DUDI', 'namaDudi'),
+              });
+            }
+
+            for (const reqRow of pengajuanRows) {
+              const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
+              const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
+              if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
+
+              const rowDudiId = pickField(reqRow, 'ID_DUDI', 'idDudi');
+              const rowDudiNama = normalizeStr(pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'));
+              const dudiMatches =
+                (dudiId && rowDudiId && rowDudiId === dudiId) ||
+                (targetDudiNorm &&
+                  rowDudiNama &&
+                  (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm)));
+              if (!dudiMatches) continue;
+
+              if (targetPetugasNorm) {
+                const rowGuru = normalizeStr(pickField(reqRow, 'Guru_Pendamping', 'guruPendamping'));
+                if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
+                  continue;
+                }
+              }
+
+              const rawNis = pickField(reqRow, 'NIS', 'nis');
+              const cleanNis = stripNisSymbols(rawNis) || rawNis;
+              const masterSiswa =
+                (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
+              const nama =
+                pickField(reqRow, 'Nama_Siswa', 'namaSiswa') || pickField(masterSiswa || {}, 'Nama_Lengkap', 'nama');
+              if (!cleanNis && !nama) continue;
+
+              const key = cleanNis || normalizeStr(nama);
+              if (!studentsMap.has(key)) {
+                studentsMap.set(key, {
+                  id: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || key,
+                  idPenempatan: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || '',
+                  nis: cleanNis || '-',
+                  nama: nama || 'Siswa Prakerin',
+                  kelas: pickField(reqRow, 'Kelas', 'kelas') || pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
+                  jurusan:
+                    pickField(reqRow, 'Jurusan', 'jurusan') ||
+                    pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan') ||
+                    '-',
+                  dudi_name: dudiNama || pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'),
+                });
+              }
+            }
+
+            const result = Array.from(studentsMap.values()).map((stu) => {
+              const summary = buildStudentMonitoringSummary(stu, monitoringRows, nilaiRows);
+              return {
+                ...stu,
+                ...summary,
+              };
+            });
+            const entry = { data: result, updatedAt: Date.now() };
+            publicListMemCache.set(idbKey, entry);
+            IndexedDbSheetCache.getInstance().set(idbKey, result).catch(() => {});
+            return { success: true, total: result.length, data: result };
+          }
+        );
+        return res;
+      })().finally(() => {
+        inFlightPublicRevalidations.delete(inflightKey);
+      });
+
+      inFlightPublicRevalidations.set(inflightKey, task);
+      return task;
+    };
+
+    if (!options?.forceRefresh) {
+      const cached = await readCached();
+      if (cached && Array.isArray(cached.data)) {
+        if (Date.now() - cached.updatedAt > PUBLIC_TEACHER_SWR_TTL_MS) {
+          void fetchFresh(cached.etag)
+            .then((freshRes: any) => {
+              if (!freshRes?.notModified && freshRes?.success) {
+                options?.onUpdate?.({ success: true, total: freshRes.data.length, data: freshRes.data });
+              }
+            })
+            .catch(() => {});
+        }
+        return { success: true, total: cached.data.length, data: cached.data };
+      }
+    }
+
+    const res = await fetchFresh();
+    return { success: Boolean(res?.success), total: res?.total ?? res?.data?.length ?? 0, data: res?.data || [] };
   },
 
   async submitMonitoring(payload: any): Promise<{
@@ -1328,6 +1532,7 @@ export const PublicPortalClient = {
         if (res.gradeSynced) {
           GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
         }
+        invalidatePublicTeacherCaches();
         const nilaiSuffix = res.gradeSynced
           ? ` · Nilai DUDI (${res.monitoring?.Nilai_rata_rata ?? res.monitoring?.Nilai_Rata_Rata ?? payload.nilai_rata_rata}) tersinkron ke Rekap Nilai`
           : '';
@@ -1632,6 +1837,7 @@ export const PublicPortalClient = {
         if (res.nilaiSynced) {
           GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
         }
+        invalidatePublicTeacherCaches();
         ToastManager.getInstance().update(
           toastId,
           'Perubahan Nilai Tersimpan di Cloud Server!',

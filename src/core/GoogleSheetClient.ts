@@ -1116,10 +1116,8 @@ export class GoogleSheetClient {
 
     const cacheKey = `${this.spreadsheetId}::${sheetName}`;
     if (!forceFresh) {
-      // Deduplicate against in-flight bootstrap so startup never fires duplicate GAS reads
-      if (this.bootstrapPromise) {
-        await this.bootstrapPromise.catch(() => false);
-      }
+      // Do NOT block the active module behind all 10 bootstrap tables on cold start:
+      // fetch the active table immediately in parallel while bootstrap warms the rest.
       const cached = this.clientSheetCache.get(cacheKey);
       if (cached && Date.now() - cached.fetchedAt < GoogleSheetClient.CLIENT_SHEET_CACHE_TTL_MS) {
         return { data: cached.data, fromSpreadsheet: true };

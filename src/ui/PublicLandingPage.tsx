@@ -50,8 +50,33 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
       .catch(() => {
         // Keep current fallback display silently
       });
+
+    // Proactively warm public DUDI & Petugas caches + modal chunks in background
+    // so both mobile & desktop users see zero wait when opening any portal.
+    const prewarm = () => {
+      if (!active) return;
+      PublicPortalClient.prefetchPublicPortal('student');
+      PublicPortalClient.prefetchPublicPortal('teacher');
+      void import('./StudentApplicationWizard');
+      void import('./TeacherMonitoringPortal');
+      void import('./LoginModal');
+    };
+
+    const win = typeof window !== 'undefined' ? (window as any) : null;
+    if (win && typeof win.requestIdleCallback === 'function') {
+      const idleId = win.requestIdleCallback(prewarm, { timeout: 600 });
+      return () => {
+        active = false;
+        if (typeof win.cancelIdleCallback === 'function') {
+          win.cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timer = setTimeout(prewarm, 150);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, []);
 
@@ -162,6 +187,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           {/* Portal Card 1: Pengajuan PKL Siswa */}
           <div
             onMouseEnter={handlePrefetchStudentPortal}
+            onTouchStart={handlePrefetchStudentPortal}
             className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
           >
             <div className="space-y-4">
@@ -208,6 +234,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           {/* Portal Card 2: Monitoring 1-5 Guru */}
           <div
             onMouseEnter={handlePrefetchTeacherPortal}
+            onTouchStart={handlePrefetchTeacherPortal}
             className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
           >
             <div className="space-y-4">

@@ -10,7 +10,7 @@ const STORE_NAME = 'sheet_snapshots';
 const DB_VERSION = 1;
 const LS_PREFIX = 'hubin_swr_';
 const LS_HOT_PREFIX = 'hubin_hot_';
-const MAX_HOT_SERIALIZED_CHARS = 240_000;
+const MAX_HOT_SERIALIZED_CHARS = 450_000;
 
 export class IndexedDbSheetCache {
   private static instance: IndexedDbSheetCache;
