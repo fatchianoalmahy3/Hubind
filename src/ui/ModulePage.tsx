@@ -52,7 +52,12 @@ interface ModulePageProps<T extends { id: string }> {
   metadata: ModuleMetadata<T>;
   repository: BaseRepository<T>;
   userRole: UserRole;
-  onOpenDocsForStudent?: (studentData: any, selectedStudents?: any[], allStudents?: any[]) => void;
+  onOpenDocsForStudent?: (
+    studentData: any,
+    selectedStudents?: any[],
+    allStudents?: any[],
+    sourceModuleId?: string
+  ) => void;
   onOpenSimulator?: () => void;
   onOpenGas?: () => void;
   onOpenSheetConfig?: () => void;
@@ -466,7 +471,7 @@ export function ModulePage<T extends { id: string }>({
     } else if (actionName === 'print_docs') {
       if (onOpenDocsForStudent) {
         const selected = data.filter((d) => selectedIds.includes(d.id));
-        onOpenDocsForStudent(item, selected.length > 0 ? selected : [item], data);
+        onOpenDocsForStudent(item, selected, data, metadata.id);
       }
     }
   };
@@ -776,7 +781,7 @@ export function ModulePage<T extends { id: string }>({
             ? () => {
                 const selected = data.filter((d) => selectedIds.includes(d.id));
                 const active = selected.length > 0 ? selected[0] : data[0] || null;
-                onOpenDocsForStudent(active, selected, data);
+                onOpenDocsForStudent(active, selected, data, metadata.id);
               }
             : undefined
         }
@@ -943,7 +948,7 @@ export function ModulePage<T extends { id: string }>({
           onOpenDocsForStudent && selectedIds.length > 0
             ? () => {
                 const selected = data.filter((d) => selectedIds.includes(d.id));
-                onOpenDocsForStudent(selected[0], selected, data);
+                onOpenDocsForStudent(selected[0], selected, data, metadata.id);
               }
             : undefined
         }

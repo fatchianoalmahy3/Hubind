@@ -96,10 +96,21 @@ export class GoogleSheetClient {
   private bootstrapPromise: Promise<boolean> | null = null;
   private bootstrapEtag: string | null = null;
   private cacheInvalidationListeners = new Set<(sheetName?: string) => void>();
+  private bootstrapListeners = new Set<(tables: string[]) => void>();
   private broadcastChannel: BroadcastChannel | null = null;
-  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 45_000;
+  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 90_000;
 
   private constructor() {
+    const cachedCfg = WorkspaceConfigStore.readCachedConfigSync();
+    if (cachedCfg) {
+      this.hydrateSyncFromCachedConfig(cachedCfg);
+      if (this.spreadsheetId) {
+        IndexedDbSheetCache.getInstance()
+          .preloadAll(this.spreadsheetId, this.activeYear)
+          .catch(() => {});
+      }
+    }
+
     this.initFromFirestore();
 
     if (typeof window !== 'undefined') {
@@ -168,10 +179,51 @@ export class GoogleSheetClient {
     });
   }
 
+  public onBootstrapUpdated(cb: (tables: string[]) => void): () => void {
+    this.bootstrapListeners.add(cb);
+    return () => {
+      this.bootstrapListeners.delete(cb);
+    };
+  }
+
+  private notifyBootstrapUpdated(tables: string[]) {
+    if (tables.length === 0) return;
+    this.bootstrapListeners.forEach((cb) => {
+      try {
+        cb(tables);
+      } catch {
+        // ignore listener failure
+      }
+    });
+  }
+
+  private hydrateSyncFromCachedConfig(cfg: PersistedWorkspaceConfig) {
+    this.activeYear = cfg.activeYear || '2026/2027';
+    this.gasDeployUrl = normalizeGasUrl(cfg.gasDeployUrl || '');
+    this.driveFolderUrl = cfg.driveFolderUrl || '';
+    this.academicYears = Array.isArray(cfg.academicYears) ? cfg.academicYears : [];
+    this.templates =
+      Array.isArray(cfg.templates) && cfg.templates.length > 0
+        ? cfg.templates
+        : [...EMPTY_DEFAULT_TEMPLATES];
+
+    const currentYearObj =
+      this.academicYears.find((ay) => ay.year === this.activeYear) || this.academicYears[0];
+
+    this.spreadsheetId = cfg.spreadsheetId || currentYearObj?.spreadsheetId || '';
+    this.spreadsheetName = cfg.spreadsheetName || currentYearObj?.spreadsheetName || '';
+    this.spreadsheetUrl =
+      cfg.spreadsheetUrl ||
+      currentYearObj?.spreadsheetUrl ||
+      (this.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}` : '');
+  }
+
   private applyConfig(cfg: PersistedWorkspaceConfig) {
     const prevSpreadsheetId = this.spreadsheetId;
     const prevGasUrl = this.gasDeployUrl;
     const prevActiveYear = this.activeYear;
+    const prevSpreadsheetName = this.spreadsheetName;
+    const prevTemplatesSig = JSON.stringify(this.templates || []);
 
     this.activeYear = cfg.activeYear || '2026/2027';
     this.gasDeployUrl = normalizeGasUrl(cfg.gasDeployUrl || '');
@@ -192,18 +244,32 @@ export class GoogleSheetClient {
       currentYearObj?.spreadsheetUrl ||
       (this.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}` : '');
 
-    if (
+    const coreChanged =
       prevSpreadsheetId !== this.spreadsheetId ||
       prevGasUrl !== this.gasDeployUrl ||
-      prevActiveYear !== this.activeYear
-    ) {
+      prevActiveYear !== this.activeYear;
+
+    if (coreChanged) {
       GoogleDriveSheetService.getInstance().clearSheetIdCache(prevSpreadsheetId);
       this.invalidateClientSheetCache(undefined, true);
       this.inFlightSheetFetches.clear();
+      if (this.spreadsheetId) {
+        IndexedDbSheetCache.getInstance()
+          .preloadAll(this.spreadsheetId, this.activeYear)
+          .catch(() => {});
+      }
     }
 
+    const anyVisualChanged =
+      coreChanged ||
+      prevSpreadsheetName !== this.spreadsheetName ||
+      prevTemplatesSig !== JSON.stringify(this.templates || []);
+
+    const firstHydration = !this.isFirestoreHydrated;
     this.isFirestoreHydrated = true;
-    this.notifyChange();
+    if (anyVisualChanged || (firstHydration && !prevSpreadsheetId)) {
+      this.notifyChange();
+    }
   }
 
   private toPersistedPayload(): PersistedWorkspaceConfig {
@@ -844,15 +910,36 @@ export class GoogleSheetClient {
     };
   }
 
-  public async getCachedSnapshot(
+  public getCachedSnapshotSync(
     sheetName: string
-  ): Promise<{ data: any[]; etag?: string; updatedAt: number } | null> {
+  ): { data: any[]; etag?: string; updatedAt: number } | null {
     if (!this.spreadsheetId) return null;
     const cacheKey = `${this.spreadsheetId}::${sheetName}`;
     const inMem = this.clientSheetCache.get(cacheKey);
     if (inMem) {
       return { data: inMem.data, etag: inMem.etag, updatedAt: inMem.fetchedAt };
     }
+    const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
+    const fromSync = IndexedDbSheetCache.getInstance().getSync(idbKey);
+    if (fromSync) {
+      this.clientSheetCache.set(cacheKey, {
+        data: fromSync.data,
+        fetchedAt: fromSync.updatedAt,
+        etag: fromSync.etag,
+      });
+      return { data: fromSync.data, etag: fromSync.etag, updatedAt: fromSync.updatedAt };
+    }
+    return null;
+  }
+
+  public async getCachedSnapshot(
+    sheetName: string
+  ): Promise<{ data: any[]; etag?: string; updatedAt: number } | null> {
+    if (!this.spreadsheetId) return null;
+    const syncHit = this.getCachedSnapshotSync(sheetName);
+    if (syncHit) return syncHit;
+
+    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
     const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
     const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
     if (fromIdb) {
@@ -966,14 +1053,17 @@ export class GoogleSheetClient {
           }
           const normalizer = GoogleDriveSheetService.getInstance();
           const etagsMap: Record<string, string> = json.etags || {};
+          const updatedTables: string[] = [];
 
           await Promise.all(
             Object.entries(json.tables).map(async ([tableName, rawRows]) => {
               if (!Array.isArray(rawRows)) return;
               const normalized = normalizer.normalizeExternalRows(tableName, rawRows);
               await this.saveCachedSnapshot(tableName, normalized, etagsMap[tableName]);
+              updatedTables.push(tableName);
             })
           );
+          this.notifyBootstrapUpdated(updatedTables);
           return true;
         }
         return false;
@@ -1026,6 +1116,10 @@ export class GoogleSheetClient {
 
     const cacheKey = `${this.spreadsheetId}::${sheetName}`;
     if (!forceFresh) {
+      // Deduplicate against in-flight bootstrap so startup never fires duplicate GAS reads
+      if (this.bootstrapPromise) {
+        await this.bootstrapPromise.catch(() => false);
+      }
       const cached = this.clientSheetCache.get(cacheKey);
       if (cached && Date.now() - cached.fetchedAt < GoogleSheetClient.CLIENT_SHEET_CACHE_TTL_MS) {
         return { data: cached.data, fromSpreadsheet: true };

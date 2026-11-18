@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   X,
   Printer,
@@ -20,6 +20,7 @@ import {
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
 import { formatNisVisual } from '../core/utils/nisHelpers';
+import { PrintPortal } from './PrintPortal';
 
 export type DocType =
   | 'pengajuan'
@@ -30,12 +31,67 @@ export type DocType =
   | 'nilai'
   | 'blangko';
 
+interface DocTabMeta {
+  id: DocType;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isGold?: boolean;
+}
+
+const ALL_DOC_TABS: DocTabMeta[] = [
+  { id: 'pengajuan', label: '1. Rekomendasi Kakomli', icon: FileText },
+  { id: 'perizinan', label: '2. Permohonan DUDI', icon: Building2 },
+  { id: 'pengantaran', label: '3. Surat Pengantaran', icon: Send },
+  { id: 'monitoring', label: '4. Instrumen Supervisi', icon: Layers },
+  { id: 'penarikan', label: '5. Surat Penarikan', icon: LogOut },
+  { id: 'nilai', label: '6. Lembar Nilai DUDI', icon: FileCheck },
+  { id: 'blangko', label: '7. Blangko Sertifikat', icon: Award, isGold: true },
+];
+
+const MODULE_DOC_CONTEXT: Record<
+  string,
+  { defaultType: DocType; allowed: DocType[]; label: string }
+> = {
+  pengajuan: {
+    defaultType: 'pengajuan',
+    allowed: ['pengajuan'],
+    label: 'Pengajuan PKL',
+  },
+  perizinan: {
+    defaultType: 'perizinan',
+    allowed: ['perizinan'],
+    label: 'Perizinan PKL',
+  },
+  siswa_pkl: {
+    defaultType: 'pengantaran',
+    allowed: ['pengantaran', 'penarikan'],
+    label: 'Data Siswa PKL',
+  },
+  monitoring: {
+    defaultType: 'monitoring',
+    allowed: ['monitoring'],
+    label: 'Supervisi 8 Tahap',
+  },
+  sertifikat: {
+    defaultType: 'blangko',
+    allowed: ['blangko', 'nilai'],
+    label: 'Raport & Blangko',
+  },
+  siswa: {
+    defaultType: 'pengajuan',
+    allowed: ['pengajuan', 'perizinan', 'pengantaran', 'penarikan', 'nilai', 'blangko'],
+    label: 'Master Siswa',
+  },
+};
+
 interface GoogleDocsPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedStudent?: any;
   allStudents?: any[];
   selectedStudents?: any[];
+  sourceModuleId?: string;
+  initialDocType?: DocType;
 }
 
 export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
@@ -44,14 +100,56 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
   selectedStudent,
   allStudents = [],
   selectedStudents = [],
+  sourceModuleId,
+  initialDocType,
 }) => {
   const client = GoogleSheetClient.getInstance();
   const activeYear = client.getActiveYear();
   const templates = client.getTemplates();
 
-  const [docType, setDocType] = useState<DocType>('pengajuan');
-  const [printScope, setPrintScope] = useState<'single' | 'selected' | 'all'>('single');
+  const moduleCtx = useMemo(() => {
+    if (sourceModuleId && MODULE_DOC_CONTEXT[sourceModuleId]) {
+      return MODULE_DOC_CONTEXT[sourceModuleId];
+    }
+    return {
+      defaultType: initialDocType || 'pengajuan',
+      allowed: [initialDocType || 'pengajuan'],
+      label: 'Pengajuan PKL',
+    };
+  }, [sourceModuleId, initialDocType]);
+
+  const resolvedDefaultDocType: DocType = initialDocType || moduleCtx.defaultType;
+
+  const [docType, setDocType] = useState<DocType>(resolvedDefaultDocType);
+  const [showAllDocTypes, setShowAllDocTypes] = useState(false);
+  const [printScope, setPrintScope] = useState<'single' | 'selected' | 'all'>(() =>
+    selectedStudents.length > 1
+      ? 'selected'
+      : selectedStudent
+      ? 'single'
+      : allStudents.length > 0
+      ? 'all'
+      : 'single'
+  );
   const [previewIndex, setPreviewIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setDocType(resolvedDefaultDocType);
+    setShowAllDocTypes(false);
+    setPreviewIndex(0);
+    if (selectedStudents.length > 1) {
+      setPrintScope('selected');
+    } else if (selectedStudent) {
+      setPrintScope('single');
+    } else if (selectedStudents.length === 1) {
+      setPrintScope('selected');
+    } else if (allStudents.length > 0) {
+      setPrintScope('all');
+    } else {
+      setPrintScope('single');
+    }
+  }, [isOpen, resolvedDefaultDocType, selectedStudent, selectedStudents.length, allStudents.length]);
 
   // Template Settings for Optimal Printing
   const [showSettings, setShowSettings] = useState(false);
@@ -67,6 +165,10 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
   const [isOverprintOnly, setIsOverprintOnly] = useState(false);
 
   if (!isOpen) return null;
+
+  const visibleTabs = showAllDocTypes
+    ? ALL_DOC_TABS
+    : ALL_DOC_TABS.filter((tab) => moduleCtx.allowed.includes(tab.id));
 
   let activeStudentList: any[] = [];
   if (printScope === 'single') {
@@ -99,45 +201,9 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-150 no-print"
       onClick={onClose}
     >
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #print-container, #print-container * {
-            visibility: visible !important;
-          }
-          #print-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          .print-sheet {
-            page-break-after: always !important;
-            break-after: page !important;
-            padding: 15mm 20mm !important;
-            width: 100% !important;
-            box-shadow: none !important;
-            border: none !important;
-            min-height: 100vh !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          @page {
-            size: ${paperSize === 'F4' ? '215mm 330mm' : 'A4'};
-            margin: 10mm;
-          }
-        }
-      `}</style>
-
       <div
         className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-200/90 flex flex-col max-h-[94vh] no-print"
         onClick={(e) => e.stopPropagation()}
@@ -151,14 +217,14 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-                  Template Dokumen &amp; Cetak Massal
+                  Cetak Dokumen — {moduleCtx.label}
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
                   TA {activeYear}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500">
-                Format administrasi Prakerin langsung dari data Cloud Server aktif
+                Menampilkan format surat resmi sesuai menu aktif ({paperSize})
               </p>
             </div>
           </div>
@@ -347,85 +413,50 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
           </div>
         )}
 
-        {/* Tab Selector */}
-        <div className="flex items-center gap-1 px-5 pt-2.5 border-b border-slate-200 bg-slate-50/70 overflow-x-auto text-xs font-semibold">
-          <button
-            onClick={() => setDocType('pengajuan')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'pengajuan'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>1. Rekomendasi Kakomli</span>
-          </button>
-          <button
-            onClick={() => setDocType('perizinan')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'perizinan'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>2. Permohonan DUDI</span>
-          </button>
-          <button
-            onClick={() => setDocType('pengantaran')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'pengantaran'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>3. Surat Pengantaran</span>
-          </button>
-          <button
-            onClick={() => setDocType('monitoring')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'monitoring'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>4. Instrumen Supervisi</span>
-          </button>
-          <button
-            onClick={() => setDocType('penarikan')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'penarikan'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>5. Surat Penarikan</span>
-          </button>
-          <button
-            onClick={() => setDocType('nilai')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'nilai'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <FileCheck className="w-3.5 h-3.5" />
-            <span>6. Lembar Nilai DUDI</span>
-          </button>
-          <button
-            onClick={() => setDocType('blangko')}
-            className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
-              docType === 'blangko'
+        {/* Contextual Tab Selector */}
+        <div className="flex items-center justify-between gap-2 px-5 pt-2.5 border-b border-slate-200 bg-slate-50/70 text-xs font-semibold">
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {visibleTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = docType === tab.id;
+              const activeBorder = tab.isGold
                 ? 'border-amber-600 text-amber-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Award className="w-3.5 h-3.5" />
-            <span>7. Blangko Sertifikat</span>
-          </button>
+                : 'border-blue-600 text-blue-600 font-bold';
+              return (
+                <button
+                  type="button"
+                  key={tab.id}
+                  onClick={() => setDocType(tab.id)}
+                  className={`px-3 py-2 border-b-2 transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                    isActive
+                      ? activeBorder
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {moduleCtx.allowed.length < ALL_DOC_TABS.length && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowAllDocTypes((prev) => {
+                  const next = !prev;
+                  if (!next && !moduleCtx.allowed.includes(docType)) {
+                    setDocType(moduleCtx.defaultType);
+                  }
+                  return next;
+                });
+              }}
+              className="mb-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap cursor-pointer shrink-0"
+            >
+              {showAllDocTypes ? 'Sesuai Menu Saja' : 'Jenis Surat Lain'}
+            </button>
+          )}
         </div>
 
         {/* Modal Body */}
@@ -504,13 +535,16 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
         </div>
       </div>
 
-      {/* HIDDEN PRINT CONTAINER */}
+      {/* PRINT PORTAL OUTSIDE MODAL/OVERFLOW ROOT */}
       {activeStudentList.length > 0 && (
-        <div id="print-container" className="hidden">
+        <PrintPortal paperSize={paperSize}>
           {activeStudentList.map((stu, idx) => (
-            <div key={stu.id || idx} className="print-sheet font-serif text-slate-900 leading-relaxed text-sm">
+            <div
+              key={stu.id || idx}
+              className="print-sheet font-serif text-slate-900 leading-relaxed text-[13px]"
+            >
               {includeKop && !isOverprintOnly && (
-                <div className="border-b-2 border-black pb-3 mb-6 text-center">
+                <div className="border-b-2 border-black pb-2.5 mb-5 text-center print-avoid-break">
                   <div className="text-[11px] font-sans font-bold tracking-widest text-slate-700 uppercase">
                     YAYASAN PEMBINA LEMBAGA PENDIDIKAN DASAR DAN MENENGAH PGRI
                   </div>
@@ -535,7 +569,7 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
               })}
             </div>
           ))}
-        </div>
+        </PrintPortal>
       )}
     </div>
   );
@@ -558,8 +592,19 @@ function renderDocContent(
   const studentNik = student.nik || student.NIK || '-';
   const studentJurusan = student.jurusan || student.Jurusan || '-';
   const studentKelas = student.kelas || student.Kelas || '-';
-  const dudiName = student.dudiTujuan || student.nama_dudi || student.DUDI_Tujuan || '-';
-  const dudiAddress = student.alamatDudi || student.alamat_dudi || student.Alamat_DUDI || '-';
+  const dudiName =
+    student.dudiTujuan ||
+    student.namaDudi ||
+    student.nama_dudi ||
+    student.DUDI_Tujuan ||
+    student.Nama_DUDI ||
+    '-';
+  const dudiAddress =
+    student.alamatDudi ||
+    student.alamat ||
+    student.alamat_dudi ||
+    student.Alamat_DUDI ||
+    '-';
 
   if (docType === 'pengajuan') {
     return (
@@ -617,7 +662,7 @@ function renderDocContent(
           </div>
         </div>
 
-        <div className="flex justify-between items-end mt-8 font-sans text-xs">
+        <div className="flex justify-between items-end mt-8 font-sans text-xs print-avoid-break">
           {includeQrCode ? (
             <div className="text-center p-2 border border-slate-200 rounded-lg bg-slate-50">
               <QrCode className="w-14 h-14 mx-auto text-slate-800" />
@@ -643,13 +688,13 @@ function renderDocContent(
   if (docType === 'perizinan') {
     return (
       <div className="space-y-4">
-        <div className="flex justify-between font-sans text-xs">
+        <div className="flex justify-between gap-4 font-sans text-xs">
           <div>
             <div>Nomor : {customNomorSurat}</div>
             <div>Lamp. : 1 (satu) Berkas</div>
             <div>Perihal : <b>Permohonan Penempatan Praktik Kerja Industri (Prakerin)</b></div>
           </div>
-          <div>Ponorogo, {documentDate}</div>
+          <div className="shrink-0">Ponorogo, {documentDate}</div>
         </div>
 
         <div className="font-sans text-xs mt-4">
@@ -663,21 +708,21 @@ function renderDocContent(
           Dalam rangka memenuhi tuntutan kurikulum Sekolah Menengah Kejuruan serta meningkatkan keselarasan antara kompetensi peserta didik dengan kebutuhan Dunia Usaha dan Dunia Industri (DUDI), kami memohon kesediaan Bapak/Ibu untuk berkenan menerima peserta didik kami melaksanakan Praktik Kerja Industri (Prakerin) di institusi/perusahaan yang Bapak/Ibu pimpin.
         </p>
 
-        <table className="w-full text-xs font-sans border border-slate-300 my-2">
+        <table className="w-full text-xs font-sans border border-slate-300 border-collapse my-2">
           <thead className="bg-slate-100">
             <tr>
-              <th className="p-1.5 border">No</th>
-              <th className="p-1.5 border">Nama Siswa</th>
-              <th className="p-1.5 border">NIS</th>
-              <th className="p-1.5 border">Kompetensi Keahlian</th>
+              <th className="p-1.5 border border-slate-300 w-10 text-center">No</th>
+              <th className="p-1.5 border border-slate-300 text-left">Nama Siswa</th>
+              <th className="p-1.5 border border-slate-300 text-center w-28">NIS</th>
+              <th className="p-1.5 border border-slate-300 text-left">Kompetensi Keahlian</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="p-1.5 border text-center">1</td>
-              <td className="p-1.5 border font-semibold">{studentName}</td>
-              <td className="p-1.5 border text-center font-mono">{studentNis}</td>
-              <td className="p-1.5 border">{studentJurusan}</td>
+              <td className="p-1.5 border border-slate-300 text-center">1</td>
+              <td className="p-1.5 border border-slate-300 font-semibold">{studentName}</td>
+              <td className="p-1.5 border border-slate-300 text-center font-mono">{studentNis}</td>
+              <td className="p-1.5 border border-slate-300">{studentJurusan}</td>
             </tr>
           </tbody>
         </table>
@@ -686,7 +731,7 @@ function renderDocContent(
           Demikian permohonan ini kami sampaikan. Atas perhatian, kerjasama, dan bimbingan yang Bapak/Ibu berikan, kami sampaikan terima kasih.
         </p>
 
-        <div className="flex justify-end mt-8 font-sans text-xs">
+        <div className="flex justify-end mt-8 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>Kepala SMK PGRI 2 Ponorogo,</div>
             <div className="h-16" />
@@ -702,7 +747,7 @@ function renderDocContent(
     return (
       <div className="space-y-4">
         <div className="text-center font-bold uppercase underline text-sm tracking-wide">
-          INSTRUMEN SUPERVISI &amp; MONITORING 5 TAHAP
+          INSTRUMEN SUPERVISI &amp; MONITORING 8 TAHAP
         </div>
         <div className="text-center text-xs font-sans text-slate-500">
           Pokja Hubungan Industri SMK PGRI 2 Ponorogo
@@ -823,15 +868,17 @@ function renderDocContent(
               <td className="border p-2 text-center font-bold font-mono">{alurBisnisVal}</td>
             </tr>
             <tr className="bg-slate-50 font-bold">
-              <td colSpan={2} className="border p-2 text-right">
+              <td colSpan={2} className="border border-slate-300 p-2 text-right">
                 RATA-RATA NILAI DUDI ({student.predikat || '-'}):
               </td>
-              <td className="border p-2 text-center text-blue-700 font-mono text-sm">{rataRataVal}</td>
+              <td className="border border-slate-300 p-2 text-center text-blue-700 font-mono text-sm">
+                {rataRataVal}
+              </td>
             </tr>
           </tbody>
         </table>
 
-        <div className="flex justify-between items-end mt-12 font-sans text-xs">
+        <div className="flex justify-between items-end mt-10 font-sans text-xs print-avoid-break">
           <div>
             <div className="text-slate-400 italic">Cap Stempel DUDI</div>
             <div className="w-24 h-24 border border-dashed border-slate-300 rounded-full flex items-center justify-center text-[10px] text-slate-400">
@@ -862,40 +909,40 @@ function renderDocContent(
     );
     return (
       <div className="space-y-4">
-        <div className="flex justify-between font-sans text-xs">
+        <div className="flex justify-between gap-4 font-sans text-xs">
           <div>
             <div>Nomor : {customNomorSurat}</div>
             <div>Perihal : <b>Berita Acara &amp; Pengantaran Peserta PKL</b></div>
           </div>
-          <div>Ponorogo, {documentDate}</div>
+          <div className="shrink-0">Ponorogo, {documentDate}</div>
         </div>
 
         <div className="font-sans text-xs mt-3">
           Kepada Yth.<br />
-          <b>Pimpinan / Pembimbing Industri {student.namaDudi || dudiName}</b><br />
+          <b>Pimpinan / Pembimbing Industri {dudiName}</b><br />
           {dudiAddress !== '-' ? dudiAddress : 'Di Tempat'}
         </div>
 
         <p className="text-justify text-xs mt-3">
           Dengan hormat,<br />
-          Menindaklanjuti persetujuan penerimaan Praktik Kerja Industri (Prakerin) Tahun Ajaran {activeYear}, bersama surat ini kami menyerahkan peserta didik SMK PGRI 2 Ponorogo untuk melaksanakan Prakerin di instansi/perusahaan yang Bapak/Ibu pimpin dengan Guru Pendamping <b>{guruName}</b>:
+          Menindaklanjuti persetujuan penerimaan Praktik Kerja Industri (Prakerin) Tahun Ajaran {activeYear}, bersama ini kami menyerahkan peserta didik SMK PGRI 2 Ponorogo untuk melaksanakan Prakerin di instansi/perusahaan yang Bapak/Ibu pimpin dengan Guru Pendamping <b>{guruName}</b>:
         </p>
 
-        <table className="w-full text-xs font-sans border border-slate-300 my-2">
+        <table className="w-full text-xs font-sans border border-slate-300 border-collapse my-2">
           <thead className="bg-slate-100">
             <tr>
-              <th className="p-1.5 border">Nama Peserta</th>
-              <th className="p-1.5 border">NIS</th>
-              <th className="p-1.5 border">Tgl Berangkat</th>
-              <th className="p-1.5 border">Rencana Penarikan</th>
+              <th className="p-1.5 border border-slate-300 text-left">Nama Peserta</th>
+              <th className="p-1.5 border border-slate-300 text-center">NIS</th>
+              <th className="p-1.5 border border-slate-300 text-center">Tgl Berangkat</th>
+              <th className="p-1.5 border border-slate-300 text-center">Rencana Penarikan</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="p-1.5 border font-semibold">{studentName}</td>
-              <td className="p-1.5 border text-center font-mono">{studentNis}</td>
-              <td className="p-1.5 border text-center">{tglBerangkat}</td>
-              <td className="p-1.5 border text-center">{tglTarik}</td>
+              <td className="p-1.5 border border-slate-300 font-semibold">{studentName}</td>
+              <td className="p-1.5 border border-slate-300 text-center font-mono">{studentNis}</td>
+              <td className="p-1.5 border border-slate-300 text-center">{tglBerangkat}</td>
+              <td className="p-1.5 border border-slate-300 text-center">{tglTarik}</td>
             </tr>
           </tbody>
         </table>
@@ -904,12 +951,12 @@ function renderDocContent(
           Mohon bimbingan dan pengawasan dari pihak DUDI selama pelaksanaan PKL berlangsung. Atas kerjasama yang baik kami ucapkan terima kasih.
         </p>
 
-        <div className="flex justify-between items-end mt-10 font-sans text-xs">
+        <div className="flex justify-between items-end mt-10 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>Pembimbing DUDI,</div>
             <div className="h-14" />
             <div className="font-bold underline">................................................</div>
-            <div className="text-[10px] text-slate-500">{student.namaDudi || dudiName}</div>
+            <div className="text-[10px] text-slate-500">{dudiName}</div>
           </div>
           <div className="text-center">
             <div>Guru Pendamping Sekolah,</div>
@@ -930,17 +977,17 @@ function renderDocContent(
     );
     return (
       <div className="space-y-4">
-        <div className="flex justify-between font-sans text-xs">
+        <div className="flex justify-between gap-4 font-sans text-xs">
           <div>
             <div>Nomor : {customNomorSurat}</div>
             <div>Perihal : <b>Surat Penarikan &amp; Ucapan Terima Kasih PKL</b></div>
           </div>
-          <div>Ponorogo, {documentDate}</div>
+          <div className="shrink-0">Ponorogo, {documentDate}</div>
         </div>
 
         <div className="font-sans text-xs mt-3">
           Kepada Yth.<br />
-          <b>Pimpinan / Pembimbing Industri {student.namaDudi || dudiName}</b><br />
+          <b>Pimpinan / Pembimbing Industri {dudiName}</b><br />
           {dudiAddress !== '-' ? dudiAddress : 'Di Tempat'}
         </div>
 
@@ -949,21 +996,21 @@ function renderDocContent(
           Sehubungan dengan telah berakhirnya masa Praktik Kerja Industri (Prakerin) Tahun Ajaran {activeYear} pada tanggal <b>{tglTarik}</b>, bersama ini kami menugaskan Guru Pendamping <b>{guruName}</b> untuk melaksanakan penarikan kembali peserta didik berikut:
         </p>
 
-        <table className="w-full text-xs font-sans border border-slate-300 my-2">
+        <table className="w-full text-xs font-sans border border-slate-300 border-collapse my-2">
           <thead className="bg-slate-100">
             <tr>
-              <th className="p-1.5 border">No</th>
-              <th className="p-1.5 border">Nama Siswa</th>
-              <th className="p-1.5 border">NIS</th>
-              <th className="p-1.5 border">Tempat PKL</th>
+              <th className="p-1.5 border border-slate-300 w-10 text-center">No</th>
+              <th className="p-1.5 border border-slate-300 text-left">Nama Siswa</th>
+              <th className="p-1.5 border border-slate-300 text-center">NIS</th>
+              <th className="p-1.5 border border-slate-300 text-left">Tempat PKL</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="p-1.5 border text-center">1</td>
-              <td className="p-1.5 border font-semibold">{studentName}</td>
-              <td className="p-1.5 border text-center font-mono">{studentNis}</td>
-              <td className="p-1.5 border">{student.namaDudi || dudiName}</td>
+              <td className="p-1.5 border border-slate-300 text-center">1</td>
+              <td className="p-1.5 border border-slate-300 font-semibold">{studentName}</td>
+              <td className="p-1.5 border border-slate-300 text-center font-mono">{studentNis}</td>
+              <td className="p-1.5 border border-slate-300">{dudiName}</td>
             </tr>
           </tbody>
         </table>
@@ -972,12 +1019,12 @@ function renderDocContent(
           Kami menyampaikan terima kasih yang sebesar-besarnya atas ilmu, pembinaan disiplin, serta kerjasama kemitraan yang telah terjalin dengan SMK PGRI 2 Ponorogo.
         </p>
 
-        <div className="flex justify-between items-end mt-10 font-sans text-xs">
+        <div className="flex justify-between items-end mt-10 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>Pimpinan / Pembimbing DUDI,</div>
             <div className="h-14" />
             <div className="font-bold underline">................................................</div>
-            <div className="text-[10px] text-slate-500">{student.namaDudi || dudiName}</div>
+            <div className="text-[10px] text-slate-500">{dudiName}</div>
           </div>
           <div className="text-center">
             <div>a.n. Kepala Sekolah / Pokja Hubin,</div>
@@ -992,7 +1039,7 @@ function renderDocContent(
 
   return (
     <div
-      className={`space-y-4 p-6 rounded-xl relative ${
+      className={`space-y-4 p-6 rounded-xl relative print-avoid-break ${
         isOverprintOnly ? 'bg-transparent' : 'border-4 border-amber-300 bg-amber-50/20'
       }`}
     >
@@ -1040,7 +1087,7 @@ function renderDocContent(
         </div>
       </div>
 
-      <div className="flex justify-around items-end pt-10 font-sans text-xs">
+      <div className="flex justify-around items-end pt-10 font-sans text-xs print-avoid-break">
         <div className="text-center">
           <div>Pimpinan Dunia Industri,</div>
           <div className="h-14" />

@@ -14,6 +14,7 @@ import { Sidebar } from './ui/Sidebar';
 import { ModulePage } from './ui/ModulePage';
 import { UserRole } from './core/types/schema';
 import { GoogleSheetClient } from './core/GoogleSheetClient';
+import { IndexedDbSheetCache } from './core/cache/IndexedDbSheetCache';
 import { signOutFirebaseAdmin } from './core/auth/GoogleAuthService';
 import {
   getStoredAdminSession,
@@ -153,6 +154,7 @@ export default function App() {
   const [selectedStudentForDocs, setSelectedStudentForDocs] = useState<any>(null);
   const [selectedStudentsListForDocs, setSelectedStudentsListForDocs] = useState<any[]>([]);
   const [allStudentsListForDocs, setAllStudentsListForDocs] = useState<any[]>([]);
+  const [docsSourceModule, setDocsSourceModule] = useState<string | undefined>(undefined);
   const [isGasOpen, setIsGasOpen] = useState(false);
   const [isSheetConfigOpen, setIsSheetConfigOpen] = useState(false);
   const [isAutoGenerateOpen, setIsAutoGenerateOpen] = useState(false);
@@ -168,10 +170,15 @@ export default function App() {
     spreadsheetId: string;
     spreadsheetTitle?: string;
     error?: string;
-  }>({
-    checking: false,
-    connected: false,
-    spreadsheetId: googleClient.getSpreadsheetId(),
+  }>(() => {
+    const cfg = googleClient.getConfig();
+    const hasConfigured = Boolean(cfg.spreadsheetId && cfg.gasDeployUrl);
+    return {
+      checking: false,
+      connected: hasConfigured,
+      spreadsheetId: cfg.spreadsheetId,
+      spreadsheetTitle: cfg.spreadsheetName || undefined,
+    };
   });
 
   // Persist non-sensitive UI view state across page reloads
@@ -181,6 +188,13 @@ export default function App() {
 
   // Restore local admin session & subscribe to Firestore Workspace config on mount
   useEffect(() => {
+    const initialCfg = googleClient.getConfig();
+    if (initialCfg.spreadsheetId) {
+      IndexedDbSheetCache.getInstance()
+        .preloadAll(initialCfg.spreadsheetId, initialCfg.activeYear)
+        .catch(() => {});
+    }
+
     googleClient.initFromFirestore();
 
     const unsubConfig = googleClient.addChangeListener(() => {
@@ -360,10 +374,16 @@ export default function App() {
     }
   };
 
-  const openDocsForStudent = (studentData: any, selectedList: any[] = [], allList: any[] = []) => {
+  const openDocsForStudent = (
+    studentData: any,
+    selectedList: any[] = [],
+    allList: any[] = [],
+    sourceModuleId?: string
+  ) => {
     setSelectedStudentForDocs(studentData);
     setSelectedStudentsListForDocs(selectedList);
     setAllStudentsListForDocs(allList);
+    setDocsSourceModule(sourceModuleId);
     setIsDocsOpen(true);
   };
 
@@ -626,7 +646,6 @@ export default function App() {
             metadata={JurusanMetadata}
             repository={JurusanService.getInstance()}
             userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
             onOpenSimulator={() => setIsSimulatorOpen(true)}
             onOpenGas={() => setIsGasOpen(true)}
             onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
@@ -639,7 +658,6 @@ export default function App() {
             metadata={KelasMetadata}
             repository={KelasService.getInstance()}
             userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
             onOpenSimulator={() => setIsSimulatorOpen(true)}
             onOpenGas={() => setIsGasOpen(true)}
             onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
@@ -652,7 +670,7 @@ export default function App() {
             metadata={DudiMetadata}
             repository={DudiService.getInstance()}
             userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
+            onOpenDocsForStudent={() => setCurrentModule('doc_mou')}
             onOpenSimulator={() => setIsSimulatorOpen(true)}
             onOpenGas={() => setIsGasOpen(true)}
             onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
@@ -665,7 +683,7 @@ export default function App() {
             metadata={GuruMetadata}
             repository={GuruService.getInstance()}
             userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
+            onOpenDocsForStudent={() => setCurrentModule('doc_surat_tugas')}
             onOpenSimulator={() => setIsSimulatorOpen(true)}
             onOpenGas={() => setIsGasOpen(true)}
             onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
@@ -824,10 +842,7 @@ export default function App() {
               userRole={userRole}
               onOpenSimulator={() => setIsSimulatorOpen(true)}
               onOpenDocs={() => {
-                setSelectedStudentForDocs(null);
-                setSelectedStudentsListForDocs([]);
-                setAllStudentsListForDocs([]);
-                setIsDocsOpen(true);
+                setCurrentModule('doc_pengantaran');
               }}
               onOpenGas={() => setIsGasOpen(true)}
               onOpenAutoGenerate={() => setIsAutoGenerateOpen(true)}
@@ -929,7 +944,7 @@ export default function App() {
             isOpen={isStudentWizardOpen}
             onClose={() => setIsStudentWizardOpen(false)}
             onSuccessOpenDocs={(submitted) => {
-              openDocsForStudent(submitted);
+              openDocsForStudent(submitted, [], [], 'pengajuan');
             }}
           />
         )}
@@ -978,6 +993,7 @@ export default function App() {
             selectedStudent={selectedStudentForDocs}
             selectedStudents={selectedStudentsListForDocs}
             allStudents={allStudentsListForDocs}
+            sourceModuleId={docsSourceModule}
           />
         )}
 

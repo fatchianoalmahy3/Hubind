@@ -9,11 +9,14 @@ const DB_NAME = 'hubin_cloud_swr_v1';
 const STORE_NAME = 'sheet_snapshots';
 const DB_VERSION = 1;
 const LS_PREFIX = 'hubin_swr_';
+const LS_HOT_PREFIX = 'hubin_hot_';
+const MAX_HOT_SERIALIZED_CHARS = 240_000;
 
 export class IndexedDbSheetCache {
   private static instance: IndexedDbSheetCache;
   private dbPromise: Promise<IDBDatabase | null> | null = null;
   private memoryMirror = new Map<string, CachedSheetSnapshot>();
+  private preloadPromises = new Map<string, Promise<void>>();
 
   private constructor() {}
 
@@ -56,6 +59,114 @@ export class IndexedDbSheetCache {
     return this.dbPromise;
   }
 
+  private readHotLocalStorage<T = any>(key: string): CachedSheetSnapshot<T> | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw =
+        window.localStorage.getItem(`${LS_HOT_PREFIX}${key}`) ||
+        window.localStorage.getItem(`${LS_PREFIX}${key}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as CachedSheetSnapshot<T>;
+      if (parsed && Array.isArray(parsed.data)) {
+        this.memoryMirror.set(key, parsed);
+        return parsed;
+      }
+    } catch {
+      // ignore storage/parse error
+    }
+    return null;
+  }
+
+  private writeHotLocalStorage<T = any>(key: string, snapshot: CachedSheetSnapshot<T>): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const serialized = JSON.stringify(snapshot);
+      if (serialized.length > MAX_HOT_SERIALIZED_CHARS) {
+        window.localStorage.removeItem(`${LS_HOT_PREFIX}${key}`);
+        return;
+      }
+      window.localStorage.setItem(`${LS_HOT_PREFIX}${key}`, serialized);
+    } catch {
+      // On QuotaExceededError, evict older hot entries cleanly and retry once
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && k.startsWith(LS_HOT_PREFIX) && k !== `${LS_HOT_PREFIX}${key}`) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.slice(0, Math.ceil(keysToRemove.length / 2)).forEach((k) => {
+          window.localStorage.removeItem(k);
+        });
+        const serialized = JSON.stringify(snapshot);
+        if (serialized.length <= MAX_HOT_SERIALIZED_CHARS) {
+          window.localStorage.setItem(`${LS_HOT_PREFIX}${key}`, serialized);
+        }
+      } catch {
+        // ignore persistent quota constraints
+      }
+    }
+  }
+
+  public getSync<T = any>(key: string): CachedSheetSnapshot<T> | null {
+    const inMem = this.memoryMirror.get(key);
+    if (inMem) {
+      return inMem as CachedSheetSnapshot<T>;
+    }
+    return this.readHotLocalStorage<T>(key);
+  }
+
+  public async preloadAll(spreadsheetId: string, activeYear: string): Promise<void> {
+    const cleanId = String(spreadsheetId || '').trim();
+    const cleanYear = String(activeYear || '').trim();
+    if (!cleanId) return;
+
+    const prefix = `${cleanId}::${cleanYear}::`;
+    const existing = this.preloadPromises.get(prefix);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      const db = await this.openDb();
+      if (!db) return;
+      await new Promise<void>((resolve) => {
+        try {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.openCursor();
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (!cursor) {
+              resolve();
+              return;
+            }
+            const val = cursor.value as CachedSheetSnapshot | undefined;
+            if (
+              val &&
+              typeof val.key === 'string' &&
+              val.key.startsWith(prefix) &&
+              Array.isArray(val.data) &&
+              !this.memoryMirror.has(val.key)
+            ) {
+              this.memoryMirror.set(val.key, val);
+            }
+            cursor.continue();
+          };
+          req.onerror = () => resolve();
+        } catch {
+          resolve();
+        }
+      });
+    })();
+
+    this.preloadPromises.set(prefix, promise);
+    try {
+      await promise;
+    } finally {
+      this.preloadPromises.delete(prefix);
+    }
+  }
+
   public async get<T = any>(key: string): Promise<CachedSheetSnapshot<T> | null> {
     const inMem = this.memoryMirror.get(key);
     if (inMem) {
@@ -81,27 +192,13 @@ export class IndexedDbSheetCache {
 
       if (fromIdb) {
         this.memoryMirror.set(key, fromIdb);
+        this.writeHotLocalStorage(key, fromIdb);
         return fromIdb;
       }
     }
 
-    // Fallback to localStorage for small datasets if IndexedDB unavailable
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = window.localStorage.getItem(`${LS_PREFIX}${key}`);
-        if (raw) {
-          const parsed = JSON.parse(raw) as CachedSheetSnapshot<T>;
-          if (parsed && Array.isArray(parsed.data)) {
-            this.memoryMirror.set(key, parsed);
-            return parsed;
-          }
-        }
-      } catch {
-        // ignore storage errors
-      }
-    }
-
-    return null;
+    // Fallback to localStorage snapshot if IndexedDB unavailable
+    return this.readHotLocalStorage<T>(key);
   }
 
   public async set<T = any>(key: string, data: T[], etag?: string): Promise<void> {
@@ -112,6 +209,7 @@ export class IndexedDbSheetCache {
       updatedAt: Date.now(),
     };
     this.memoryMirror.set(key, snapshot);
+    this.writeHotLocalStorage(key, snapshot);
 
     const db = await this.openDb();
     if (db) {
@@ -161,6 +259,7 @@ export class IndexedDbSheetCache {
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.removeItem(`${LS_PREFIX}${key}`);
+        window.localStorage.removeItem(`${LS_HOT_PREFIX}${key}`);
       } catch {
         // ignore
       }
@@ -182,6 +281,21 @@ export class IndexedDbSheetCache {
           resolve();
         }
       });
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && (k.startsWith(LS_HOT_PREFIX) || k.startsWith(LS_PREFIX))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => window.localStorage.removeItem(k));
+      } catch {
+        // ignore
+      }
     }
   }
 }

@@ -6,8 +6,17 @@ import { ToastManager } from '../core/ToastManager';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 
 export function useDataGrid<T extends { id: string }>(repository: BaseRepository<T>) {
-  const [data, setData] = useState<T[]>([]);
-  const [total, setTotal] = useState(0);
+  const [initialSnapshot] = useState(() => {
+    const hydrated = repository.tryHydrateSync();
+    if (hydrated || repository.hasHydratedData()) {
+      const res = repository.querySync({}, { column: null, direction: 'asc' }, 1, 10, '');
+      return { data: res.data, total: res.total, hasCache: true };
+    }
+    return { data: [] as T[], total: 0, hasCache: false };
+  });
+
+  const [data, setData] = useState<T[]>(initialSnapshot.data);
+  const [total, setTotal] = useState(initialSnapshot.total);
   const [loading, setLoading] = useState(false);
   const [revalidating, setRevalidating] = useState(() => repository.getIsRevalidating());
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -27,9 +36,10 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   // Sync state
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const lastVisibleFetchRef = useRef<number>(0);
+  const lastVisibleFetchRef = useRef<number>(initialSnapshot.hasCache ? Date.now() : 0);
 
   const fetchData = useCallback(async (silent = false) => {
+    repository.tryHydrateSync();
     if (!silent && !repository.hasHydratedData()) {
       setLoading(true);
     }
@@ -40,7 +50,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       if (repoErr) {
         setLoadError(repoErr);
       }
-      const res = await repository.query(filter, sort, page, pageSize, search);
+      const res = repository.querySync(filter, sort, page, pageSize, search);
       setData(res.data);
       setTotal(res.total);
       lastVisibleFetchRef.current = Date.now();
@@ -71,7 +81,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     const onVisibilityOrFocus = () => {
       if (
         (typeof document === 'undefined' || document.visibilityState === 'visible') &&
-        Date.now() - lastVisibleFetchRef.current > 20_000
+        Date.now() - lastVisibleFetchRef.current > 60_000
       ) {
         fetchData(true);
       }

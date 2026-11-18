@@ -26,7 +26,7 @@ export abstract class BaseRepository<T extends { id: string }> {
   private isRevalidating: boolean = false;
   private revalidatingPromise: Promise<void> | null = null;
   private dataUpdateListeners = new Set<(meta?: { revalidatingOnly?: boolean }) => void>();
-  private static readonly REVALIDATE_TTL_MS = 45_000;
+  private static readonly REVALIDATE_TTL_MS = 90_000;
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
     this.tableName = tableName;
@@ -34,6 +34,9 @@ export abstract class BaseRepository<T extends { id: string }> {
     this.memoryData = [];
 
     const client = GoogleSheetClient.getInstance();
+
+    // Try immediate synchronous hydration if cache is already warm
+    this.tryHydrateSync();
 
     // Automatically invalidate RAM cache whenever active Spreadsheet / GAS / Year changes
     client.addChangeListener(() => {
@@ -43,6 +46,29 @@ export abstract class BaseRepository<T extends { id: string }> {
         this.isInitialized = false;
         this.initPromise = null;
         this.lastFetchedAt = 0;
+        this.tryHydrateSync();
+      }
+    });
+
+    // Hydrate immediately when background bootstrap completes
+    client.onBootstrapUpdated((tables) => {
+      if (this.isCommittingSelf) return;
+      const matches = tables.some(
+        (t) =>
+          t === this.tableName ||
+          ((this.tableName === 'Master_Siswa_XI' || this.tableName === 'Master_Siswa') &&
+            (t === 'Master_Siswa_XI' || t === 'Master_Siswa'))
+      );
+      if (!matches) return;
+      const activeId = client.getSpreadsheetId();
+      const snapshot = client.getCachedSnapshotSync(this.tableName);
+      if (activeId && snapshot && Array.isArray(snapshot.data)) {
+        this.memoryData = snapshot.data as T[];
+        this.loadedSpreadsheetId = activeId;
+        this.lastFetchedAt = snapshot.updatedAt || Date.now();
+        this.isInitialized = true;
+        this.lastError = null;
+        this.notifyDataUpdated();
       }
     });
 
@@ -90,6 +116,25 @@ export abstract class BaseRepository<T extends { id: string }> {
     return this.lastError;
   }
 
+  public tryHydrateSync(): boolean {
+    const client = GoogleSheetClient.getInstance();
+    const activeId = client.getSpreadsheetId();
+    if (!activeId) return false;
+    if (this.isInitialized && activeId === this.loadedSpreadsheetId && this.memoryData.length > 0) {
+      return true;
+    }
+    const snapshot = client.getCachedSnapshotSync(this.tableName);
+    if (snapshot && Array.isArray(snapshot.data)) {
+      this.memoryData = snapshot.data as T[];
+      this.loadedSpreadsheetId = activeId;
+      this.lastFetchedAt = snapshot.updatedAt || 0;
+      this.isInitialized = true;
+      this.lastError = null;
+      return true;
+    }
+    return false;
+  }
+
   public async ensureInitialized(): Promise<void> {
     const client = GoogleSheetClient.getInstance();
     if (!client.getConfig().isFirestoreHydrated && !client.getSpreadsheetId()) {
@@ -99,6 +144,10 @@ export abstract class BaseRepository<T extends { id: string }> {
     }
 
     const activeId = client.getSpreadsheetId();
+    if (activeId && (!this.isInitialized || activeId !== this.loadedSpreadsheetId || this.memoryData.length === 0)) {
+      this.tryHydrateSync();
+    }
+
     const isSameSheet = activeId !== '' && activeId === this.loadedSpreadsheetId;
     const isFresh =
       this.isInitialized &&
@@ -545,13 +594,13 @@ export abstract class BaseRepository<T extends { id: string }> {
     return createdRows.length;
   }
 
-  public async query(
+  public querySync(
     filter: FilterState = {},
     sort: SortState = { column: null, direction: 'asc' },
     page: number = 1,
     pageSize: number = 10,
     search: string = ''
-  ): Promise<QueryResult<T>> {
+  ): QueryResult<T> {
     let result = [...this.memoryData];
 
     if (search.trim()) {
@@ -618,5 +667,15 @@ export abstract class BaseRepository<T extends { id: string }> {
       page,
       pageSize,
     };
+  }
+
+  public async query(
+    filter: FilterState = {},
+    sort: SortState = { column: null, direction: 'asc' },
+    page: number = 1,
+    pageSize: number = 10,
+    search: string = ''
+  ): Promise<QueryResult<T>> {
+    return this.querySync(filter, sort, page, pageSize, search);
   }
 }

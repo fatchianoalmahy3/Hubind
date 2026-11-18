@@ -89,3 +89,80 @@
   }
 }
 
+@media screen {
+  #hubin-print-portal {
+    display: none !important;
+  }
+}
+
+@media print {
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.hubin-has-print-portal > *:not(#hubin-print-portal) {
+    display: none !important;
+  }
+
+  #hubin-print-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    overflow: visible !important;
+    color: #0f172a !important;
+  }
+
+  #hubin-print-portal .print-sheet {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    box-sizing: border-box !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  #hubin-print-portal .print-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  #hubin-print-portal .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  #hubin-print-portal table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  #hubin-print-portal thead {
+    display: table-header-group !important;
+  }
+
+  #hubin-print-portal tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

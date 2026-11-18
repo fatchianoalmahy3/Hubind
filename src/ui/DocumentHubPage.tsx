@@ -31,6 +31,7 @@ import {
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { stripStructuredTagsFromNote } from '../core/utils/monitoringHelpers';
 import { formatPhoneDisplay, getWhatsAppHref } from '../core/utils/autoIdHelpers';
+import { PrintPortal } from './PrintPortal';
 
 export type DocumentHubKey =
   | 'doc_mou'
@@ -135,6 +136,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     formatIndonesianDate(getTodayWibIsoDate())
   );
   const [kepalaSekolah, setKepalaSekolah] = useState('Kepala SMK PGRI 2 Ponorogo');
+  const [includeGroupPeers, setIncludeGroupPeers] = useState(true);
 
   const meta = DOC_META[activeDocKey];
   const templateConfig = templates.find((t) => t.id === activeDocKey);
@@ -264,35 +266,6 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
 
   return (
     <div className="space-y-5 animate-in fade-in duration-150">
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #doc-hub-print-area, #doc-hub-print-area * {
-            visibility: visible !important;
-          }
-          #doc-hub-print-area {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: white !important;
-            padding: 15mm 20mm !important;
-            margin: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          @page {
-            size: ${paperSize === 'F4' ? '215mm 330mm' : 'A4'};
-            margin: 10mm;
-          }
-        }
-      `}</style>
-
       {/* Clean Document Hub Header */}
       <div className="space-y-4 no-print">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-3 border-b border-slate-200">
@@ -443,6 +416,18 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
                 />
               </div>
+
+              {(activeDocKey === 'doc_pengantaran' || activeDocKey === 'doc_penarikan') && (
+                <label className="flex items-center gap-2 pt-1 text-xs text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeGroupPeers}
+                    onChange={(e) => setIncludeGroupPeers(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Gabungkan siswa serombongan di DUDI yang sama</span>
+                </label>
+              )}
             </div>
           </div>
 
@@ -519,7 +504,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             ) : (
               <div
                 id="doc-hub-print-area"
-                className="bg-white w-full max-w-[780px] p-8 sm:p-12 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm"
+                className="bg-white w-full max-w-[794px] p-8 sm:p-10 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm"
               >
                 {/* Official School Kop Surat */}
                 <div className="border-b-2 border-black pb-3 mb-6 text-center">
@@ -544,6 +529,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   nomorSurat,
                   tanggalSurat,
                   kepalaSekolah,
+                  includeGroupPeers,
                   penempatanList,
                   dudiList,
                   monitoringList,
@@ -553,6 +539,41 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Top-level Print Portal rendered directly under document.body */}
+      {activeRecord && (
+        <PrintPortal paperSize={paperSize}>
+          <div className="print-sheet font-serif text-slate-900 leading-relaxed text-sm">
+            <div className="border-b-2 border-black pb-3 mb-5 text-center">
+              <div className="text-[11px] font-sans font-bold tracking-widest text-slate-700 uppercase">
+                YAYASAN PEMBINA LEMBAGA PENDIDIKAN DASAR DAN MENENGAH PGRI
+              </div>
+              <div className="text-xl font-bold uppercase tracking-wide mt-0.5 text-slate-950 font-sans">
+                SMK PGRI 2 PONOROGO
+              </div>
+              <div className="text-[11px] font-sans text-slate-700 mt-0.5 font-medium">
+                Status: Terakreditasi &quot;A&quot; (Unggul) • NSS: 322051301002 • NPSN: 20510123
+              </div>
+              <div className="text-[10px] font-sans text-slate-500">
+                Jl. Soekarno - Hatta No. 94 Ponorogo, Jawa Timur • Telp: (0352) 481456
+              </div>
+            </div>
+
+            {renderDocumentBody({
+              docKey: activeDocKey,
+              record: activeRecord,
+              activeYear,
+              nomorSurat,
+              tanggalSurat,
+              kepalaSekolah,
+              includeGroupPeers,
+              penempatanList,
+              dudiList,
+              monitoringList,
+            })}
+          </div>
+        </PrintPortal>
+      )}
     </div>
   );
 };
@@ -564,6 +585,7 @@ function renderDocumentBody(params: {
   nomorSurat: string;
   tanggalSurat: string;
   kepalaSekolah: string;
+  includeGroupPeers: boolean;
   penempatanList: PenempatanPKL[];
   dudiList: Dudi[];
   monitoringList: Monitoring[];
@@ -575,6 +597,7 @@ function renderDocumentBody(params: {
     nomorSurat,
     tanggalSurat,
     kepalaSekolah,
+    includeGroupPeers,
     penempatanList,
     dudiList,
     monitoringList,
@@ -629,7 +652,7 @@ function renderDocumentBody(params: {
           Kedua belah pihak sepakat untuk menjalin kerjasama dalam rangka Penyelenggaraan Praktik Kerja Industri (PKL), penyelarasan kurikulum kejuruan, dan pembinaan kompetensi kerja peserta didik pada Tahun Ajaran <b>{activeYear}</b> dengan kapasitas penempatan hingga <b>{dudi.kuotaMaksimal || '-'} siswa</b>.
         </p>
 
-        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-sans space-y-1">
+        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-sans space-y-1 print-avoid-break">
           <div className="font-bold text-slate-800">Ruang Lingkup Kerjasama:</div>
           <ol className="list-decimal list-inside space-y-0.5 text-slate-700">
             <li>Penempatan peserta didik PKL sesuai kompetensi keahlian dan tata tertib K3 industri.</li>
@@ -638,7 +661,7 @@ function renderDocumentBody(params: {
           </ol>
         </div>
 
-        <div className="flex justify-between items-end pt-10 font-sans text-xs">
+        <div className="flex justify-between items-end pt-8 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>PIHAK KEDUA,</div>
             <div className="font-semibold">{dudi.namaDudi}</div>
@@ -751,7 +774,7 @@ function renderDocumentBody(params: {
           </tbody>
         </table>
 
-        <div className="flex justify-end pt-8 font-sans text-xs">
+        <div className="flex justify-end pt-8 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>Ponorogo, {tanggalSurat}</div>
             <div className="font-semibold mt-0.5">{kepalaSekolah},</div>
@@ -806,7 +829,7 @@ function renderDocumentBody(params: {
           </tbody>
         </table>
 
-        <div className="border border-slate-300 rounded-lg p-3.5 bg-slate-50 font-sans text-xs">
+        <div className="border border-slate-300 rounded-lg p-3.5 bg-slate-50 font-sans text-xs print-avoid-break">
           <div className="font-bold text-slate-800 mb-1.5">
             KEPUTUSAN KETUA KOMPETENSI KEAHLIAN (KAKOMLI):
           </div>
@@ -819,7 +842,7 @@ function renderDocumentBody(params: {
           </div>
         </div>
 
-        <div className="flex justify-between items-end pt-8 font-sans text-xs">
+        <div className="flex justify-between items-end pt-8 font-sans text-xs print-avoid-break">
           <div className="text-center p-2 border border-slate-200 rounded-lg bg-slate-50">
             <QrCode className="w-12 h-12 mx-auto text-slate-800" />
             <span className="text-[9px] text-slate-500 font-mono block mt-0.5">{req.noPengajuan}</span>
@@ -843,11 +866,13 @@ function renderDocumentBody(params: {
       d.id === penempatan.idDudi ||
       d.namaDudi.trim().toLowerCase() === (penempatan.namaDudi || '').trim().toLowerCase()
   );
-  const groupPeers = penempatanList.filter(
-    (p) =>
-      p.namaDudi.trim().toLowerCase() === (penempatan.namaDudi || '').trim().toLowerCase() &&
-      p.statusPenempatan !== 'Dibatalkan'
-  );
+  const groupPeers = includeGroupPeers
+    ? penempatanList.filter(
+        (p) =>
+          p.namaDudi.trim().toLowerCase() === (penempatan.namaDudi || '').trim().toLowerCase() &&
+          p.statusPenempatan !== 'Dibatalkan'
+      )
+    : [penempatan];
   const relatedLogs = monitoringList.filter(
     (m) =>
       m.idPenempatan === penempatan.idPenempatan ||
@@ -857,13 +882,13 @@ function renderDocumentBody(params: {
   if (docKey === 'doc_pengantaran') {
     return (
       <div className="space-y-4">
-        <div className="flex justify-between font-sans text-xs">
+        <div className="flex justify-between gap-4 font-sans text-xs">
           <div>
             <div>Nomor : {nomorSurat}</div>
             <div>Lamp. : 1 (satu) Berkas</div>
             <div>Perihal : <b>Surat Pengantar &amp; Serah Terima Siswa PKL</b></div>
           </div>
-          <div>Ponorogo, {tanggalSurat}</div>
+          <div className="shrink-0">Ponorogo, {tanggalSurat}</div>
         </div>
 
         <div className="font-sans text-xs mt-3">
@@ -902,7 +927,7 @@ function renderDocumentBody(params: {
           Demikian surat pengantaran dan berita acara serah terima ini dibuat untuk dipergunakan sebagaimana mestinya. Atas bimbingan dan kerjasamanya kami ucapkan terima kasih.
         </p>
 
-        <div className="flex justify-between items-end pt-8 font-sans text-xs">
+        <div className="flex justify-between items-end pt-8 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>Diterima Oleh,</div>
             <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
@@ -987,7 +1012,7 @@ function renderDocumentBody(params: {
           </tbody>
         </table>
 
-        <div className="flex justify-between items-end pt-8 font-sans text-xs">
+        <div className="flex justify-between items-end pt-8 font-sans text-xs print-avoid-break">
           <div className="text-center">
             <div>Mengetahui Pembimbing DUDI,</div>
             <div className="h-16" />
@@ -1009,13 +1034,13 @@ function renderDocumentBody(params: {
   // doc_penarikan
   return (
     <div className="space-y-4">
-      <div className="flex justify-between font-sans text-xs">
+      <div className="flex justify-between gap-4 font-sans text-xs">
         <div>
           <div>Nomor : {nomorSurat}</div>
           <div>Lamp. : -</div>
           <div>Perihal : <b>Penarikan Siswa Purnatugas PKL &amp; Ucapan Terima Kasih</b></div>
         </div>
-        <div>Ponorogo, {tanggalSurat}</div>
+        <div className="shrink-0">Ponorogo, {tanggalSurat}</div>
       </div>
 
       <div className="font-sans text-xs mt-3">
@@ -1056,7 +1081,7 @@ function renderDocumentBody(params: {
         Kami mengucapkan terima kasih sebesar-besarnya atas bimbingan, ilmu, dan kesempatan yang telah diberikan kepada siswa kami. Apabila selama pelaksanaan terdapat kekhilafan dari siswa kami, kami mohon maaf yang sebesar-besarnya.
       </p>
 
-      <div className="flex justify-between items-end pt-8 font-sans text-xs">
+      <div className="flex justify-between items-end pt-8 font-sans text-xs print-avoid-break">
         <div className="text-center">
           <div>Diserahkan Kembali Oleh,</div>
           <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>

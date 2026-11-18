@@ -12,6 +12,7 @@ import { normalizeGasUrl } from '../utils/safeFetchJson';
 
 export const BOOTSTRAP_ADMIN_EMAIL = 'fatchiano1@gmail.com';
 const WORKSPACE_DOC_PATH = 'config/workspace';
+const LS_WORKSPACE_CONFIG_KEY = 'hubin_workspace_config_v1';
 
 export interface PersistedWorkspaceConfig {
   activeYear: string;
@@ -192,6 +193,28 @@ function normalizeConfigData(raw: Record<string, any> | undefined): PersistedWor
 }
 
 export class WorkspaceConfigStore {
+  public static readCachedConfigSync(): PersistedWorkspaceConfig | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(LS_WORKSPACE_CONFIG_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return normalizeConfigData(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  public static writeCachedConfigSync(cfg: PersistedWorkspaceConfig): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(LS_WORKSPACE_CONFIG_KEY, JSON.stringify(cfg));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+
   public static async fetchConfigFromServer(): Promise<{
     exists: boolean;
     config: PersistedWorkspaceConfig;
@@ -200,14 +223,18 @@ export class WorkspaceConfigStore {
     try {
       const snap = await getDocFromServer(ref);
       if (!snap.exists()) {
+        const empty = normalizeConfigData(undefined);
+        WorkspaceConfigStore.writeCachedConfigSync(empty);
         return {
           exists: false,
-          config: normalizeConfigData(undefined),
+          config: empty,
         };
       }
+      const normalized = normalizeConfigData(snap.data());
+      WorkspaceConfigStore.writeCachedConfigSync(normalized);
       return {
         exists: true,
-        config: normalizeConfigData(snap.data()),
+        config: normalized,
       };
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, WORKSPACE_DOC_PATH);
@@ -223,10 +250,14 @@ export class WorkspaceConfigStore {
       ref,
       (snap) => {
         if (!snap.exists()) {
-          onUpdate(normalizeConfigData(undefined), false);
+          const empty = normalizeConfigData(undefined);
+          WorkspaceConfigStore.writeCachedConfigSync(empty);
+          onUpdate(empty, false);
           return;
         }
-        onUpdate(normalizeConfigData(snap.data()), true);
+        const normalized = normalizeConfigData(snap.data());
+        WorkspaceConfigStore.writeCachedConfigSync(normalized);
+        onUpdate(normalized, true);
       },
       (error) => {
         try {
@@ -262,6 +293,7 @@ export class WorkspaceConfigStore {
     const ref = doc(db, 'config', 'workspace');
     try {
       await setDoc(ref, payload);
+      WorkspaceConfigStore.writeCachedConfigSync(sanitized);
       return sanitized;
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, WORKSPACE_DOC_PATH);
