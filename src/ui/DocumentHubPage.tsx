@@ -25,6 +25,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  Filter,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -198,7 +199,11 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   const [checkedItemIds, setCheckedItemIds] = useState<Record<string, boolean>>({});
   const [multiPreviewIdx, setMultiPreviewIdx] = useState<number>(0);
   const [guruFilter, setGuruFilter] = useState<string>('ALL');
+  const [jurusanFilter, setJurusanFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [subFilter, setSubFilter] = useState<string>('ALL');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [isMobilePickerModalOpen, setIsMobilePickerModalOpen] = useState<boolean>(false);
   const [paperSize, setPaperSize] = useState<'A4' | 'F4'>('A4');
   const [nomorSurat, setNomorSurat] = useState(DOC_META[activeDocKey].defaultNoSurat);
   const [tanggalSurat, setTanggalSurat] = useState(() =>
@@ -325,6 +330,10 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     setCheckedItemIds({});
     setMultiPreviewIdx(0);
     setGuruFilter('ALL');
+    setJurusanFilter('ALL');
+    setStatusFilter('ALL');
+    setSubFilter('ALL');
+    setIsMobilePickerModalOpen(false);
     setSelectedSuratTugasDudi('ALL_UNLOCKED');
     setGeneratedBundlePdf(null);
     loadDataForDoc(false);
@@ -426,8 +435,20 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         };
       });
 
+      const jurusanSet = new Set<string>();
+      for (const st of students) {
+        const j = String(st.jurusan || '').trim();
+        if (j && j !== '-') jurusanSet.add(j);
+      }
+      if (dudiObj?.bidangKeahlian && dudiObj.bidangKeahlian !== '-') {
+        jurusanSet.add(dudiObj.bidangKeahlian.trim());
+      }
+      if (jurusanFilter !== 'ALL' && !jurusanSet.has(jurusanFilter)) {
+        continue;
+      }
+
       if (q) {
-        const hay = `${grp.namaDudi} ${grp.guruNama} ${students.map((x) => `${x.namaSiswa} ${x.nis}`).join(' ')}`.toLowerCase();
+        const hay = `${grp.namaDudi} ${grp.guruNama} ${Array.from(jurusanSet).join(' ')} ${students.map((x) => `${x.namaSiswa} ${x.nis}`).join(' ')}`.toLowerCase();
         if (!hay.includes(q)) continue;
       }
 
@@ -450,6 +471,9 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           }
         }
       }
+      const isLocked = pendingStudents.length > 0;
+      if (statusFilter === 'SIAP' && isLocked) continue;
+      if (statusFilter === 'TERKUNCI' && !isLocked) continue;
 
       const pemimpinDudi =
         (dudiObj?.namaPemimpin && dudiObj.namaPemimpin !== '-' ? dudiObj.namaPemimpin : '') ||
@@ -472,7 +496,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         pemimpinDudi,
         noTelpDudi,
         students,
-        isLocked: pendingStudents.length > 0,
+        isLocked,
         pendingStudents,
       });
     }
@@ -486,6 +510,8 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     monitoringList,
     siswaByNis,
     bundleGuruFilter,
+    jurusanFilter,
+    statusFilter,
     bundleStageNum,
     searchQuery,
   ]);
@@ -499,7 +525,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     }
     setCheckedBundleKeys(nextMap);
     setBundlePreviewIdx(0);
-  }, [activeDocKey, bundleStageNum, bundleGuruFilter, penempatanList.length, monitoringList.length]);
+  }, [activeDocKey, bundleStageNum, bundleGuruFilter, jurusanFilter, statusFilter, penempatanList.length, monitoringList.length]);
 
   const selectedBundles = useMemo(() => {
     return bundleDudiItems.filter((item) => !item.isLocked && checkedBundleKeys[item.bundleKey]);
@@ -556,23 +582,111 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     return pages;
   }, [activeDocKey, selectedBundles, bundleIncludeSt, bundleIncludeMon, bundleIncludeNilai]);
 
+  const filterMeta = useMemo(() => {
+    const jSet = new Set<string>();
+    const sSet = new Set<string>();
+    const subSet = new Set<string>();
+
+    if (activeDocKey === 'doc_mou') {
+      for (const d of dudiList) {
+        if (d.bidangKeahlian && d.bidangKeahlian !== '-') jSet.add(d.bidangKeahlian.trim());
+        if (d.statusKerjasama) sSet.add(d.statusKerjasama.trim());
+        if (d.wilayahKota && d.wilayahKota !== '-') subSet.add(d.wilayahKota.trim());
+      }
+    } else if (activeDocKey === 'doc_pengajuan') {
+      for (const p of pengajuanList) {
+        if (p.jurusan && p.jurusan !== '-') jSet.add(p.jurusan.trim());
+        if (p.statusKakomli) sSet.add(p.statusKakomli.trim());
+        if (p.kelas && p.kelas !== '-') subSet.add(p.kelas.trim());
+      }
+    } else {
+      for (const p of penempatanList) {
+        if (p.statusPenempatan === 'Dibatalkan') continue;
+        const sRec = siswaByNis.get(stripNisSymbols(p.nis));
+        if (sRec?.jurusan && sRec.jurusan !== '-') jSet.add(sRec.jurusan.trim());
+      }
+      for (const d of dudiList) {
+        if (d.bidangKeahlian && d.bidangKeahlian !== '-') jSet.add(d.bidangKeahlian.trim());
+      }
+      if (activeDocKey === 'doc_surat_tugas') {
+        for (const g of guruList) {
+          if (g.peranUtama) sSet.add(g.peranUtama.trim());
+        }
+      }
+    }
+
+    return {
+      jurusanOptions: Array.from(jSet).sort((a, b) => a.localeCompare(b)),
+      statusOptions:
+        activeDocKey === 'doc_paket_monitoring'
+          ? ['SIAP', 'TERKUNCI']
+          : Array.from(sSet).sort((a, b) => a.localeCompare(b)),
+      subOptions: Array.from(subSet).sort((a, b) => a.localeCompare(b)),
+      jurusanLabel: activeDocKey === 'doc_mou' ? 'Semua Bidang/Jurusan' : 'Semua Jurusan',
+      statusLabel:
+        activeDocKey === 'doc_mou'
+          ? 'Semua Status MoU'
+          : activeDocKey === 'doc_surat_tugas'
+          ? 'Semua Peran'
+          : activeDocKey === 'doc_pengajuan'
+          ? 'Semua Status ACC'
+          : 'Semua Status',
+      subLabel: activeDocKey === 'doc_mou' ? 'Semua Wilayah' : 'Semua Kelas',
+    };
+  }, [activeDocKey, dudiList, pengajuanList, penempatanList, siswaByNis, guruList]);
+
   const filteredItems = useMemo(() => {
     if (activeDocKey === 'doc_paket_monitoring') return [];
     const q = searchQuery.trim().toLowerCase();
+
     if (activeDocKey === 'doc_mou') {
       return dudiList
-        .filter((d) => !q || `${d.namaDudi} ${d.wilayahKota} ${d.namaPic}`.toLowerCase().includes(q))
+        .filter((d) => {
+          if (jurusanFilter !== 'ALL' && (d.bidangKeahlian || '').trim() !== jurusanFilter) return false;
+          if (statusFilter !== 'ALL' && (d.statusKerjasama || '').trim() !== statusFilter) return false;
+          if (subFilter !== 'ALL' && (d.wilayahKota || '').trim() !== subFilter) return false;
+          if (q && !`${d.namaDudi} ${d.wilayahKota} ${d.bidangKeahlian} ${d.namaPic}`.toLowerCase().includes(q)) {
+            return false;
+          }
+          return true;
+        })
         .map((d) => ({
           id: d.id,
           title: d.namaDudi,
           badge: d.statusKerjasama || 'Aktif',
-          subtitle: `${d.wilayahKota || d.alamat || '-'} · ${d.statusKerjasama}`,
+          subtitle: `${d.wilayahKota || d.alamat || '-'} · ${d.bidangKeahlian || '-'} · ${d.statusKerjasama}`,
           raw: d,
         }));
     }
+
     if (activeDocKey === 'doc_surat_tugas') {
       return guruList
-        .filter((g) => !q || `${g.nama} ${g.kontakWA || ''} ${g.peranUtama}`.toLowerCase().includes(q))
+        .filter((g) => {
+          if (statusFilter !== 'ALL' && (g.peranUtama || '').trim() !== statusFilter) return false;
+          if (jurusanFilter !== 'ALL') {
+            const guruPlacements = penempatanList.filter(
+              (p) =>
+                p.statusPenempatan !== 'Dibatalkan' &&
+                ((p.idGuruPendamping && p.idGuruPendamping === g.id) ||
+                  (p.guruPendamping && p.guruPendamping.toLowerCase().includes(g.nama.toLowerCase())))
+            );
+            const hasJurusan = guruPlacements.some((p) => {
+              const sRec = siswaByNis.get(stripNisSymbols(p.nis));
+              const dObj = dudiList.find(
+                (d) => d.id === p.idDudi || d.namaDudi.trim().toLowerCase() === (p.namaDudi || '').trim().toLowerCase()
+              );
+              return (
+                (sRec?.jurusan && sRec.jurusan.trim() === jurusanFilter) ||
+                (dObj?.bidangKeahlian && dObj.bidangKeahlian.trim() === jurusanFilter)
+              );
+            });
+            if (!hasJurusan) return false;
+          }
+          if (q && !`${g.nama} ${g.kontakWA || ''} ${g.peranUtama}`.toLowerCase().includes(q)) {
+            return false;
+          }
+          return true;
+        })
         .map((g) => {
           const dudiSet = new Set(
             penempatanList
@@ -594,20 +708,30 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           };
         });
     }
+
     if (activeDocKey === 'doc_pengajuan') {
       const qDigits = stripNisSymbols(q);
       return pengajuanList
-        .filter(
-          (p) =>
-            !q ||
-            `${p.namaSiswa} ${p.nis} ${p.dudiTujuan} ${p.noPengajuan}`.toLowerCase().includes(q) ||
-            (qDigits && stripNisSymbols(p.nis).includes(qDigits))
-        )
+        .filter((p) => {
+          if (jurusanFilter !== 'ALL' && (p.jurusan || '').trim() !== jurusanFilter) return false;
+          if (statusFilter !== 'ALL' && (p.statusKakomli || '').trim() !== statusFilter) return false;
+          if (subFilter !== 'ALL' && (p.kelas || '').trim() !== subFilter) return false;
+          if (
+            q &&
+            !`${p.namaSiswa} ${p.nis} ${p.dudiTujuan} ${p.noPengajuan} ${p.jurusan} ${p.kelas}`
+              .toLowerCase()
+              .includes(q) &&
+            !(qDigits && stripNisSymbols(p.nis).includes(qDigits))
+          ) {
+            return false;
+          }
+          return true;
+        })
         .map((p) => ({
           id: p.id,
           title: `${p.namaSiswa} — ${p.dudiTujuan}`,
           badge: p.statusKakomli || 'Menunggu',
-          subtitle: `${formatNisVisual(p.nis)} · ${p.jurusan} · ${p.statusKakomli}`,
+          subtitle: `${formatNisVisual(p.nis)} · ${p.jurusan} (${p.kelas}) · ${p.statusKakomli}`,
           raw: p,
         }));
     }
@@ -638,11 +762,26 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     return Array.from(dudiGroupMap.entries())
       .map(([key, grp]) => {
         const first = grp.rows[0];
+        const dObj = dudiList.find(
+          (d) =>
+            (first.idDudi && d.id === first.idDudi) ||
+            d.namaDudi.trim().toLowerCase() === key
+        );
+        const jurSet = new Set<string>();
+        for (const r of grp.rows) {
+          const sRec = siswaByNis.get(stripNisSymbols(r.nis));
+          if (sRec?.jurusan && sRec.jurusan !== '-') jurSet.add(sRec.jurusan.trim());
+        }
+        if (dObj?.bidangKeahlian && dObj.bidangKeahlian !== '-') {
+          jurSet.add(dObj.bidangKeahlian.trim());
+        }
+        if (jurusanFilter !== 'ALL' && !jurSet.has(jurusanFilter)) return null;
+
         const guruNames = Array.from(
           new Set(grp.rows.map((r) => (r.guruPendamping || '').trim()).filter(Boolean))
         );
         const studentHay = grp.rows.map((r) => `${r.namaSiswa} ${r.nis}`).join(' ');
-        const fullHay = `${grp.dudiName} ${guruNames.join(' ')} ${studentHay}`.toLowerCase();
+        const fullHay = `${grp.dudiName} ${guruNames.join(' ')} ${Array.from(jurSet).join(' ')} ${studentHay}`.toLowerCase();
         const digitMatch =
           qDigits && grp.rows.some((r) => stripNisSymbols(r.nis).includes(qDigits));
         if (q && !fullHay.includes(q) && !digitMatch) return null;
@@ -651,7 +790,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           id: `dudi_grp::${key}`,
           title: grp.dudiName,
           badge: `${grp.rows.length} sw`,
-          subtitle: `${grp.rows.length} siswa · ${guruNames.join(', ') || 'Guru belum diatur'}`,
+          subtitle: `${grp.rows.length} siswa · ${Array.from(jurSet).join('/') || '-'} · ${guruNames.join(', ') || 'Guru belum diatur'}`,
           raw: first,
         };
       })
@@ -661,10 +800,14 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     activeDocKey,
     searchQuery,
     guruFilter,
+    jurusanFilter,
+    statusFilter,
+    subFilter,
     guruList,
     dudiList,
     pengajuanList,
     penempatanList,
+    siswaByNis,
   ]);
 
   const activeItem = useMemo(() => {
@@ -1035,7 +1178,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             <button
               type="button"
               onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              className="h-9 hidden lg:inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
               title={isSidebarCollapsed ? 'Tampilkan panel pilih data' : 'Sembunyikan panel agar pratinjau penuh'}
             >
               {isSidebarCollapsed ? (
@@ -1155,227 +1298,293 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
 
       {/* Workspace Split Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* Left: Compact Collapsible Settings + Checklist Picker */}
-        {!isSidebarCollapsed && (
-          <div className="lg:col-span-4 space-y-3 no-print">
-            {activeDocKey === 'doc_paket_monitoring' ? (
-              <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-slate-900 uppercase tracking-wider text-[11px]">
-                    Paket Monitoring · {selectedBundles.length}/{bundleDudiItems.length} DUDI
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsParamModalOpen(true)}
-                    className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer"
-                  >
-                    Parameter ({paperSize})
-                  </button>
-                </div>
+        {(() => {
+          const activeFilterCount =
+            (jurusanFilter !== 'ALL' ? 1 : 0) +
+            (statusFilter !== 'ALL' ? 1 : 0) +
+            (subFilter !== 'ALL' ? 1 : 0) +
+            (activeDocKey === 'doc_paket_monitoring'
+              ? bundleGuruFilter !== 'ALL'
+                ? 1
+                : 0
+              : guruFilter !== 'ALL'
+              ? 1
+              : 0) +
+            (searchQuery.trim() ? 1 : 0);
 
-                {/* Compact 2-Column Filters */}
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    value={bundleStageNum}
-                    onChange={(e) => handleChangeBundleStage(Number(e.target.value) || 1)}
-                    aria-label="Tahap Kunjungan Monitoring"
-                    className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white font-semibold text-[11.5px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    {MONITORING_STAGES.map((st) => (
-                      <option key={st.num} value={st.num}>
-                        {st.value}
-                      </option>
-                    ))}
-                  </select>
+          const resetAllFilters = () => {
+            setSearchQuery('');
+            setJurusanFilter('ALL');
+            setStatusFilter('ALL');
+            setSubFilter('ALL');
+            setGuruFilter('ALL');
+            setBundleGuruFilter('ALL');
+            setMultiPreviewIdx(0);
+          };
 
-                  <select
-                    value={bundleGuruFilter}
-                    onChange={(e) => setBundleGuruFilter(e.target.value)}
-                    aria-label="Filter Guru Pendamping"
-                    className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white font-semibold text-[11.5px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="ALL">Semua Guru</option>
-                    {guruList.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+          const renderPickerPanelBody = (inModal: boolean) => {
+            const outerClass = inModal
+              ? 'flex flex-col gap-2.5 text-xs h-full min-h-0'
+              : 'bg-white rounded-xl border border-slate-200 p-3.5 flex flex-col gap-2.5 text-xs max-h-[calc(100vh-110px)]';
 
-                {/* Compact 3-Chip Document Checkboxes */}
-                <div className="grid grid-cols-3 gap-1.5 pt-1">
-                  <label
-                    className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer select-none transition-colors ${
-                      bundleIncludeSt
-                        ? 'bg-blue-50 border-blue-300 text-blue-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bundleIncludeSt}
-                      onChange={(e) => setBundleIncludeSt(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>S. Tugas</span>
-                  </label>
-                  <label
-                    className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer select-none transition-colors ${
-                      bundleIncludeMon
-                        ? 'bg-blue-50 border-blue-300 text-blue-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bundleIncludeMon}
-                      onChange={(e) => setBundleIncludeMon(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>Monitor</span>
-                  </label>
-                  <label
-                    className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer select-none transition-colors ${
-                      bundleIncludeNilai
-                        ? 'bg-blue-50 border-blue-300 text-blue-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bundleIncludeNilai}
-                      onChange={(e) => setBundleIncludeNilai(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>Nilai</span>
-                  </label>
-                </div>
-
-                {missingBundleTemplates.length > 0 && (
-                  <div className="px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-[10.5px] text-amber-900">
-                    Template Docs belum dipasang: <b>{missingBundleTemplates.join(', ')}</b> (Cetak browser tetap siap).
-                  </div>
-                )}
-
-                {generatedBundlePdf && (
-                  <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-[11px] text-emerald-900 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-bold truncate">PDF Drive Siap ({generatedBundlePdf.totalSheets} hal)</div>
-                      <div className="font-mono text-[10px] truncate text-emerald-700">{generatedBundlePdf.fileName}</div>
-                    </div>
-                    <a
-                      href={generatedBundlePdf.pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>Buka</span>
-                    </a>
-                  </div>
-                )}
-
-                {/* Search + Select All Controls */}
-                <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-                  <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Cari DUDI, guru, siswa..."
-                      className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const m: Record<string, boolean> = {};
-                      bundleDudiItems.forEach((b) => {
-                        if (!b.isLocked) m[b.bundleKey] = true;
-                      });
-                      setCheckedBundleKeys(m);
-                    }}
-                    className="text-[11px] font-semibold text-blue-700 hover:underline shrink-0 cursor-pointer"
-                  >
-                    Semua
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCheckedBundleKeys({})}
-                    className="text-[11px] font-semibold text-slate-500 hover:underline shrink-0 cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                </div>
-
-                {/* Super-Compact 1-Line DUDI Checklist */}
-                <div className="max-h-[460px] overflow-y-auto space-y-1 pr-0.5">
-                  {loading ? (
-                    <div className="py-6 text-center text-xs text-slate-400">
-                      Memuat daftar penempatan &amp; monitoring...
-                    </div>
-                  ) : bundleDudiItems.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg p-3">
-                      Tidak ada penempatan DUDI aktif untuk filter ini.
-                    </div>
-                  ) : (
-                    bundleDudiItems.map((b) => {
-                      const isChecked = !b.isLocked && Boolean(checkedBundleKeys[b.bundleKey]);
-                      const sheetCountForDudi =
-                        (bundleIncludeSt ? 1 : 0) +
-                        (bundleIncludeMon ? 1 : 0) +
-                        (bundleIncludeNilai ? b.students.length : 0);
-                      return (
+            if (activeDocKey === 'doc_paket_monitoring') {
+              return (
+                <div className={outerClass}>
+                  <div className="flex items-center justify-between gap-2 shrink-0">
+                    <span className="font-bold text-slate-900 uppercase tracking-wider text-[11px]">
+                      Paket · {selectedBundles.length}/{bundleDudiItems.length} DUDI
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {activeFilterCount > 0 && (
                         <button
                           type="button"
-                          key={b.bundleKey}
-                          disabled={b.isLocked}
-                          title={
-                            b.isLocked
-                              ? `Terkunci: ${b.pendingStudents.join(', ')} belum selesai Tahap ${bundleStageNum - 1}`
-                              : `${b.namaDudi} · Guru: ${b.guruNama}`
-                          }
-                          onClick={() =>
-                            setCheckedBundleKeys((prev) => ({
-                              ...prev,
-                              [b.bundleKey]: !prev[b.bundleKey],
-                            }))
-                          }
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg border transition-colors flex items-center gap-2 ${
-                            b.isLocked
-                              ? 'bg-amber-50/70 border-amber-200 opacity-85 cursor-not-allowed'
-                              : isChecked
-                              ? 'bg-blue-50 border-blue-400 cursor-pointer'
-                              : 'bg-slate-50/70 border-slate-200 hover:bg-white cursor-pointer'
-                          }`}
+                          onClick={resetAllFilters}
+                          className="text-[11px] text-rose-600 hover:underline font-semibold cursor-pointer"
                         >
-                          <div className="shrink-0">
-                            {b.isLocked ? (
-                              <Lock className="w-3.5 h-3.5 text-amber-600" />
-                            ) : isChecked ? (
-                              <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
-                            ) : (
-                              <Square className="w-3.5 h-3.5 text-slate-400" />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-900">
-                            {b.namaDudi}
-                          </div>
-                          <span className="shrink-0 text-[10.5px] font-medium text-slate-500 tabular-nums">
-                            {b.isLocked ? `Kunci T${bundleStageNum - 1}` : `${b.students.length}sw·${sheetCountForDudi}lbr`}
-                          </span>
+                          Reset Filter
                         </button>
-                      );
-                    })
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsParamModalOpen(true)}
+                        className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer"
+                      >
+                        Parameter ({paperSize})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Compact Filters: Tahap + Guru + Jurusan + Status */}
+                  <div className="grid grid-cols-2 gap-1.5 shrink-0">
+                    <select
+                      value={bundleStageNum}
+                      onChange={(e) => handleChangeBundleStage(Number(e.target.value) || 1)}
+                      aria-label="Tahap Kunjungan Monitoring"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white font-semibold text-[11px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      {MONITORING_STAGES.map((st) => (
+                        <option key={st.num} value={st.num}>
+                          {st.value}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={bundleGuruFilter}
+                      onChange={(e) => setBundleGuruFilter(e.target.value)}
+                      aria-label="Filter Guru Pendamping"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white font-semibold text-[11px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="ALL">Semua Guru</option>
+                      {guruList.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.nama}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={jurusanFilter}
+                      onChange={(e) => setJurusanFilter(e.target.value)}
+                      aria-label="Filter Jurusan"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white font-semibold text-[11px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="ALL">{filterMeta.jurusanLabel}</option>
+                      {filterMeta.jurusanOptions.map((j) => (
+                        <option key={j} value={j}>
+                          {j}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      aria-label="Filter Status Kesiapan"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white font-semibold text-[11px] focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="ALL">Semua Status</option>
+                      <option value="SIAP">Siap Cetak</option>
+                      <option value="TERKUNCI">Terkunci</option>
+                    </select>
+                  </div>
+
+                  {/* Compact 3-Chip Document Checkboxes */}
+                  <div className="grid grid-cols-3 gap-1.5 shrink-0">
+                    <label
+                      className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer select-none transition-colors ${
+                        bundleIncludeSt
+                          ? 'bg-blue-50 border-blue-300 text-blue-900'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bundleIncludeSt}
+                        onChange={(e) => setBundleIncludeSt(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>S. Tugas</span>
+                    </label>
+                    <label
+                      className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer select-none transition-colors ${
+                        bundleIncludeMon
+                          ? 'bg-blue-50 border-blue-300 text-blue-900'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bundleIncludeMon}
+                        onChange={(e) => setBundleIncludeMon(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Monitor</span>
+                    </label>
+                    <label
+                      className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer select-none transition-colors ${
+                        bundleIncludeNilai
+                          ? 'bg-blue-50 border-blue-300 text-blue-900'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bundleIncludeNilai}
+                        onChange={(e) => setBundleIncludeNilai(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>Nilai</span>
+                    </label>
+                  </div>
+
+                  {missingBundleTemplates.length > 0 && (
+                    <div className="px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-[10.5px] text-amber-900 shrink-0">
+                      Template Docs belum dipasang: <b>{missingBundleTemplates.join(', ')}</b> (Cetak browser tetap siap).
+                    </div>
                   )}
+
+                  {generatedBundlePdf && (
+                    <div className="p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-[11px] text-emerald-900 flex items-center justify-between gap-2 shrink-0">
+                      <div className="min-w-0">
+                        <div className="font-bold truncate">PDF Drive Siap ({generatedBundlePdf.totalSheets} hal)</div>
+                        <div className="font-mono text-[10px] truncate text-emerald-700">{generatedBundlePdf.fileName}</div>
+                      </div>
+                      <a
+                        href={generatedBundlePdf.pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Buka</span>
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Search + Select All Controls */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-slate-100 shrink-0">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Cari DUDI, guru, siswa..."
+                        className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const m: Record<string, boolean> = {};
+                        bundleDudiItems.forEach((b) => {
+                          if (!b.isLocked) m[b.bundleKey] = true;
+                        });
+                        setCheckedBundleKeys(m);
+                      }}
+                      className="text-[11px] font-semibold text-blue-700 hover:underline shrink-0 cursor-pointer"
+                    >
+                      Semua
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCheckedBundleKeys({})}
+                      className="text-[11px] font-semibold text-slate-500 hover:underline shrink-0 cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  {/* Super-Compact 1-Line Scrollable DUDI Checklist */}
+                  <div className="flex-1 min-h-[160px] overflow-y-auto space-y-1 pr-0.5">
+                    {loading ? (
+                      <div className="py-6 text-center text-xs text-slate-400">
+                        Memuat daftar penempatan &amp; monitoring...
+                      </div>
+                    ) : bundleDudiItems.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg p-3">
+                        Tidak ada penempatan DUDI aktif untuk filter ini.
+                      </div>
+                    ) : (
+                      bundleDudiItems.map((b) => {
+                        const isChecked = !b.isLocked && Boolean(checkedBundleKeys[b.bundleKey]);
+                        const sheetCountForDudi =
+                          (bundleIncludeSt ? 1 : 0) +
+                          (bundleIncludeMon ? 1 : 0) +
+                          (bundleIncludeNilai ? b.students.length : 0);
+                        return (
+                          <button
+                            type="button"
+                            key={b.bundleKey}
+                            disabled={b.isLocked}
+                            title={
+                              b.isLocked
+                                ? `Terkunci: ${b.pendingStudents.join(', ')} belum selesai Tahap ${bundleStageNum - 1}`
+                                : `${b.namaDudi} · Guru: ${b.guruNama}`
+                            }
+                            onClick={() =>
+                              setCheckedBundleKeys((prev) => ({
+                                ...prev,
+                                [b.bundleKey]: !prev[b.bundleKey],
+                              }))
+                            }
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg border transition-colors flex items-center gap-2 ${
+                              b.isLocked
+                                ? 'bg-amber-50/70 border-amber-200 opacity-85 cursor-not-allowed'
+                                : isChecked
+                                ? 'bg-blue-50 border-blue-400 cursor-pointer'
+                                : 'bg-slate-50/70 border-slate-200 hover:bg-white cursor-pointer'
+                            }`}
+                          >
+                            <div className="shrink-0">
+                              {b.isLocked ? (
+                                <Lock className="w-3.5 h-3.5 text-amber-600" />
+                              ) : isChecked ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                              ) : (
+                                <Square className="w-3.5 h-3.5 text-slate-400" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-900">
+                              {b.namaDudi}
+                            </div>
+                            <span className="shrink-0 text-[10.5px] font-medium text-slate-500 tabular-nums">
+                              {b.isLocked ? `Kunci T${bundleStageNum - 1}` : `${b.students.length}sw·${sheetCountForDudi}lbr`}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-2.5 text-xs">
+              );
+            }
+
+            return (
+              <div className={outerClass}>
                 {/* Compact Active Parameter Strip */}
-                <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 shrink-0">
                   <div className="min-w-0 truncate text-[11px] text-slate-600">
                     <span className="font-bold text-slate-900">{paperSize}</span>
                     <span className="mx-1 text-slate-300">·</span>
@@ -1392,7 +1601,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                 </div>
 
                 {/* Header + Quick Select All / Reset */}
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 shrink-0">
                   <h3 className="text-[11px] font-bold text-slate-900 uppercase tracking-wider tabular-nums">
                     {activeDocKey === 'doc_pengantaran' ||
                     activeDocKey === 'doc_monitoring' ||
@@ -1404,6 +1613,18 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                     )}
                   </h3>
                   <div className="flex items-center gap-2 shrink-0">
+                    {activeFilterCount > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={resetAllFilters}
+                          className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                        >
+                          Reset Filter
+                        </button>
+                        <span className="text-slate-300">·</span>
+                      </>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -1436,8 +1657,27 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   </div>
                 </div>
 
-                {/* Compact Filter + Search */}
-                <div className="space-y-1.5">
+                {/* Dynamic Context Filters (Jurusan, Guru, Status, Kelas/Kota) */}
+                <div className="grid grid-cols-2 gap-1.5 shrink-0">
+                  {filterMeta.jurusanOptions.length > 0 && (
+                    <select
+                      value={jurusanFilter}
+                      onChange={(e) => {
+                        setJurusanFilter(e.target.value);
+                        setMultiPreviewIdx(0);
+                      }}
+                      aria-label="Filter Jurusan"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="ALL">{filterMeta.jurusanLabel}</option>
+                      {filterMeta.jurusanOptions.map((j) => (
+                        <option key={j} value={j}>
+                          {j}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
                   {(activeDocKey === 'doc_pengantaran' ||
                     activeDocKey === 'doc_monitoring' ||
                     activeDocKey === 'doc_penarikan') && (
@@ -1448,9 +1688,9 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                         setMultiPreviewIdx(0);
                       }}
                       aria-label="Filter Guru Pendamping"
-                      className="w-full h-8 px-2.5 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11.5px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     >
-                      <option value="ALL">Semua Guru Pendamping</option>
+                      <option value="ALL">Semua Guru</option>
                       {guruList.map((g) => (
                         <option key={g.id} value={g.id}>
                           {g.nama}
@@ -1459,33 +1699,72 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                     </select>
                   )}
 
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder={
-                        activeDocKey === 'doc_pengantaran' ||
-                        activeDocKey === 'doc_monitoring' ||
-                        activeDocKey === 'doc_penarikan'
-                          ? 'Cari DUDI, guru, atau siswa...'
-                          : 'Cari nama, NIS, atau DUDI...'
-                      }
-                      className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    />
-                  </div>
+                  {filterMeta.statusOptions.length > 0 && (
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => {
+                        setStatusFilter(e.target.value);
+                        setMultiPreviewIdx(0);
+                      }}
+                      aria-label="Filter Status"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="ALL">{filterMeta.statusLabel}</option>
+                      {filterMeta.statusOptions.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {filterMeta.subOptions.length > 0 && (
+                    <select
+                      value={subFilter}
+                      onChange={(e) => {
+                        setSubFilter(e.target.value);
+                        setMultiPreviewIdx(0);
+                      }}
+                      aria-label="Filter Tambahan"
+                      className="w-full h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/30 col-span-2"
+                    >
+                      <option value="ALL">{filterMeta.subLabel}</option>
+                      {filterMeta.subOptions.map((sb) => (
+                        <option key={sb} value={sb}>
+                          {sb}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
-                {/* Super-Compact 1-Line Rows with Left Checkbox + Click-to-Preview */}
-                <div className="max-h-[500px] overflow-y-auto space-y-1 pr-0.5">
+                {/* Search */}
+                <div className="relative shrink-0">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={
+                      activeDocKey === 'doc_pengantaran' ||
+                      activeDocKey === 'doc_monitoring' ||
+                      activeDocKey === 'doc_penarikan'
+                        ? 'Cari DUDI, guru, atau siswa...'
+                        : 'Cari nama, NIS, atau DUDI...'
+                    }
+                    className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  />
+                </div>
+
+                {/* Super-Compact 1-Line Scrollable Checklist */}
+                <div className="flex-1 min-h-[160px] overflow-y-auto space-y-1 pr-0.5">
                   {loading ? (
                     <div className="py-6 text-center text-xs text-slate-400">
                       Membaca data langsung dari Cloud Server...
                     </div>
                   ) : filteredItems.length === 0 ? (
                     <div className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg p-3">
-                      Belum ada data tersedia di {meta.sourceLabel}.
+                      Tidak ada data yang sesuai dengan filter.
                     </div>
                   ) : (
                     filteredItems.map((item, idx) => {
@@ -1553,9 +1832,113 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   )}
                 </div>
               </div>
-            )}
-          </div>
-        )}
+            );
+          };
+
+          return (
+            <>
+              {/* Desktop Sticky Left Panel (hidden on mobile/tablet or when collapsed) */}
+              {!isSidebarCollapsed && (
+                <div className="hidden lg:block lg:col-span-4 lg:sticky lg:top-4 no-print">
+                  {renderPickerPanelBody(false)}
+                </div>
+              )}
+
+              {/* Mobile / Tablet Compact 1-Row Control Bar */}
+              <div className="lg:hidden col-span-1 bg-white rounded-xl border border-slate-200 p-2.5 flex items-center gap-2 no-print">
+                {activeDocKey === 'doc_paket_monitoring' ? (
+                  <div className="flex-1 min-w-0 text-xs text-slate-700 truncate">
+                    <span className="font-bold text-slate-900">
+                      {getStageValueByNumber(bundleStageNum)}
+                    </span>
+                    <span className="mx-1.5 text-slate-300">·</span>
+                    <span className="tabular-nums">
+                      {selectedBundles.length} DUDI ({bundlePrintPages.length} lbr)
+                    </span>
+                  </div>
+                ) : (
+                  <select
+                    value={activeItem?.id || ''}
+                    onChange={(e) => {
+                      setSelectedId(e.target.value);
+                      setCheckedItemIds({});
+                    }}
+                    aria-label="Pilih 1 data cepat"
+                    className="flex-1 min-w-0 h-9 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  >
+                    {filteredItems.length === 0 ? (
+                      <option value="">Tidak ada data</option>
+                    ) : (
+                      filteredItems.map((it) => (
+                        <option key={it.id} value={it.id}>
+                          {it.title} ({it.badge})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsMobilePickerModalOpen(true)}
+                  className="h-9 shrink-0 inline-flex items-center gap-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>
+                    Filter &amp; Massal
+                    {(activeDocKey === 'doc_paket_monitoring'
+                      ? selectedBundles.length
+                      : checkedItems.length) > 0 &&
+                      ` (${
+                        activeDocKey === 'doc_paket_monitoring'
+                          ? selectedBundles.length
+                          : checkedItems.length
+                      })`}
+                  </span>
+                </button>
+              </div>
+
+              {/* Mobile / Tablet Modal Checklist & Filters */}
+              {isMobilePickerModalOpen && (
+                <div
+                  className="fixed inset-0 z-50 lg:hidden flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-xs no-print"
+                  onClick={() => setIsMobilePickerModalOpen(false)}
+                >
+                  <div
+                    className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 w-full sm:max-w-lg h-[82vh] flex flex-col overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+                      <div className="font-bold text-sm text-slate-900">
+                        Filter &amp; Pilih Data ({meta.shortTitle})
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsMobilePickerModalOpen(false)}
+                        className="w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-200/70 flex items-center justify-center cursor-pointer"
+                        aria-label="Tutup popup pilih data"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-4 flex-1 min-h-0 overflow-hidden">
+                      {renderPickerPanelBody(true)}
+                    </div>
+                    <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex justify-end shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setIsMobilePickerModalOpen(false)}
+                        className="h-9 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
+                      >
+                        Lihat Pratinjau
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Right: Document Paper Preview */}
         <div className={isSidebarCollapsed ? 'lg:col-span-12' : 'lg:col-span-8'}>

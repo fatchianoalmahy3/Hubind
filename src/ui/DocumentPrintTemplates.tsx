@@ -321,13 +321,27 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
   return (
     <div className="font-sans text-slate-950 text-[11px] leading-snug flex flex-col justify-between min-h-[960px]">
       <div className="space-y-3">
-        <div className="text-center border-b-2 border-slate-900 pb-2">
-          <div className="text-sm font-extrabold uppercase tracking-wide">LEMBAR MONITORING</div>
-          <div className="text-xs font-bold uppercase mt-0.5">
-            TAHAP {tahapNum} ({stageLabel})
+        <div className="border-b-2 border-slate-900 pb-2 flex items-center gap-3">
+          <div className="w-16 h-16 ml-1 shrink-0 flex items-center justify-center">
+            <img
+              src="/assets/logo-smk-pgri2.png"
+              alt="Logo SMK PGRI 2 Ponorogo"
+              className="w-16 h-16 object-contain"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           </div>
-          <div className="text-xs font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
-          <div className="text-xs font-bold uppercase">SMK PGRI 2 PONOROGO</div>
+          <div className="flex-1 text-center min-w-0">
+            <div className="text-sm font-extrabold uppercase tracking-wide">LEMBAR MONITORING</div>
+            <div className="text-xs font-bold uppercase mt-0.5">
+              TAHAP {tahapNum} ({stageLabel})
+            </div>
+            <div className="text-xs font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
+            <div className="text-xs font-bold uppercase">SMK PGRI 2 PONOROGO</div>
+          </div>
+          <div className="w-16 mr-1 shrink-0" aria-hidden="true" />
         </div>
 
         {/* 1. Identitas Bengkel */}
