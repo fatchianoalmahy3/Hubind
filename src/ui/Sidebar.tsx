@@ -61,71 +61,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'pengajuan',
       label: 'Pengajuan PKL',
       icon: FileText,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping', 'Siswa'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping', 'Siswa'],
     },
     {
       id: 'perizinan',
       label: 'Perizinan PKL',
       icon: FileCheck,
-      allowed: ['Hubin', 'Kakomli'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
     },
     {
       id: 'siswa_pkl',
       label: 'Data Siswa PKL',
       icon: Briefcase,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'monitoring',
       label: 'Supervisi 8 Tahap',
       icon: Compass,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'sertifikat',
       label: 'Raport & Blangko',
       icon: Award,
-      allowed: ['Hubin', 'Kakomli'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
     },
   ];
 
   // Group 2: Dokumen (Grouped & Collapsible)
   const dokumenItems = [
     {
+      id: 'doc_paket_monitoring',
+      label: 'Paket 1-Langkah',
+      icon: Layers,
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
+    },
+    {
       id: 'doc_mou',
       label: 'MOU DUDI',
       icon: FileSignature,
-      allowed: ['Hubin', 'Kakomli'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
     },
     {
       id: 'doc_surat_tugas',
       label: 'Surat Tugas',
       icon: UserCheck,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'doc_pengajuan',
       label: 'Pengajuan',
       icon: FileText,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'doc_pengantaran',
       label: 'Pengantaran',
       icon: Send,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'doc_monitoring',
       label: 'Monitoring',
       icon: Compass,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'doc_penarikan',
       label: 'Penarikan',
       icon: LogOut,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
   ];
 
@@ -135,31 +141,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'siswa',
       label: 'Master Siswa',
       icon: Users,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'dudi',
       label: 'Mitra DUDI & Kuota',
       icon: Building2,
-      allowed: ['Hubin', 'Kakomli', 'GuruPendamping'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
     },
     {
       id: 'guru',
       label: 'Guru Pendamping',
       icon: UserCheck,
-      allowed: ['Hubin', 'Kakomli'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
     },
     {
       id: 'jurusan',
       label: 'Kompetensi Keahlian',
       icon: BookOpen,
-      allowed: ['Hubin', 'Kakomli'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
     },
     {
       id: 'kelas',
       label: 'Kelas & Wali Kelas',
       icon: Layers,
-      allowed: ['Hubin', 'Kakomli'],
+      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
     },
   ];
 
@@ -324,77 +330,73 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
 
-          {/* Group 4: Sistem & Server */}
-          <div className="space-y-1 pt-2 border-t border-slate-800/80">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-1">
-              Sistem &amp; Server
-            </div>
+          {/* Group 4: Sistem & Server (Strictly SuperAdmin Only) */}
+          {userRole === 'SuperAdmin' && (
+            <div className="space-y-1 pt-2 border-t border-slate-800/80">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 px-3 py-1">
+                Sistem &amp; Server
+              </div>
 
-            {userRole === 'Hubin' && (
-              <>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectModule('workspace');
+                  onCloseMobile();
+                }}
+                className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  currentModule === 'workspace'
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`}
+              >
+                <FolderSync
+                  className={`w-4 h-4 shrink-0 ${
+                    currentModule === 'workspace' ? 'text-white' : 'text-slate-400'
+                  }`}
+                />
+                <span className="truncate">Pusat Berkas &amp; Server</span>
+              </button>
+
+              {onOpenSheetConfig && (
                 <button
                   type="button"
                   onClick={() => {
-                    onSelectModule('workspace');
+                    onOpenSheetConfig();
                     onCloseMobile();
                   }}
-                  className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    currentModule === 'workspace'
-                      ? 'bg-blue-600 text-white font-semibold'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-                  }`}
+                  className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
-                  <FolderSync
-                    className={`w-4 h-4 shrink-0 ${
-                      currentModule === 'workspace' ? 'text-white' : 'text-slate-400'
-                    }`}
-                  />
-                  <span className="truncate">Pusat Berkas &amp; Server</span>
+                  <Database className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="truncate">Konfigurasi Server</span>
                 </button>
+              )}
 
-                {onOpenSheetConfig && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenSheetConfig();
-                      onCloseMobile();
-                    }}
-                    className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  >
-                    <Database className="w-4 h-4 text-slate-500 shrink-0" />
-                    <span className="truncate">Konfigurasi Server</span>
-                  </button>
-                )}
+              {onOpenTemplateManager && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenTemplateManager();
+                    onCloseMobile();
+                  }}
+                  className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="truncate">Template Dokumen</span>
+                </button>
+              )}
 
-                {onOpenTemplateManager && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenTemplateManager();
-                      onCloseMobile();
-                    }}
-                    className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  >
-                    <FileText className="w-4 h-4 text-slate-500 shrink-0" />
-                    <span className="truncate">Template Dokumen</span>
-                  </button>
-                )}
-              </>
-            )}
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenDocs();
+                  onCloseMobile();
+                }}
+                className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <Printer className="w-4 h-4 text-slate-500 shrink-0" />
+                <span className="truncate">Cetak Dokumen Massal</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                onOpenDocs();
-                onCloseMobile();
-              }}
-              className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            >
-              <Printer className="w-4 h-4 text-slate-500 shrink-0" />
-              <span className="truncate">Cetak Dokumen Massal</span>
-            </button>
-
-            {userRole === 'Hubin' && (
               <button
                 type="button"
                 onClick={() => {
@@ -406,24 +408,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <FileCode2 className="w-4 h-4 text-slate-500 shrink-0" />
                 <span className="truncate">Integrasi API Server</span>
               </button>
-            )}
 
-            {onOpenAccountManager && (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenAccountManager();
-                  onCloseMobile();
-                }}
-                className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <KeyRound className="w-4 h-4 text-slate-500 shrink-0" />
-                <span className="truncate">
-                  {userRole === 'Hubin' ? 'Kelola Akun & Password' : 'Ubah Password Saya'}
-                </span>
-              </button>
-            )}
-          </div>
+              {onOpenAccountManager && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenAccountManager();
+                    onCloseMobile();
+                  }}
+                  className="w-full min-h-9 flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <KeyRound className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="truncate">Kelola Akun &amp; Password</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer Role Summary */}

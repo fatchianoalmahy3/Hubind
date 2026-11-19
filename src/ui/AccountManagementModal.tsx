@@ -30,6 +30,7 @@ interface AccountManagementModalProps {
 }
 
 const ROLE_OPTIONS: AdminAccountRecord['role'][] = [
+  'SuperAdmin',
   'Hubin',
   'Kepsek',
   'Waka',
@@ -43,7 +44,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   currentUser,
   onCurrentUserUpdated,
 }) => {
-  const isHubin = currentUser?.role === 'Hubin';
+  const isSuperAdmin = currentUser?.role === 'SuperAdmin';
   const [accounts, setAccounts] = useState<AdminAccountRecord[]>([]);
   const [syncedToSheet, setSyncedToSheet] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -72,7 +73,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       setAccounts(res.accounts);
       setSyncedToSheet(res.syncedToSheet);
 
-      if (!isHubin) {
+      if (!isSuperAdmin) {
         const self =
           res.accounts.find(
             (a) => a.id === currentUser.id || a.username === currentUser.username
@@ -104,7 +105,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [isOpen, currentUser, isHubin]);
+  }, [isOpen, currentUser, isSuperAdmin]);
 
   useEffect(() => {
     if (isOpen) {
@@ -152,7 +153,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       editingId ? 'Memperbarui Akun...' : 'Menambahkan Akun Baru...',
       'pending',
       `Menyimpan akun "${cleanUser}" ke Database Cloud Server`,
-      isHubin ? 'Master_Akun' : undefined
+      isSuperAdmin ? 'Master_Akun' : undefined
     );
 
     try {
@@ -168,7 +169,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
 
       setAccounts(res.accounts);
       setSyncedToSheet(res.syncedToSheet);
-      if (isHubin) {
+      if (isSuperAdmin) {
         setFormOpen(false);
       } else {
         setNewPassword('');
@@ -201,7 +202,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       'Menghapus Akun...',
       'pending',
       'Menghapus data akun dari Database Cloud Server',
-      isHubin ? 'Master_Akun' : undefined
+      isSuperAdmin ? 'Master_Akun' : undefined
     );
     try {
       const updated = await LocalAccountAuthService.deleteAccount(id);
@@ -230,10 +231,10 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     setBootstrapping(true);
     setErrorMsg('');
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan 5 Akun Default...',
+      'Menyimpan Akun Default...',
       'pending',
       'Menginisialisasi tabel akun di Database Cloud Server',
-      isHubin ? 'Master_Akun' : undefined
+      isSuperAdmin ? 'Master_Akun' : undefined
     );
     try {
       const saved = await LocalAccountAuthService.bootstrapDefaultAccountsToSheet();
@@ -241,9 +242,9 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       setSyncedToSheet(true);
       ToastManager.getInstance().update(
         toastId,
-        '5 Akun Default Tersimpan ke Server',
+        'Akun Default Tersimpan ke Server',
         'success',
-        'Database akun di Cloud Server sekarang menyimpan akun pengelola.'
+        'Database akun di Cloud Server sekarang menyimpan daftar akun pengelola (termasuk SuperAdmin).'
       );
     } catch (err: any) {
       const msg = err?.message || 'Gagal menyimpan akun default ke Cloud Server.';
@@ -271,7 +272,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
             </div>
             <div className="min-w-0">
               <h2 className="text-base font-bold text-slate-900 truncate">
-                {isHubin ? 'Kelola Akun & Password Pengelola' : 'Ubah Username & Password Saya'}
+                {isSuperAdmin ? 'Kelola Akun & Password Pengelola' : 'Ubah Username & Password Saya'}
               </h2>
               <p className="text-xs text-slate-500 truncate">
                 Tersimpan di Database Cloud Server dengan enkripsi SHA-256
@@ -309,7 +310,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                 <div className="font-bold">
                   {syncedToSheet
                     ? 'Tersinkron ke Database Cloud Server'
-                    : 'Menggunakan 5 Akun Default Bawaan'}
+                    : 'Menggunakan 6 Akun Default Bawaan'}
                 </div>
                 <p className="text-[11px] opacity-90 mt-0.5 leading-relaxed">
                   {syncedToSheet
@@ -320,7 +321,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {!syncedToSheet && isHubin && (
+              {!syncedToSheet && isSuperAdmin && (
                 <button
                   type="button"
                   onClick={handleBootstrap}
@@ -328,7 +329,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                   className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{bootstrapping ? 'Menyimpan...' : 'Simpan 5 Akun Default ke Server'}</span>
+                  <span>{bootstrapping ? 'Menyimpan...' : 'Simpan Akun Default ke Server'}</span>
                 </button>
               )}
               <button
@@ -350,8 +351,8 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
             </div>
           )}
 
-          {/* Hubin Accounts Table */}
-          {isHubin && (
+          {/* SuperAdmin Accounts Table */}
+          {isSuperAdmin && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">
@@ -479,13 +480,13 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
             >
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-bold text-slate-900">
-                  {!isHubin
+                  {!isSuperAdmin
                     ? 'Perbarui Kredensial Akun Anda'
                     : editingId
                     ? `Edit Akun: ${username}`
                     : 'Tambah Akun Pengelola Baru'}
                 </h4>
-                {isHubin && (
+                {isSuperAdmin && (
                   <button
                     type="button"
                     onClick={() => setFormOpen(false)}
@@ -565,7 +566,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                   />
                 </div>
 
-                {isHubin && (
+                {isSuperAdmin && (
                   <>
                     <div>
                       <label className="block font-semibold text-slate-700 mb-1">
@@ -608,7 +609,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2">
-                {isHubin && (
+                {isSuperAdmin && (
                   <button
                     type="button"
                     onClick={() => setFormOpen(false)}

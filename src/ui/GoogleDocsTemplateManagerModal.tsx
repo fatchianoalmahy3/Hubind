@@ -7,10 +7,55 @@ import {
   ShieldCheck,
   Copy,
   Save,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { GoogleSheetClient, WorkspaceTemplateConfig } from '../core/GoogleSheetClient';
 import { EMPTY_DEFAULT_TEMPLATES } from '../core/firebase/WorkspaceConfigStore';
 import { ToastManager } from '../core/ToastManager';
+
+const PLACEHOLDER_GUIDE: Record<string, { summary: string; tags: string[] }> = {
+  doc_surat_tugas: {
+    summary:
+      'Placeholder Surat Tugas (Format 07.08). Untuk kotak Keperluan, ganti gambar kotak dengan {{CekPenempatan}}, {{CekPenyerahan}}, {{CekMonitoring}}, dan {{CekRaport}}.',
+    tags: [
+      '{{NomorSurat}}',
+      '{{TanggalSurat}}',
+      '{{KepalaSekolah}}',
+      '{{NamaGuru}}',
+      '{{JabatanGuru}}',
+      '{{AlamatGuru}}',
+      '{{CekPenempatan}}',
+      '{{CekPenyerahan}}',
+      '{{CekMonitoring}}',
+      '{{CekRaport}}',
+      '{{NamaDudi}}',
+      '{{AlamatDudi}}',
+      '{{TanggalTugas}}',
+    ],
+  },
+  doc_monitoring: {
+    summary:
+      'Placeholder Lembar Monitoring (Format 07.01). Buat 1 baris contoh pada tabel presensi dengan {{No}} dan {{NamaSiswa}} agar otomatis digandakan sesuai jumlah siswa DUDI.',
+    tags: [
+      '{{Tahap}}',
+      '{{TahunAjaran}}',
+      '{{NamaBengkel}}',
+      '{{Alamat}}',
+      '{{Pemimpin}}',
+      '{{NoTelp}}',
+      '{{No}}',
+      '{{NamaSiswa}}',
+      '{{TanggalSurat}}',
+      '{{NamaGuru}}',
+    ],
+  },
+  doc_nilai: {
+    summary:
+      'Placeholder Lembar Penilaian PKL (Format Kurmer). Kolom ANGKA dikosongkan di template agar diisi pembimbing DUDI mulai Monitoring ke-4.',
+    tags: ['{{NamaSiswa}}', '{{Jurusan}}', '{{Kelas}}', '{{NamaDudi}}', '{{NIS}}'],
+  },
+};
 
 interface GoogleDocsTemplateManagerModalProps {
   isOpen: boolean;
@@ -27,6 +72,11 @@ export const GoogleDocsTemplateManagerModal: React.FC<GoogleDocsTemplateManagerM
   const [templates, setTemplates] = useState<WorkspaceTemplateConfig[]>([]);
   const [saving, setSaving] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [openGuideIds, setOpenGuideIds] = useState<Record<string, boolean>>({
+    doc_surat_tugas: true,
+    doc_monitoring: true,
+    doc_nilai: true,
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -140,6 +190,9 @@ export const GoogleDocsTemplateManagerModal: React.FC<GoogleDocsTemplateManagerM
                 (contoh: <code className="bg-white px-1 py-0.5 rounded text-[11px] font-mono text-blue-800">https://docs.google.com/document/d/.../edit</code>).
                 Sistem otomatis mengekstrak ID dan menyimpannya ke konfigurasi Cloud Server.
               </p>
+              <p className="leading-relaxed text-[11px] text-slate-600 pt-0.5">
+                Aset logo cetak web dibaca otomatis dari <code className="bg-white px-1 py-0.5 rounded font-mono text-slate-800">public/assets/logo-pgri.png</code> dan <code className="bg-white px-1 py-0.5 rounded font-mono text-slate-800">public/assets/logo-smk-pgri2.png</code>.
+              </p>
             </div>
           </div>
 
@@ -229,6 +282,53 @@ export const GoogleDocsTemplateManagerModal: React.FC<GoogleDocsTemplateManagerM
                       <span className="text-slate-400 text-[10px]">Google Docs Template</span>
                     </div>
                   </div>
+
+                  {PLACEHOLDER_GUIDE[tpl.id] && (
+                    <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenGuideIds((prev) => ({ ...prev, [tpl.id]: !prev[tpl.id] }))
+                        }
+                        className="flex items-center justify-between w-full text-left text-[11px] font-semibold text-slate-700 hover:text-blue-700 cursor-pointer"
+                      >
+                        <span>Daftar Placeholder Google Docs (Klik untuk salin)</span>
+                        {openGuideIds[tpl.id] ? (
+                          <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                        )}
+                      </button>
+
+                      {openGuideIds[tpl.id] && (
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            {PLACEHOLDER_GUIDE[tpl.id].summary}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {PLACEHOLDER_GUIDE[tpl.id].tags.map((tag) => (
+                              <button
+                                type="button"
+                                key={tag}
+                                onClick={() => {
+                                  navigator.clipboard.writeText(tag);
+                                  ToastManager.getInstance().show(
+                                    'Placeholder Disalin',
+                                    'info',
+                                    `Siap ditempel di Google Docs: ${tag}`
+                                  );
+                                }}
+                                className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 font-mono text-[10.5px] text-slate-800 cursor-pointer transition-colors"
+                                title={`Klik untuk menyalin ${tag}`}
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

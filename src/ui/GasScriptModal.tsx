@@ -45,10 +45,10 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
     { name: 'Master_Siswa_XI', headers: ['ID', 'NIS', 'NIK', 'Nama_Lengkap', 'Jenis_Kelamin', 'ID_Jurusan', 'Kelas', 'No_HP_Siswa', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_PKL', 'Foto_URL'] },
     { name: 'Master_Jurusan', headers: ['ID', 'Kode', 'Nama_Jurusan', 'Nama_Kakomli', 'NIP_Kakomli', 'Kontak_WA', 'Kuota_Siswa', 'Total_Terdaftar'] },
     { name: 'Master_Kelas_Walas', headers: ['ID', 'Nama_Kelas', 'Jurusan', 'Tingkat', 'Wali_Kelas', 'Kontak_Walas', 'Jumlah_Siswa'] },
-    { name: 'Master_DUDI', headers: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'] },
+    { name: 'Master_DUDI', headers: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Link_Maps', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'] },
     { name: 'Master_Guru_Pendamping', headers: ['ID', 'NIP', 'Nama_Lengkap', 'Kontak_WA', 'Email_Google', 'Peran_Utama', 'Jumlah_Bimbingan', 'PIN'] },
-    { name: 'Data_Pengajuan_PKL', headers: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'] },
-    { name: 'Data_Perizinan_PKL', headers: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan'] },
+    { name: 'Data_Pengajuan_PKL', headers: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'Link_Maps', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'] },
+    { name: 'Data_Perizinan_PKL', headers: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan', 'Link_Surat_PDF'] },
     { name: 'Plotting_Pemberangkatan', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'ID_DUDI', 'Nama_DUDI', 'ID_Guru_Pendamping', 'Guru_Pendamping', 'Tanggal_Berangkat', 'Tanggal_Rencana_Tarik', 'Status_Penempatan'] },
     { name: 'Monitoring_5_Tahap', headers: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'] },
     { name: 'Nilai_Dan_Sertifikat', headers: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'] },
@@ -152,7 +152,9 @@ const KEY_ALIASES = {
   idjurusan: ['idjurusan', 'jurusan'],
   jurusan: ['jurusan', 'idjurusan'],
   namalengkap: ['namalengkap', 'nama', 'namasiswa'],
-  namasiswa: ['namasiswa', 'nama', 'namalengkap']
+  namasiswa: ['namasiswa', 'nama', 'namalengkap'],
+  linkmaps: ['linkmaps', 'mapsurl', 'googlemaps'],
+  linksuratpdf: ['linksuratpdf', 'linkpdf']
 };
 
 function getNormalizedValue(rowObj, header) {
@@ -330,10 +332,10 @@ const REQUIRED_SHEET_HEADERS = {
   Master_Siswa_XI: ['ID', 'NIS', 'NIK', 'Nama_Lengkap', 'Jenis_Kelamin', 'ID_Jurusan', 'Kelas', 'No_HP_Siswa', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_PKL', 'Foto_URL'],
   Master_Jurusan: ['ID', 'Kode', 'Nama_Jurusan', 'Nama_Kakomli', 'NIP_Kakomli', 'Kontak_WA', 'Kuota_Siswa', 'Total_Terdaftar'],
   Master_Kelas_Walas: ['ID', 'Nama_Kelas', 'Jurusan', 'Tingkat', 'Wali_Kelas', 'Kontak_Walas', 'Jumlah_Siswa'],
-  Master_DUDI: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'],
+  Master_DUDI: ['ID', 'Nama_DUDI', 'Bidang_Keahlian', 'Alamat', 'Wilayah_Kota', 'Nama_Pemimpin', 'Nama_PIC', 'Kontak_PIC', 'No_Telp_DUDI', 'Link_Maps', 'Kuota_Maksimal', 'Terisi', 'Status_Kerjasama'],
   Master_Guru_Pendamping: ['ID', 'NIP', 'Nama_Lengkap', 'Kontak_WA', 'Email_Google', 'Peran_Utama', 'Jumlah_Bimbingan', 'PIN'],
-  Data_Pengajuan_PKL: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'],
-  Data_Perizinan_PKL: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan'],
+  Data_Pengajuan_PKL: ['No_Pengajuan', 'Timestamp', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Alamat_DUDI', 'Bidang_Pekerjaan', 'Nama_Pemimpin', 'Nama_PIC', 'No_Telp_DUDI', 'Link_Maps', 'No_WA', 'Alamat_Domisili', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Kakomli', 'Catatan_Kakomli', 'Status_Hubin', 'Guru_Pendamping', 'Tgl_Berangkat'],
+  Data_Perizinan_PKL: ['ID_Perizinan', 'No_Pengajuan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'Nama_Ortu_Wali', 'No_Ortu_Wali', 'Status_Izin_Ortu', 'No_Surat_Permohonan', 'DUDI_Tujuan', 'Alamat_DUDI', 'Tgl_Kirim_Surat', 'Status_Balasan_DUDI', 'Tgl_Balasan', 'Catatan_Perizinan', 'Link_Bukti_Balasan', 'Link_Surat_PDF'],
   Plotting_Pemberangkatan: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'ID_DUDI', 'Nama_DUDI', 'ID_Guru_Pendamping', 'Guru_Pendamping', 'Tanggal_Berangkat', 'Tanggal_Rencana_Tarik', 'Status_Penempatan'],
   Monitoring_5_Tahap: ['ID_Monitoring', 'ID_Penempatan', 'NIS', 'Nama_Siswa', 'DUDI_Tujuan', 'Alamat_DUDI', 'Daftar_Siswa', 'Jurusan', 'Guru_Pendamping', 'Tahap', 'Tanggal_Kunjungan', 'Sakit', 'Izin', 'Alpha', 'Nilai_PKL_Muncul', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Catatan_Kunjungan', 'Foto_Bukti_Drive', 'Nilai_DUDI_Terkumpul', 'Blangko_Sertifikat_Bawa', 'Status_Tahap'],
   Nilai_Dan_Sertifikat: ['ID_Penempatan', 'NIS', 'Nama_Siswa', 'Jurusan', 'Kelas', 'DUDI_Tujuan', 'Nilai_K3LH', 'Nilai_Softskills', 'Nilai_Hardskills', 'Nilai_Alur_Bisnis_Dunia_Kerja', 'Nilai_rata_rata', 'Predikat', 'No_Seri_Blangko', 'Status_Blangko', 'Status_Raport', 'Tgl_Terbit'],
@@ -542,6 +544,372 @@ function doPost(e) {
     if (!ss) {
       throw new Error('Spreadsheet tidak ditemukan.');
     }
+
+    if (action === 'GENERATE_SURAT_IZIN_PDF') {
+      const p = body.data || {};
+      let targetRoot = null;
+      const driveUrl = String(body.driveFolderUrl || '').trim();
+      const folderMatch = driveUrl.match(/\\/folders\\/([a-zA-Z0-9_-]+)/);
+      if (folderMatch && folderMatch[1]) {
+        try {
+          targetRoot = DriveApp.getFolderById(folderMatch[1]);
+        } catch (folderErr) {
+          targetRoot = null;
+        }
+      }
+      if (!targetRoot) {
+        const rootName = 'Arsip Hubin SMK PGRI 2 Ponorogo';
+        const rootIt = DriveApp.getFoldersByName(rootName);
+        targetRoot = rootIt.hasNext() ? rootIt.next() : DriveApp.createFolder(rootName);
+      }
+
+      const subName = 'Surat_Perizinan_PKL_PDF';
+      const subIt = targetRoot.getFoldersByName(subName);
+      const pdfFolder = subIt.hasNext() ? subIt.next() : targetRoot.createFolder(subName);
+
+      const safeNama = String(p.namaSiswa || 'Siswa').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Siswa';
+      const safeDudi = String(p.dudiTujuan || 'DUDI').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'DUDI';
+      const baseTitle = 'Surat_Permohonan_PKL_' + safeNama + '_' + safeDudi + '_' + Date.now();
+
+      const doc = DocumentApp.create(baseTitle);
+      const docBody = doc.getBody();
+      docBody.setMarginTop(48);
+      docBody.setMarginBottom(48);
+      docBody.setMarginLeft(60);
+      docBody.setMarginRight(60);
+
+      const p1 = docBody.appendParagraph('YAYASAN PEMBINA LEMBAGA PENDIDIKAN DASAR DAN MENENGAH PGRI');
+      p1.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+      p1.editAsText().setFontSize(9).setBold(true);
+
+      const p2 = docBody.appendParagraph('SMK PGRI 2 PONOROGO');
+      p2.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+      p2.editAsText().setFontSize(14).setBold(true);
+
+      const p3 = docBody.appendParagraph('Status: Terakreditasi "A" (Unggul) • NSS: 322051301002 • NPSN: 20510123\\nJl. Soekarno - Hatta No. 94 Ponorogo, Jawa Timur • Telp: (0352) 481456');
+      p3.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+      p3.editAsText().setFontSize(9).setBold(false);
+
+      docBody.appendHorizontalRule();
+      docBody.appendParagraph('');
+
+      const noSurat = String(p.noSuratPermohonan || '421.5 / ___ / Hubin / SMK.PGRI2 / ' + new Date().getFullYear());
+      const tglSurat = String(p.tanggalSurat || '');
+      const metaPara = docBody.appendParagraph(
+        'Nomor   : ' + noSurat + '\\n' +
+        'Lamp.   : 1 (satu) Berkas\\n' +
+        'Perihal : Permohonan Penempatan Praktik Kerja Industri (Prakerin)\\n' +
+        'Tanggal : ' + tglSurat
+      );
+      metaPara.editAsText().setFontSize(10);
+
+      docBody.appendParagraph('');
+      const toPara = docBody.appendParagraph(
+        'Kepada Yth.\\nPimpinan / HRD ' + String(p.dudiTujuan || 'Mitra DUDI') + '\\n' + String(p.alamatDudi || 'Di Tempat')
+      );
+      toPara.editAsText().setFontSize(10);
+
+      docBody.appendParagraph('');
+      const openPara = docBody.appendParagraph(
+        'Dengan hormat,\\nDalam rangka memenuhi tuntutan kurikulum Sekolah Menengah Kejuruan serta meningkatkan keselarasan kompetensi peserta didik dengan kebutuhan Dunia Usaha dan Dunia Industri (DUDI), kami memohon kesediaan Bapak/Ibu untuk berkenan menerima peserta didik SMK PGRI 2 Ponorogo melaksanakan Praktik Kerja Industri (Prakerin) di perusahaan/instansi yang Bapak/Ibu pimpin:'
+      );
+      openPara.setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY);
+      openPara.editAsText().setFontSize(10);
+
+      docBody.appendParagraph('');
+      const tbl = docBody.appendTable([
+        ['No', 'Nama Siswa', 'NIS', 'Kelas / Jurusan'],
+        ['1', String(p.namaSiswa || '-'), String(p.nis || '-'), String(p.kelas || '-') + ' / ' + String(p.jurusan || '-')]
+      ]);
+      tbl.getRow(0).editAsText().setBold(true).setFontSize(10);
+      tbl.getRow(1).editAsText().setFontSize(10);
+
+      docBody.appendParagraph('');
+      const closePara = docBody.appendParagraph(
+        'Demikian surat permohonan ini kami sampaikan. Atas perhatian, kerjasama, dan bimbingan yang Bapak/Ibu berikan, kami ucapkan terima kasih.'
+      );
+      closePara.setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY);
+      closePara.editAsText().setFontSize(10);
+
+      docBody.appendParagraph('');
+      const signPara = docBody.appendParagraph(
+        'Ponorogo, ' + tglSurat + '\\n' +
+        String(p.kepalaSekolah || 'Kepala SMK PGRI 2 Ponorogo') + ',\\n\\n\\n\\n' +
+        '................................................\\nNIP. ..................................'
+      );
+      signPara.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+      signPara.editAsText().setFontSize(10);
+
+      doc.saveAndClose();
+
+      const tempDocFile = DriveApp.getFileById(doc.getId());
+      const pdfBlob = tempDocFile.getAs(MimeType.PDF).setName(baseTitle + '.pdf');
+      const pdfFile = pdfFolder.createFile(pdfBlob);
+      pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      tempDocFile.setTrashed(true);
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        pdfUrl: pdfFile.getUrl(),
+        fileId: pdfFile.getId(),
+        fileName: pdfFile.getName()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'GENERATE_MONITORING_BUNDLE_PDF') {
+      const p = body.data || {};
+      const tplIds = p.templateIds || {};
+      const includeDocs = p.includeDocs || {};
+      const meta = p.meta || {};
+      const bundles = Array.isArray(p.bundles) ? p.bundles : [];
+
+      function extractDocIdGas(val) {
+        const s = String(val || '').trim();
+        if (!s) return '';
+        const m = s.match(/\\/d\\/([a-zA-Z0-9_-]+)/);
+        return (m && m[1]) ? m[1] : s;
+      }
+
+      const stTemplateId = extractDocIdGas(tplIds.suratTugas);
+      const monTemplateId = extractDocIdGas(tplIds.monitoring);
+      const nilaiTemplateId = extractDocIdGas(tplIds.nilai);
+
+      if (includeDocs.suratTugas && !stTemplateId) {
+        throw new Error('Template Google Docs untuk Surat Tugas (doc_surat_tugas) belum dipasang di Pengelola Template Dokumen.');
+      }
+      if (includeDocs.monitoring && !monTemplateId) {
+        throw new Error('Template Google Docs untuk Lembar Monitoring (doc_monitoring) belum dipasang di Pengelola Template Dokumen.');
+      }
+      if (includeDocs.nilai && !nilaiTemplateId) {
+        throw new Error('Template Google Docs untuk Lembar Penilaian PKL (doc_nilai) belum dipasang di Pengelola Template Dokumen.');
+      }
+      if (bundles.length === 0) {
+        throw new Error('Tidak ada DUDI terpilih untuk dicetak dalam paket.');
+      }
+
+      let targetRoot = null;
+      const driveUrl = String(body.driveFolderUrl || '').trim();
+      const folderMatch = driveUrl.match(/\\/folders\\/([a-zA-Z0-9_-]+)/);
+      if (folderMatch && folderMatch[1]) {
+        try {
+          targetRoot = DriveApp.getFolderById(folderMatch[1]);
+        } catch (folderErr) {
+          targetRoot = null;
+        }
+      }
+      if (!targetRoot) {
+        const rootName = 'Arsip Hubin SMK PGRI 2 Ponorogo';
+        const rootIt = DriveApp.getFoldersByName(rootName);
+        targetRoot = rootIt.hasNext() ? rootIt.next() : DriveApp.createFolder(rootName);
+      }
+
+      const subName = 'Paket_Cetak_Monitoring_PDF';
+      const subIt = targetRoot.getFoldersByName(subName);
+      const pdfFolder = subIt.hasNext() ? subIt.next() : targetRoot.createFolder(subName);
+
+      function replaceDocPlaceholdersGas(targetBody, mapObj) {
+        const keys = Object.keys(mapObj || {});
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          const val = String(mapObj[k] === undefined || mapObj[k] === null ? '' : mapObj[k]);
+          const pattern = '\\\\{\\\\{\\\\s*' + k + '\\\\s*\\\\}\\\\}';
+          targetBody.replaceText(pattern, val);
+        }
+      }
+
+      function duplicateMonitoringRowsGas(targetBody, students) {
+        const tables = targetBody.getTables();
+        const list = Array.isArray(students) && students.length > 0 ? students : [{ nis: '', namaSiswa: '', kelas: '', jurusan: '' }];
+        for (let t = 0; t < tables.length; t++) {
+          const tbl = tables[t];
+          let tplRowIdx = -1;
+          for (let r = 0; r < tbl.getNumRows(); r++) {
+            const txt = tbl.getRow(r).getText() || '';
+            if (txt.indexOf('NamaSiswa') !== -1 || txt.indexOf('{{No}}') !== -1 || txt.indexOf('{{ No }}') !== -1) {
+              tplRowIdx = r;
+              break;
+            }
+          }
+          if (tplRowIdx === -1) continue;
+
+          const baseRow = tbl.getRow(tplRowIdx);
+          for (let s = 1; s < list.length; s++) {
+            const clonedRow = baseRow.copy();
+            tbl.insertTableRow(tplRowIdx + s, clonedRow);
+          }
+          for (let s2 = 0; s2 < list.length; s2++) {
+            const stu = list[s2] || {};
+            const rowEl = tbl.getRow(tplRowIdx + s2);
+            const rowMap = {
+              No: String(s2 + 1),
+              NamaSiswa: String(stu.namaSiswa || '-'),
+              NIS: String(stu.nis || '-'),
+              Kelas: String(stu.kelas || '-'),
+              Jurusan: String(stu.jurusan || '-')
+            };
+            const rKeys = Object.keys(rowMap);
+            for (let kIdx = 0; kIdx < rKeys.length; kIdx++) {
+              const rk = rKeys[kIdx];
+              rowEl.replaceText('\\\\{\\\\{\\\\s*' + rk + '\\\\s*\\\\}\\\\}', rowMap[rk]);
+            }
+          }
+          break;
+        }
+      }
+
+      function appendTempDocGas(srcDocId, masterBody, isFirst, copiedPageSetup) {
+        const srcDoc = DocumentApp.openById(srcDocId);
+        const srcBody = srcDoc.getBody();
+        if (isFirst && !copiedPageSetup.done) {
+          masterBody.setPageWidth(srcBody.getPageWidth());
+          masterBody.setPageHeight(srcBody.getPageHeight());
+          masterBody.setMarginTop(srcBody.getMarginTop());
+          masterBody.setMarginBottom(srcBody.getMarginBottom());
+          masterBody.setMarginLeft(srcBody.getMarginLeft());
+          masterBody.setMarginRight(srcBody.getMarginRight());
+          copiedPageSetup.done = true;
+        } else {
+          masterBody.appendPageBreak();
+        }
+
+        const totalChildren = srcBody.getNumChildren();
+        for (let c = 0; c < totalChildren; c++) {
+          const child = srcBody.getChild(c);
+          const cType = child.getType();
+          if (cType === DocumentApp.ElementType.PARAGRAPH) {
+            masterBody.appendParagraph(child.asParagraph().copy());
+          } else if (cType === DocumentApp.ElementType.TABLE) {
+            masterBody.appendTable(child.asTable().copy());
+          } else if (cType === DocumentApp.ElementType.LIST_ITEM) {
+            masterBody.appendListItem(child.asListItem().copy());
+          } else if (cType === DocumentApp.ElementType.HORIZONTAL_RULE) {
+            masterBody.appendHorizontalRule();
+          }
+        }
+        srcDoc.saveAndClose();
+      }
+
+      const stageNum = Number(meta.tahapNum || 1);
+      const cekPenempatan = '☐';
+      const cekPenyerahan = stageNum === 1 ? '■' : '☐';
+      const cekMonitoring = (stageNum >= 2 && stageNum <= 7) ? '■' : '☐';
+      const cekRaport = stageNum >= 8 ? '■' : '☐';
+
+      const bundleTitle = 'Paket_Monitoring_Tahap_' + stageNum + '_' + Date.now();
+      const masterDoc = DocumentApp.create(bundleTitle);
+      const masterBody = masterDoc.getBody();
+      const copiedPageSetup = { done: false };
+      let isFirstPage = true;
+      let totalSheets = 0;
+      const tempFileIds = [];
+
+      try {
+        for (let b = 0; b < bundles.length; b++) {
+          const bdl = bundles[b] || {};
+          const students = Array.isArray(bdl.students) ? bdl.students : [];
+          const commonMap = {
+            NomorSurat: String(meta.nomorSurat || ''),
+            TanggalSurat: String(meta.tanggalSurat || ''),
+            TanggalTugas: String(meta.tanggalSurat || ''),
+            TahunAjaran: String(meta.tahunAjaran || ''),
+            Tahap: String(stageNum),
+            TahapLabel: String(meta.tahapLabel || ''),
+            KepalaSekolah: String(meta.kepalaSekolah || 'Agus Salim, S. Kom.'),
+            NamaGuru: String(bdl.namaGuru || '-'),
+            NipGuru: String(bdl.nipGuru || '-'),
+            JabatanGuru: String(bdl.jabatanGuru || 'Guru SMK PGRI 2 Ponorogo'),
+            AlamatGuru: 'Jl. Soekarno – Hatta Telp. 0352-461821 Ponorogo',
+            CekPenempatan: cekPenempatan,
+            CekPenyerahan: cekPenyerahan,
+            CekMonitoring: cekMonitoring,
+            CekRaport: cekRaport,
+            NamaDudi: String(bdl.namaDudi || '-'),
+            AlamatDudi: String(bdl.alamatDudi || '-'),
+            NamaBengkel: String(bdl.namaDudi || '-'),
+            Alamat: String(bdl.alamatDudi || '-'),
+            Pemimpin: String(bdl.pemimpinDudi || '................................'),
+            NoTelp: String(bdl.noTelpDudi || '................................')
+          };
+
+          if (includeDocs.suratTugas && stTemplateId) {
+            const copySt = DriveApp.getFileById(stTemplateId).makeCopy('TMP_ST_' + b + '_' + Date.now(), pdfFolder);
+            const copyStId = copySt.getId();
+            tempFileIds.push(copyStId);
+            const docSt = DocumentApp.openById(copyStId);
+            replaceDocPlaceholdersGas(docSt.getBody(), commonMap);
+            docSt.saveAndClose();
+            appendTempDocGas(copyStId, masterBody, isFirstPage, copiedPageSetup);
+            isFirstPage = false;
+            totalSheets++;
+          }
+
+          if (includeDocs.monitoring && monTemplateId) {
+            const copyMon = DriveApp.getFileById(monTemplateId).makeCopy('TMP_MON_' + b + '_' + Date.now(), pdfFolder);
+            const copyMonId = copyMon.getId();
+            tempFileIds.push(copyMonId);
+            const docMon = DocumentApp.openById(copyMonId);
+            const monBody = docMon.getBody();
+            duplicateMonitoringRowsGas(monBody, students);
+            replaceDocPlaceholdersGas(monBody, commonMap);
+            docMon.saveAndClose();
+            appendTempDocGas(copyMonId, masterBody, isFirstPage, copiedPageSetup);
+            isFirstPage = false;
+            totalSheets++;
+          }
+
+          if (includeDocs.nilai && nilaiTemplateId) {
+            for (let s = 0; s < students.length; s++) {
+              const stu = students[s] || {};
+              const copyNil = DriveApp.getFileById(nilaiTemplateId).makeCopy('TMP_NIL_' + b + '_' + s + '_' + Date.now(), pdfFolder);
+              const copyNilId = copyNil.getId();
+              tempFileIds.push(copyNilId);
+              const docNil = DocumentApp.openById(copyNilId);
+              const nilMap = Object.assign({}, commonMap, {
+                NamaSiswa: String(stu.namaSiswa || ''),
+                NIS: String(stu.nis || ''),
+                Kelas: String(stu.kelas || ''),
+                Jurusan: String(stu.jurusan || '')
+              });
+              replaceDocPlaceholdersGas(docNil.getBody(), nilMap);
+              docNil.saveAndClose();
+              appendTempDocGas(copyNilId, masterBody, isFirstPage, copiedPageSetup);
+              isFirstPage = false;
+              totalSheets++;
+            }
+          }
+        }
+
+        // Remove initial empty paragraph at top if body has subsequent content
+        if (masterBody.getNumChildren() > 1) {
+          const firstChild = masterBody.getChild(0);
+          if (firstChild.getType() === DocumentApp.ElementType.PARAGRAPH && firstChild.asParagraph().getText().trim() === '') {
+            masterBody.removeChild(firstChild);
+          }
+        }
+        masterDoc.saveAndClose();
+
+        const masterFile = DriveApp.getFileById(masterDoc.getId());
+        const pdfBlob = masterFile.getAs(MimeType.PDF).setName(bundleTitle + '.pdf');
+        const pdfFile = pdfFolder.createFile(pdfBlob);
+        pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        masterFile.setTrashed(true);
+
+        return ContentService.createTextOutput(JSON.stringify({
+          success: true,
+          pdfUrl: pdfFile.getUrl(),
+          fileId: pdfFile.getId(),
+          fileName: pdfFile.getName(),
+          totalSheets: totalSheets
+        })).setMimeType(ContentService.MimeType.JSON);
+      } finally {
+        for (let tf = 0; tf < tempFileIds.length; tf++) {
+          try {
+            DriveApp.getFileById(tempFileIds[tf]).setTrashed(true);
+          } catch (cleanupErr) {}
+        }
+      }
+    }
+
     let sheet = resolveSheetAlias(ss, sheetName);
 
     if (!sheet && sheetName === 'Master_Akun') {

@@ -15,6 +15,9 @@ import {
   normalizeToIsoDate,
 } from './utils/dateHelpers';
 import { stripNisSymbols } from './utils/nisHelpers';
+import { validateGoogleMapsUrl } from './utils/mapsHelpers';
+import { getFirebaseIdToken } from './auth/GoogleAuthService';
+import { getAdminSessionToken } from './auth/LocalAccountAuthService';
 import { IndexedDbSheetCache } from './cache/IndexedDbSheetCache';
 import {
   safeFetchJson,
@@ -39,13 +42,21 @@ const trackedPublicCacheKeys = new Set<string>();
 function invalidatePublicTeacherCaches() {
   const idb = IndexedDbSheetCache.getInstance();
   for (const key of Array.from(trackedPublicCacheKeys)) {
-    if (key.includes('public::dudi-students::') || key.includes('public::petugas-dudi::')) {
+    if (
+      key.includes('public::dudi-students::') ||
+      key.includes('public::petugas-dudi::') ||
+      key.includes('public::dudi-list')
+    ) {
       publicListMemCache.delete(key);
       idb.delete(key).catch(() => {});
     }
   }
   for (const key of Array.from(publicListMemCache.keys())) {
-    if (key.includes('public::dudi-students::') || key.includes('public::petugas-dudi::')) {
+    if (
+      key.includes('public::dudi-students::') ||
+      key.includes('public::petugas-dudi::') ||
+      key.includes('public::dudi-list')
+    ) {
       publicListMemCache.delete(key);
     }
   }
@@ -401,6 +412,7 @@ export const PublicPortalClient = {
                 const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
                 const noTelpDudi =
                   pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
+                const linkMaps = pickField(d, 'Link_Maps', 'linkMaps', 'link_maps', 'mapsUrl');
                 return {
                   id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
                   nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
@@ -414,6 +426,7 @@ export const PublicPortalClient = {
                   nama_pic: namaPic,
                   kontak_pic: kontakPic,
                   no_telp_dudi: noTelpDudi,
+                  link_maps: linkMaps,
                   pimpinan: namaPemimpin || namaPic,
                   telepon: noTelpDudi,
                 };
@@ -554,31 +567,21 @@ export const PublicPortalClient = {
             throw new Error('NIS dan Nama Siswa wajib diisi.');
           }
 
+          const rawMaps = String(payload.link_maps || payload.Link_Maps || payload.linkMaps || '').trim();
+          const mapsCheck = validateGoogleMapsUrl(rawMaps);
+          if (!mapsCheck.valid) {
+            throw new Error(mapsCheck.error || 'Link Google Maps lokasi PKL tidak valid.');
+          }
+
           const noPengajuan = `REQ-${new Date().getFullYear()}-${String(payload.jurusan || 'PKL')
             .substring(0, 3)
             .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
           const timestamp = getTodayWibDateTime();
           const cleanNis = stripNisSymbols(payload.nis) || String(payload.nis).trim();
 
-          const namaPemimpin = String(payload.nama_pemimpin || '').trim();
-          const namaPic = String(payload.nama_pic || '').trim();
-          const noTelpDudi = String(payload.no_telp_dudi || '').trim();
-
-          const dudiContactSummary = [
-            namaPemimpin ? `Pemimpin: ${namaPemimpin}` : '',
-            namaPic ? `PIC/Pendamping: ${namaPic}` : '',
-            noTelpDudi ? `Telp DUDI: ${noTelpDudi}` : '',
-          ]
-            .filter(Boolean)
-            .join(' | ');
-
           const baseStatusNote = payload.is_dudi_unregistered
             ? 'Pengajuan DUDI baru (perlu verifikasi kelayakan Hubin).'
             : 'Menunggu review relevansi kompetensi oleh Kakomli.';
-
-          const combinedCatatanKakomli = dudiContactSummary
-            ? `${baseStatusNote} [${dudiContactSummary}]`
-            : baseStatusNote;
 
           const sheetRow = {
             id: noPengajuan,
@@ -604,14 +607,17 @@ export const PublicPortalClient = {
             alamatDudi: String(payload.alamat_dudi || ''),
             Bidang_Pekerjaan: String(payload.bidang_dudi || ''),
             bidangPekerjaan: String(payload.bidang_dudi || ''),
-            Nama_Pemimpin: namaPemimpin,
-            namaPemimpin,
-            Nama_PIC: namaPic,
-            namaPic,
-            No_Telp_DUDI: noTelpDudi,
-            noTelpDudi,
-            Kontak_PIC: noTelpDudi,
-            kontakPic: noTelpDudi,
+            Nama_Pemimpin: '',
+            namaPemimpin: '',
+            Nama_PIC: '',
+            namaPic: '',
+            No_Telp_DUDI: '',
+            noTelpDudi: '',
+            Kontak_PIC: '',
+            kontakPic: '',
+            Link_Maps: mapsCheck.normalizedUrl,
+            linkMaps: mapsCheck.normalizedUrl,
+            link_maps: mapsCheck.normalizedUrl,
             No_WA: String(payload.telepon || ''),
             noWa: String(payload.telepon || ''),
             Alamat_Domisili: String(payload.alamat_domisili || ''),
@@ -622,8 +628,8 @@ export const PublicPortalClient = {
             noOrtuWali: String(payload.telepon_orang_tua || ''),
             Status_Kakomli: 'Pending',
             statusKakomli: 'Pending',
-            Catatan_Kakomli: combinedCatatanKakomli,
-            catatanKakomli: combinedCatatanKakomli,
+            Catatan_Kakomli: baseStatusNote,
+            catatanKakomli: baseStatusNote,
             Status_Hubin: 'Menunggu ACC Kakomli',
             statusHubin: 'Menunggu ACC Kakomli',
             Guru_Pendamping: '',
@@ -634,6 +640,33 @@ export const PublicPortalClient = {
           };
 
           await writeSheetDirect('Data_Pengajuan_PKL', 'CREATE', sheetRow);
+
+          if (payload.dudi_id && payload.dudi_id !== 'custom_hubin' && mapsCheck.normalizedUrl) {
+            try {
+              const dudiRows = await readSheetDirect('Master_DUDI', true);
+              const matchedDudi = dudiRows.find((d: any) => {
+                const dId = pickField(d, 'ID', 'id');
+                const dNama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi'));
+                return (
+                  dId === String(payload.dudi_id).trim() ||
+                  (payload.nama_dudi && dNama === normalizeStr(payload.nama_dudi))
+                );
+              });
+              if (matchedDudi && !pickField(matchedDudi, 'Link_Maps', 'linkMaps', 'link_maps')) {
+                const targetDudiId = pickField(matchedDudi, 'ID', 'id');
+                await writeSheetDirect('Master_DUDI', 'UPDATE', {
+                  ...matchedDudi,
+                  id: targetDudiId,
+                  ID: targetDudiId,
+                  Link_Maps: mapsCheck.normalizedUrl,
+                  linkMaps: mapsCheck.normalizedUrl,
+                });
+              }
+            } catch {
+              // non-blocking backfill
+            }
+          }
+
           return {
             success: true,
             message: 'Pengajuan PKL berhasil disimpan ke Cloud Server.',
@@ -948,6 +981,16 @@ export const PublicPortalClient = {
               if (nama) dudiMapByName.set(normalizeStr(nama), d);
             }
 
+            const pengajuanMapsByDudi = new Map<string, string>();
+            for (const reqRow of pengajuanRows) {
+              const lm = pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps');
+              if (!lm) continue;
+              const did = pickField(reqRow, 'ID_DUDI', 'idDudi');
+              const dname = normalizeStr(pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'));
+              if (did && !pengajuanMapsByDudi.has(did)) pengajuanMapsByDudi.set(did, lm);
+              if (dname && !pengajuanMapsByDudi.has(dname)) pengajuanMapsByDudi.set(dname, lm);
+            }
+
             const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
             const targetNamaNorm = normalizeStr(petugasNama);
 
@@ -977,14 +1020,24 @@ export const PublicPortalClient = {
 
               const key = normalizeStr(resolvedName);
               if (!grouped.has(key)) {
+                const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
+                const resolvedKontak =
+                  pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') || '-';
+                const resolvedMaps =
+                  pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
+                  pengajuanMapsByDudi.get(masterId) ||
+                  pengajuanMapsByDudi.get(key) ||
+                  '';
                 grouped.set(key, {
                   dudi: {
-                    id: pickField(master || {}, 'ID', 'id') || dudiId || key,
+                    id: masterId,
                     nama: resolvedName,
                     alamat: pickField(master || {}, 'Alamat', 'alamat') || '-',
                     bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || '-',
+                    namaPemimpin: pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') || '',
                     pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-                    kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
+                    kontak: resolvedKontak,
+                    linkMaps: resolvedMaps,
                     kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
                   },
                   studentNisSet: new Set<string>(),
@@ -1017,9 +1070,19 @@ export const PublicPortalClient = {
               const key = normalizeStr(dudiNamaRaw);
 
               if (!grouped.has(key)) {
+                const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
+                const resolvedKontak =
+                  pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
+                  pickField(reqRow, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
+                  '-';
+                const resolvedMaps =
+                  pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
+                  pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps') ||
+                  pengajuanMapsByDudi.get(key) ||
+                  '';
                 grouped.set(key, {
                   dudi: {
-                    id: pickField(master || {}, 'ID', 'id') || dudiId || key,
+                    id: masterId,
                     nama: pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw,
                     alamat:
                       pickField(master || {}, 'Alamat', 'alamat') ||
@@ -1029,8 +1092,13 @@ export const PublicPortalClient = {
                       pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') ||
                       pickField(reqRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') ||
                       '-',
-                    pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-                    kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
+                    namaPemimpin:
+                      pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') ||
+                      pickField(reqRow, 'Nama_Pemimpin', 'namaPemimpin') ||
+                      '',
+                    pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || pickField(reqRow, 'Nama_PIC', 'namaPic') || '-',
+                    kontak: resolvedKontak,
+                    linkMaps: resolvedMaps,
                     kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
                   },
                   studentNisSet: new Set<string>(),
@@ -1309,6 +1377,8 @@ export const PublicPortalClient = {
   async submitMonitoring(payload: any): Promise<{
     success: boolean;
     gradeSynced?: boolean;
+    dudiContactSynced?: boolean;
+    dudiContact?: { namaPemimpin: string; pic: string; kontak: string };
     message: string;
     monitoring: any;
   }> {
@@ -1338,6 +1408,44 @@ export const PublicPortalClient = {
             existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
           const tglVal = normalizeToIsoDate(payload.tanggal) || getTodayWibIsoDate();
 
+          const noteCombined = stripStructuredTagsFromNote(payload.catatan_perkembangan);
+          const stageStr = String(payload.tahap_monitoring);
+          const stageNum = extractStageNumber(stageStr);
+
+          if (stageNum < 1 || stageNum > 8) {
+            throw new Error('Tahap Monitoring tidak valid (harus Tahap 1 sampai Tahap 8).');
+          }
+
+          if (stageNum >= 2) {
+            const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true);
+            const summary = buildStudentMonitoringSummary(
+              {
+                nis: cleanNis,
+                nama: String(payload.nama_siswa || ''),
+                idPenempatan: String(payload.id_penempatan || ''),
+                dudi_name: String(payload.nama_dudi || ''),
+              },
+              monRows,
+              []
+            );
+            if (!summary.completedStages.includes(stageNum - 1)) {
+              const prevStageLabel = getStageValueByNumber(stageNum - 1);
+              throw new Error(
+                `${stageStr} masih terkunci. Harap isi dan simpan ${prevStageLabel} untuk ${payload.nama_siswa} terlebih dahulu.`
+              );
+            }
+          }
+
+          const inputPemimpin = String(payload.nama_pemimpin || '').trim();
+          const inputPic = String(payload.nama_pic || '').trim();
+          const inputTelpDudi = String(payload.no_telp_dudi || '').trim();
+          const inputTelpDigits = inputTelpDudi.replace(/\D/g, '');
+          if (stageNum === 1 && (!inputPemimpin || !inputPic || inputTelpDigits.length < 7)) {
+            throw new Error(
+              'Pada Tahap 1 (Pengantaran), Nama Pemimpin DUDI, Nama PIC/Pendamping, dan No. Telp/WhatsApp DUDI wajib diisi lengkap.'
+            );
+          }
+
           const sakit = Math.max(0, Math.round(Number(payload.sakit ?? 0) || 0));
           const izin = Math.max(0, Math.round(Number(payload.izin ?? 0) || 0));
           const alpha = Math.max(0, Math.round(Number(payload.alpha ?? 0) || 0));
@@ -1356,10 +1464,6 @@ export const PublicPortalClient = {
             alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
             avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
           }
-
-          const noteCombined = stripStructuredTagsFromNote(payload.catatan_perkembangan);
-          const stageStr = String(payload.tahap_monitoring);
-          const stageNum = extractStageNumber(stageStr);
 
           const sheetRow = {
             id: idMonitoring,
@@ -1424,6 +1528,90 @@ export const PublicPortalClient = {
           };
 
           await writeSheetDirect('Monitoring_5_Tahap', isUpdate ? 'UPDATE' : 'CREATE', sheetRow);
+
+          let dudiContactSynced = false;
+          if (inputPemimpin || inputPic || inputTelpDudi) {
+            try {
+              const dudiRows = await readSheetDirect('Master_DUDI', true, true);
+              const targetDudiId = String(payload.dudi_id || '').trim();
+              const targetDudiName = normalizeStr(payload.nama_dudi);
+              const existingDudi = dudiRows.find((d: any) => {
+                const dId = pickField(d, 'ID', 'id');
+                const dNama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi'));
+                return (
+                  (targetDudiId && dId === targetDudiId) ||
+                  (targetDudiName && (dNama === targetDudiName || dNama.includes(targetDudiName)))
+                );
+              });
+
+              if (existingDudi) {
+                const resolvedId = pickField(existingDudi, 'ID', 'id') || targetDudiId;
+                await writeSheetDirect('Master_DUDI', 'UPDATE', {
+                  ...existingDudi,
+                  id: resolvedId,
+                  ID: resolvedId,
+                  Nama_Pemimpin: inputPemimpin || pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin'),
+                  namaPemimpin: inputPemimpin || pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin'),
+                  Nama_PIC: inputPic || pickField(existingDudi, 'Nama_PIC', 'namaPic'),
+                  namaPic: inputPic || pickField(existingDudi, 'Nama_PIC', 'namaPic'),
+                  Kontak_PIC: inputTelpDudi || pickField(existingDudi, 'Kontak_PIC', 'kontakPic'),
+                  kontakPic: inputTelpDudi || pickField(existingDudi, 'Kontak_PIC', 'kontakPic'),
+                  No_Telp_DUDI: inputTelpDudi || pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi'),
+                  noTelpDudi: inputTelpDudi || pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi'),
+                });
+                dudiContactSynced = true;
+              } else if (payload.nama_dudi) {
+                const newDudiId =
+                  targetDudiId && !targetDudiId.includes('::')
+                    ? targetDudiId
+                    : `DUD-${Date.now().toString(36).toUpperCase()}`;
+                await writeSheetDirect('Master_DUDI', 'CREATE', {
+                  id: newDudiId,
+                  ID: newDudiId,
+                  Nama_DUDI: String(payload.nama_dudi).trim(),
+                  Bidang_Keahlian: '-',
+                  Alamat: String(payload.alamat_dudi || '-').trim(),
+                  Wilayah_Kota: 'Ponorogo',
+                  Nama_Pemimpin: inputPemimpin,
+                  Nama_PIC: inputPic,
+                  Kontak_PIC: inputTelpDudi,
+                  No_Telp_DUDI: inputTelpDudi,
+                  Kuota_Maksimal: 4,
+                  Terisi: 1,
+                  Status_Kerjasama: 'Mitra Baru',
+                });
+                dudiContactSynced = true;
+              }
+
+              const reqRows = await readSheetDirect('Data_Pengajuan_PKL', true);
+              const matchingReqs = reqRows.filter((r: any) => {
+                const rDudiId = pickField(r, 'ID_DUDI', 'idDudi');
+                const rDudiNama = normalizeStr(pickField(r, 'DUDI_Tujuan', 'dudiTujuan'));
+                const isTarget =
+                  (targetDudiId && rDudiId === targetDudiId) || (targetDudiName && rDudiNama === targetDudiName);
+                const hasBlankContact =
+                  !pickField(r, 'Nama_Pemimpin', 'namaPemimpin') ||
+                  !pickField(r, 'Nama_PIC', 'namaPic') ||
+                  !pickField(r, 'No_Telp_DUDI', 'noTelpDudi');
+                return isTarget && hasBlankContact;
+              });
+              for (const mr of matchingReqs.slice(0, 10)) {
+                const mrId = pickField(mr, 'No_Pengajuan', 'noPengajuan', 'id');
+                if (!mrId) continue;
+                await writeSheetDirect('Data_Pengajuan_PKL', 'UPDATE', {
+                  ...mr,
+                  id: mrId,
+                  No_Pengajuan: mrId,
+                  Nama_Pemimpin: pickField(mr, 'Nama_Pemimpin', 'namaPemimpin') || inputPemimpin,
+                  Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || inputPic,
+                  No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || inputTelpDudi,
+                  Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || inputTelpDudi,
+                }).catch(() => {});
+              }
+            } catch {
+              // non-blocking
+            }
+          }
 
           let gradeSynced = false;
           if (nilaiMuncul && avgScore > 0) {
@@ -1521,6 +1709,15 @@ export const PublicPortalClient = {
           return {
             success: true,
             gradeSynced,
+            dudiContactSynced,
+            dudiContact:
+              inputPemimpin || inputPic || inputTelpDudi
+                ? {
+                    namaPemimpin: inputPemimpin,
+                    pic: inputPic,
+                    kontak: inputTelpDudi,
+                  }
+                : undefined,
             message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Cloud Server.`,
             monitoring: sheetRow,
           };
@@ -1531,6 +1728,10 @@ export const PublicPortalClient = {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
         if (res.gradeSynced) {
           GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
+        }
+        if (res.dudiContactSynced) {
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
         }
         invalidatePublicTeacherCaches();
         const nilaiSuffix = res.gradeSynced
@@ -1867,6 +2068,296 @@ export const PublicPortalClient = {
         'Gagal Memperbarui Nilai',
         'error',
         err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
+      );
+      throw err;
+    }
+  },
+
+  async generatePerizinanPdf(payload: {
+    perizinanId: string;
+    noPerizinan?: string;
+    noSuratPermohonan?: string;
+    namaSiswa?: string;
+    nis?: string;
+    kelas?: string;
+    jurusan?: string;
+    dudiTujuan?: string;
+    alamatDudi?: string;
+    tanggalSurat?: string;
+    kepalaSekolah?: string;
+  }): Promise<{
+    success: boolean;
+    pdfUrl: string;
+    fileId: string;
+    fileName: string;
+    message?: string;
+  }> {
+    const toastId = ToastManager.getInstance().show(
+      'Membuat Surat PDF di Google Drive...',
+      'pending',
+      `Mengonversi surat permohonan ${payload.namaSiswa || ''} ke PDF`
+    );
+
+    const resolveAuthToken = async (): Promise<string | null> => {
+      const localTok = getAdminSessionToken();
+      if (localTok && !localTok.startsWith('local_gas_')) {
+        return localTok;
+      }
+      return getFirebaseIdToken();
+    };
+
+    try {
+      const executeGenerate = async (): Promise<{
+        success: boolean;
+        pdfUrl: string;
+        fileId: string;
+        fileName: string;
+        message?: string;
+      }> => {
+        try {
+          const token = await resolveAuthToken();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          const { ok, status, data } = await safeFetchJson('/api/perizinan/generate-pdf', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            timeoutMs: 30_000,
+          });
+          if (ok && data?.success && data?.pdfUrl) {
+            return data;
+          }
+          const errCode = String(data?.code || '');
+          const isProxyMissing = status === 404 || status === 405 || errCode === 'API_ROUTE_NOT_FOUND';
+          const isInfra = INFRA_ERROR_CODES.has(errCode) || status >= 500 || isProxyMissing;
+          if (!isInfra) {
+            throw new Error(data?.message || `Gagal membuat PDF surat (HTTP ${status}).`);
+          }
+        } catch (err: any) {
+          if (!isBackendProxyUnavailableError(err) && !isNetworkFetchError(err)) {
+            throw err;
+          }
+        }
+
+        // Direct GAS fallback for static SPA hosting
+        const cfg = await ensureHydratedConfig();
+        if (!cfg.spreadsheetId) {
+          throw new Error('Koneksi Database Cloud Server belum dikonfigurasi oleh Admin Hubin.');
+        }
+        const validation = validateGasDeployUrl(cfg.gasDeployUrl);
+        if (!validation.valid) {
+          throw new Error(
+            validation.error || 'Endpoint Google Apps Script belum dikonfigurasi oleh Admin Hubin.'
+          );
+        }
+        const gasUrl = validation.normalizedUrl;
+        const { ok, status, data: json } = await safeFetchJson(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          redirect: 'follow',
+          timeoutMs: 32_000,
+          body: JSON.stringify({
+            action: 'GENERATE_SURAT_IZIN_PDF',
+            spreadsheetId: cfg.spreadsheetId,
+            driveFolderUrl: cfg.driveFolderUrl,
+            year: cfg.activeYear,
+            data: payload,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+        if (!ok || json?.error || !json?.pdfUrl) {
+          throw new Error(
+            json?.error ||
+              `Apps Script belum mengembalikan URL PDF (HTTP ${status}). Pastikan kode GAS sudah di-Deploy ulang versi terbaru.`
+          );
+        }
+        const pdfUrl = String(json.pdfUrl).trim();
+        if (payload.perizinanId) {
+          await writeSheetDirect('Data_Perizinan_PKL', 'UPDATE', {
+            id: payload.perizinanId,
+            ID_Perizinan: payload.perizinanId,
+            Link_Surat_PDF: pdfUrl,
+            linkSuratPdf: pdfUrl,
+          }).catch(() => {});
+        }
+        return {
+          success: true,
+          pdfUrl,
+          fileId: String(json.fileId || ''),
+          fileName: String(json.fileName || ''),
+          message: 'Surat Permohonan PDF berhasil dibuat di Google Drive.',
+        };
+      };
+
+      const result = await executeGenerate();
+      GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Perizinan_PKL');
+      ToastManager.getInstance().update(
+        toastId,
+        'PDF Surat Siap di Google Drive!',
+        'success',
+        'Tautan PDF otomatis ditambahkan ke pesan WhatsApp & database perizinan.'
+      );
+      return result;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Membuat PDF Surat',
+        'error',
+        err?.message || 'Pastikan GAS Web App versi terbaru sudah di-Deploy & diotorisasi Google Drive.'
+      );
+      throw err;
+    }
+  },
+
+  async generateMonitoringBundlePdf(payload: {
+    templateIds: {
+      suratTugas?: string;
+      monitoring?: string;
+      nilai?: string;
+    };
+    includeDocs: {
+      suratTugas: boolean;
+      monitoring: boolean;
+      nilai: boolean;
+    };
+    meta: {
+      tahapNum: number;
+      tahapLabel: string;
+      tahunAjaran: string;
+      nomorSurat: string;
+      tanggalSurat: string;
+      kepalaSekolah: string;
+    };
+    bundles: Array<{
+      namaDudi: string;
+      alamatDudi: string;
+      pemimpinDudi: string;
+      noTelpDudi: string;
+      namaGuru: string;
+      nipGuru: string;
+      jabatanGuru: string;
+      students: Array<{
+        nis: string;
+        namaSiswa: string;
+        kelas: string;
+        jurusan: string;
+      }>;
+    }>;
+  }): Promise<{
+    success: boolean;
+    pdfUrl: string;
+    fileId: string;
+    fileName: string;
+    totalSheets: number;
+    message?: string;
+  }> {
+    const toastId = ToastManager.getInstance().show(
+      'Menyusun Paket PDF dari Template Google Docs...',
+      'pending',
+      `Mengisi placeholder untuk ${payload.bundles.length} DUDI dan menggabungkan PDF di Google Drive`
+    );
+
+    const resolveAuthToken = async (): Promise<string | null> => {
+      const localTok = getAdminSessionToken();
+      if (localTok && !localTok.startsWith('local_gas_')) {
+        return localTok;
+      }
+      return getFirebaseIdToken();
+    };
+
+    try {
+      const executeGenerate = async (): Promise<{
+        success: boolean;
+        pdfUrl: string;
+        fileId: string;
+        fileName: string;
+        totalSheets: number;
+        message?: string;
+      }> => {
+        try {
+          const token = await resolveAuthToken();
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          const { ok, status, data } = await safeFetchJson('/api/documents/generate-monitoring-bundle', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+            timeoutMs: 58_000,
+          });
+          if (ok && data?.success && data?.pdfUrl) {
+            return data;
+          }
+          const errCode = String(data?.code || '');
+          const isProxyMissing = status === 404 || status === 405 || errCode === 'API_ROUTE_NOT_FOUND';
+          const isInfra = INFRA_ERROR_CODES.has(errCode) || status >= 500 || isProxyMissing;
+          if (!isInfra) {
+            throw new Error(data?.message || `Gagal menyusun paket PDF (HTTP ${status}).`);
+          }
+        } catch (err: any) {
+          if (!isBackendProxyUnavailableError(err) && !isNetworkFetchError(err)) {
+            throw err;
+          }
+        }
+
+        const cfg = await ensureHydratedConfig();
+        if (!cfg.spreadsheetId) {
+          throw new Error('Koneksi Database Cloud Server belum dikonfigurasi oleh Admin Hubin.');
+        }
+        const validation = validateGasDeployUrl(cfg.gasDeployUrl);
+        if (!validation.valid) {
+          throw new Error(
+            validation.error || 'Endpoint Google Apps Script belum dikonfigurasi oleh Admin Hubin.'
+          );
+        }
+        const gasUrl = validation.normalizedUrl;
+        const { ok, status, data: json } = await safeFetchJson(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          redirect: 'follow',
+          timeoutMs: 58_000,
+          body: JSON.stringify({
+            action: 'GENERATE_MONITORING_BUNDLE_PDF',
+            spreadsheetId: cfg.spreadsheetId,
+            driveFolderUrl: cfg.driveFolderUrl,
+            year: cfg.activeYear,
+            data: payload,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+        if (!ok || json?.error || !json?.pdfUrl) {
+          throw new Error(
+            json?.error ||
+              `Apps Script belum mengembalikan URL PDF paket (HTTP ${status}). Pastikan kode GAS terbaru sudah di-Deploy.`
+          );
+        }
+        return {
+          success: true,
+          pdfUrl: String(json.pdfUrl).trim(),
+          fileId: String(json.fileId || ''),
+          fileName: String(json.fileName || ''),
+          totalSheets: Number(json.totalSheets || 0),
+          message: 'Paket dokumen monitoring PDF berhasil dibuat dari Template Google Docs.',
+        };
+      };
+
+      const result = await executeGenerate();
+      ToastManager.getInstance().update(
+        toastId,
+        'Paket PDF Siap Dicetak!',
+        'success',
+        `${result.totalSheets || payload.bundles.length} lembar dokumen selesai digabung ke Google Drive.`
+      );
+      return result;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Membuat Paket PDF',
+        'error',
+        err?.message || 'Pastikan template Google Docs terpasang & GAS versi terbaru sudah di-Deploy.'
       );
       throw err;
     }

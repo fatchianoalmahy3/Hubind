@@ -20,6 +20,8 @@ import {
   Pencil,
   Loader2,
   MessageCircle,
+  Lock,
+  ExternalLink,
 } from 'lucide-react';
 import { ToastManager } from '../core/ToastManager';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -146,6 +148,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   const [savingGradeEdit, setSavingGradeEdit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [dudiPemimpin, setDudiPemimpin] = useState('');
+  const [dudiPic, setDudiPic] = useState('');
+  const [dudiTelp, setDudiTelp] = useState('');
+  const [showDudiContactEditor, setShowDudiContactEditor] = useState(false);
   const activeTeacherKeyRef = useRef('');
   const activeDudiKeyRef = useRef('');
 
@@ -329,6 +335,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     activeDudiKeyRef.current = dudiKey;
 
     setSelectedDudi(dudi);
+    setDudiPemimpin(dudi.namaPemimpin && dudi.namaPemimpin !== '-' ? dudi.namaPemimpin : '');
+    setDudiPic(dudi.pic && dudi.pic !== '-' ? dudi.pic : '');
+    setDudiTelp(dudi.kontak && dudi.kontak !== '-' ? dudi.kontak : '');
+    setShowDudiContactEditor(false);
     setCurrentStep(3);
     setLoadingStudents(true);
     setStudentsError('');
@@ -432,6 +442,13 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
   const setStudentStage = (stageNum: number) => {
     if (!activeStudentKey) return;
+    if (stageNum > 1 && !(activeStudent?.completedStages || []).includes(stageNum - 1)) {
+      const prevLabel = getStageValueByNumber(stageNum - 1);
+      setFormError(
+        `Tahap ${stageNum} masih terkunci. Harap isi dan simpan ${prevLabel} terlebih dahulu.`
+      );
+      return;
+    }
     setFormError('');
     setStageByStudent((prev) => ({
       ...prev,
@@ -579,6 +596,32 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
     if (!activeStudent || !selectedDudi) return;
     setFormError('');
 
+    if (activeStageNum > 1 && !(activeStudent.completedStages || []).includes(activeStageNum - 1)) {
+      const prevLabel = getStageValueByNumber(activeStageNum - 1);
+      setFormError(
+        `Tahap ${activeStageNum} masih terkunci. Harap isi dan simpan ${prevLabel} terlebih dahulu.`
+      );
+      return;
+    }
+
+    if (activeStageNum === 1) {
+      if (!dudiPemimpin.trim()) {
+        setFormError('Pada tahap 1. Pengantaran, Nama Pemimpin DUDI wajib diisi.');
+        return;
+      }
+      if (!dudiPic.trim()) {
+        setFormError('Pada tahap 1. Pengantaran, Nama PIC / Pembimbing DUDI wajib diisi.');
+        return;
+      }
+      const dudiTelpDigits = dudiTelp.replace(/\D/g, '');
+      if (!dudiTelp.trim() || dudiTelpDigits.length < 7) {
+        setFormError(
+          'Pada tahap 1. Pengantaran, No. Telp / WhatsApp DUDI wajib diisi dengan nomor valid (minimal 7 digit).'
+        );
+        return;
+      }
+    }
+
     if (activeStageNum === 5 && !alreadyHasGrade && activeDraft.nilaiPklMuncul === null) {
       setFormError(
         'Pada Monitoring ke-4, silakan pilih terlebih dahulu apakah nilai PKL sudah muncul ("Ya, Sudah Muncul" atau "Belum Muncul").'
@@ -592,6 +635,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
     setSubmitting(true);
     try {
+      const shouldSendDudiContact = activeStageNum === 1 || showDudiContactEditor;
       const payload = {
         existing_monitoring_id: existingStageLog?.monitoringId,
         id_penempatan: activeStudent.idPenempatan || activeStudent.id,
@@ -617,11 +661,34 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         nilai_rata_rata: shouldSubmitGrades ? rataRataNilai : undefined,
         predikat: shouldSubmitGrades ? predikatNilai : undefined,
         catatan_perkembangan: activeDraft.catatanPerkembangan,
+        ...(shouldSendDudiContact
+          ? {
+              nama_pemimpin: dudiPemimpin.trim(),
+              nama_pic: dudiPic.trim(),
+              no_telp_dudi: dudiTelp.trim(),
+            }
+          : {}),
       };
 
       const json = await PublicPortalClient.submitMonitoring(payload);
 
       if (json.success) {
+        if (json.dudiContact) {
+          const updatedContact = {
+            namaPemimpin: json.dudiContact.namaPemimpin || dudiPemimpin.trim(),
+            pic: json.dudiContact.pic || dudiPic.trim() || '-',
+            kontak: json.dudiContact.kontak || dudiTelp.trim() || '-',
+          };
+          setSelectedDudi((prev: any) => (prev ? { ...prev, ...updatedContact } : prev));
+          setAssignedDudiList((prev) =>
+            prev.map((d) =>
+              d.nama === selectedDudi.nama || (d.id && d.id === selectedDudi.id)
+                ? { ...d, ...updatedContact }
+                : d
+            )
+          );
+          setShowDudiContactEditor(false);
+        }
         setDudiStudents((prev) =>
           prev.map((stu, idx) => {
             if (idx !== selectedStudentIndex) return stu;
@@ -1083,6 +1150,21 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 </div>
 
                 <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-2 shrink-0">
+                  {selectedDudi.linkMaps && (
+                    <>
+                      <a
+                        href={selectedDudi.linkMaps}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:text-blue-900 hover:underline underline-offset-2"
+                      >
+                        <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Lokasi Maps</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                      <span aria-hidden="true">·</span>
+                    </>
+                  )}
                   {getWhatsAppHref(selectedDudi.kontak) && (
                     <>
                       <a
@@ -1203,11 +1285,11 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                         </div>
                       </div>
 
-                      {/* 8-Stage Auto-Detect & Selector */}
+                      {/* 8-Stage Auto-Detect & Sequential Lock Selector */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <span className="font-bold text-slate-800">
-                            Tahap Monitoring (8 Tahap):
+                            Tahap Monitoring (8 Tahap Berurutan):
                           </span>
                           <span className="text-[11px] text-slate-500">
                             {(activeStudent.completedStages || []).includes(activeStageNum)
@@ -1218,33 +1300,144 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {MONITORING_STAGES.map((st) => {
                             const isCompleted = (activeStudent.completedStages || []).includes(st.num);
+                            const isLocked =
+                              st.num > 1 &&
+                              !(activeStudent.completedStages || []).includes(st.num - 1);
                             const isActive = activeStageNum === st.num;
                             return (
                               <button
                                 key={st.num}
                                 type="button"
+                                disabled={isLocked}
+                                title={
+                                  isLocked
+                                    ? `Terkunci — selesaikan ${getStageValueByNumber(st.num - 1)} terlebih dahulu`
+                                    : st.value
+                                }
                                 onClick={() => setStudentStage(st.num)}
-                                className={`min-h-[44px] px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
-                                  isActive
-                                    ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
+                                className={`min-h-[44px] px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-all flex items-center justify-between gap-1.5 ${
+                                  isLocked
+                                    ? 'border-slate-200 bg-slate-100/80 text-slate-400 cursor-not-allowed'
+                                    : isActive
+                                    ? 'border-blue-600 bg-blue-600 text-white shadow-xs cursor-pointer'
                                     : isCompleted
-                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100/70'
-                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100/70 cursor-pointer'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 cursor-pointer'
                                 }`}
                               >
                                 <span className="truncate">{st.label}</span>
-                                {isCompleted && (
+                                {isLocked ? (
+                                  <Lock className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                                ) : isCompleted ? (
                                   <CheckCircle2
                                     className={`w-3.5 h-3.5 shrink-0 ${
                                       isActive ? 'text-white' : 'text-emerald-600'
                                     }`}
                                   />
-                                )}
+                                ) : null}
                               </button>
                             );
                           })}
                         </div>
+                        <p className="text-[11px] text-slate-500">
+                          Pengisian dilakukan berurutan tahap per tahap (1 → 8). Tahap selanjutnya akan otomatis terbuka setelah tahap sebelumnya disimpan.
+                        </p>
                       </div>
+
+                      {/* Data Penanggung Jawab & Kontak DUDI (Wajib Saat 1. Pengantaran) */}
+                      {activeStageNum === 1 || showDudiContactEditor ? (
+                        <div className="p-3.5 sm:p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h5 className="text-xs font-bold text-slate-900">
+                                Data Penanggung Jawab &amp; Kontak DUDI {activeStageNum === 1 ? '(Wajib Saat Pengantaran)' : '(Pembaruan Kontak)'}
+                              </h5>
+                              <p className="text-[11px] text-slate-600">
+                                Data ini otomatis menyinkronkan profil Master DUDI &amp; berkas pengajuan siswa.
+                              </p>
+                            </div>
+                            {activeStageNum !== 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowDudiContactEditor(false)}
+                                className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-[11px] font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                              >
+                                Tutup
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                            <div>
+                              <label className="block font-semibold text-slate-700 mb-1">
+                                Nama Pemimpin DUDI *
+                              </label>
+                              <input
+                                type="text"
+                                value={dudiPemimpin}
+                                onChange={(e) => {
+                                  setDudiPemimpin(e.target.value);
+                                  setFormError('');
+                                }}
+                                placeholder="Direktur / Pemilik / Kepala"
+                                className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                              />
+                            </div>
+                            <div>
+                              <label className="block font-semibold text-slate-700 mb-1">
+                                Nama PIC / Pembimbing DUDI *
+                              </label>
+                              <input
+                                type="text"
+                                value={dudiPic}
+                                onChange={(e) => {
+                                  setDudiPic(e.target.value);
+                                  setFormError('');
+                                }}
+                                placeholder="Nama pembimbing lapangan"
+                                className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                              />
+                            </div>
+                            <div>
+                              <label className="block font-semibold text-slate-700 mb-1">
+                                No. Telp / WhatsApp DUDI *
+                              </label>
+                              <input
+                                type="tel"
+                                inputMode="tel"
+                                value={dudiTelp}
+                                onChange={(e) => {
+                                  setDudiTelp(e.target.value);
+                                  setFormError('');
+                                }}
+                                placeholder="08xxxxxxxxxx"
+                                className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-300 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-600"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
+                            <span>
+                              Pemimpin: <b className="text-slate-800">{dudiPemimpin || '-'}</b>
+                            </span>
+                            <span>
+                              PIC DUDI: <b className="text-slate-800">{dudiPic || '-'}</b>
+                            </span>
+                            <span>
+                              Telp/WA: <b className="font-mono text-slate-800">{dudiTelp || '-'}</b>
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowDudiContactEditor(true)}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit Kontak DUDI</span>
+                          </button>
+                        </div>
+                      )}
 
                       {/* Section: Absensi (Sakit, Izin, Alpha) */}
                       <div className="space-y-2.5">

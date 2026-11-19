@@ -392,9 +392,9 @@ export default function App() {
     const activeId = configSnapshot.spreadsheetId;
     const isFirebaseAuthOk = Boolean(currentUser);
     const isSheetOk = verification.connected;
-    const isHubin = userRole === 'Hubin';
+    const isSuperAdmin = userRole === 'SuperAdmin';
 
-    if (!isHubin) {
+    if (!isSuperAdmin) {
       return (
         <div className="max-w-xl mx-auto py-8 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl border border-slate-200/90 shadow-lg overflow-hidden">
@@ -405,10 +405,10 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                    Layanan Cloud Server Sedang Disiapkan Admin Hubin
+                    Layanan Cloud Server Sedang Disiapkan Super Admin
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Koneksi database utama belum aktif atau sedang dalam pemeliharaan. Silakan muat ulang dalam beberapa saat atau hubungi Admin Hubin.
+                    Koneksi database utama belum aktif atau sedang dalam pemeliharaan. Silakan muat ulang dalam beberapa saat atau hubungi Super Admin Sistem.
                   </p>
                 </div>
               </div>
@@ -600,7 +600,7 @@ export default function App() {
   };
 
   const renderActiveModule = () => {
-    if (currentModule === 'workspace' && userRole === 'Hubin') {
+    if (currentModule === 'workspace' && userRole === 'SuperAdmin') {
       return (
         <Suspense
           fallback={
@@ -724,6 +724,7 @@ export default function App() {
             repository={MonitoringService.getInstance()}
             userRole={userRole}
             onOpenDocsForStudent={openDocsForStudent}
+            onOpenMonitoringBundle={() => setCurrentModule('doc_paket_monitoring')}
             onOpenSimulator={() => setIsSimulatorOpen(true)}
             onOpenGas={() => setIsGasOpen(true)}
             onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
@@ -742,6 +743,7 @@ export default function App() {
             onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
           />
         );
+      case 'doc_paket_monitoring':
       case 'doc_mou':
       case 'doc_surat_tugas':
       case 'doc_pengajuan':
@@ -760,7 +762,9 @@ export default function App() {
               key={`${currentModule}_${configSnapshot.spreadsheetId}`}
               activeDocKey={currentModule as DocumentHubKey}
               onSelectDocKey={(k) => setCurrentModule(k)}
-              onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
+              onOpenTemplateManager={
+                userRole === 'SuperAdmin' ? () => setIsTemplateManagerOpen(true) : undefined
+              }
             />
           </Suspense>
         );
@@ -792,6 +796,7 @@ export default function App() {
     sertifikat: 'Raport & Blangko Sertifikat',
     jurusan: 'Kompetensi Keahlian',
     kelas: 'Kelas & Wali Kelas',
+    doc_paket_monitoring: 'Paket Cetak Monitoring (1-Langkah)',
     doc_mou: 'Dokumen MOU DUDI',
     doc_surat_tugas: 'Dokumen Surat Tugas',
     doc_pengajuan: 'Dokumen Pengajuan PKL',
@@ -843,7 +848,7 @@ export default function App() {
               userRole={userRole}
               onOpenSimulator={() => setIsSimulatorOpen(true)}
               onOpenDocs={() => {
-                setCurrentModule('doc_pengantaran');
+                setCurrentModule('doc_paket_monitoring');
               }}
               onOpenGas={() => setIsGasOpen(true)}
               onOpenAutoGenerate={() => setIsAutoGenerateOpen(true)}
@@ -856,8 +861,8 @@ export default function App() {
             />
 
             <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 lg:py-5 max-w-[1440px] mx-auto w-full">
-              {/* Compact Single-Line Cloud Server Context Strip (Hubin Only) */}
-              {userRole === 'Hubin' && (
+              {/* Compact Single-Line Cloud Server Context Strip (SuperAdmin Only) */}
+              {userRole === 'SuperAdmin' && (
                 <div className="mb-4 px-3.5 py-2 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
                   <div className="flex items-center gap-2 min-w-0">
                     {verification.connected ? (
@@ -958,7 +963,7 @@ export default function App() {
           />
         )}
 
-        {isTemplateManagerOpen && (
+        {isTemplateManagerOpen && userRole === 'SuperAdmin' && (
           <GoogleDocsTemplateManagerModal
             isOpen={isTemplateManagerOpen}
             onClose={() => setIsTemplateManagerOpen(false)}
@@ -966,7 +971,7 @@ export default function App() {
           />
         )}
 
-        {isWizardOpen && (
+        {isWizardOpen && userRole === 'SuperAdmin' && (
           <SetupWizardModal
             isOpen={isWizardOpen}
             onClose={() => setIsWizardOpen(false)}
@@ -977,7 +982,7 @@ export default function App() {
           />
         )}
 
-        {isSimulatorOpen && (
+        {isSimulatorOpen && userRole === 'SuperAdmin' && (
           <StudentGFormSimulatorModal
             isOpen={isSimulatorOpen}
             onClose={() => setIsSimulatorOpen(false)}
@@ -998,14 +1003,14 @@ export default function App() {
           />
         )}
 
-        {isGasOpen && (
+        {isGasOpen && userRole === 'SuperAdmin' && (
           <GasScriptModal
             isOpen={isGasOpen}
             onClose={() => setIsGasOpen(false)}
           />
         )}
 
-        {isSheetConfigOpen && (
+        {isSheetConfigOpen && userRole === 'SuperAdmin' && (
           <SpreadsheetConfigModal
             isOpen={isSheetConfigOpen}
             onClose={() => setIsSheetConfigOpen(false)}
@@ -1016,7 +1021,7 @@ export default function App() {
           />
         )}
 
-        {isAutoGenerateOpen && (
+        {isAutoGenerateOpen && userRole === 'SuperAdmin' && (
           <AutoGenerateSyncModal
             isOpen={isAutoGenerateOpen}
             onClose={() => setIsAutoGenerateOpen(false)}
@@ -1027,7 +1032,7 @@ export default function App() {
           />
         )}
 
-        {isAccountModalOpen && (
+        {isAccountModalOpen && userRole === 'SuperAdmin' && (
           <AccountManagementModal
             isOpen={isAccountModalOpen}
             onClose={() => setIsAccountModalOpen(false)}

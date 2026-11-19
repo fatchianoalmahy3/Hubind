@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Search,
@@ -11,9 +11,9 @@ import {
   ShieldCheck,
   Building2,
   UserCheck,
-  Phone,
   MapPin,
   Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -24,6 +24,7 @@ import {
   processNisInputChange,
   stripNisSymbols,
 } from '../core/utils/nisHelpers';
+import { validateGoogleMapsUrl } from '../core/utils/mapsHelpers';
 
 interface StudentApplicationWizardProps {
   isOpen: boolean;
@@ -54,7 +55,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
   const [teleponOrtu, setTeleponOrtu] = useState('');
   const [bioError, setBioError] = useState('');
 
-  // Step 3: DUDI Selection + Bio DUDI + Pemimpin / PIC / Telp DUDI
+  // Step 3: DUDI Selection + Bio DUDI + Link Google Maps
   const [dudiList, setDudiList] = useState<any[]>([]);
   const [loadingDudi, setLoadingDudi] = useState(false);
   const [dudiLoadError, setDudiLoadError] = useState('');
@@ -64,9 +65,12 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
   const [customDudiName, setCustomDudiName] = useState('');
   const [customDudiAddress, setCustomDudiAddress] = useState('');
   const [customDudiField, setCustomDudiField] = useState('');
-  const [namaPemimpinDudi, setNamaPemimpinDudi] = useState('');
-  const [namaPicDudi, setNamaPicDudi] = useState('');
-  const [noTelpDudi, setNoTelpDudi] = useState('');
+  const [linkMaps, setLinkMaps] = useState('');
+
+  const mapsValidation = useMemo(
+    () => (linkMaps.trim() ? validateGoogleMapsUrl(linkMaps) : null),
+    [linkMaps]
+  );
 
   // Submission State
   const [submitting, setSubmitting] = useState(false);
@@ -125,9 +129,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
     setCustomDudiName('');
     setCustomDudiAddress('');
     setCustomDudiField('');
-    setNamaPemimpinDudi('');
-    setNamaPicDudi('');
-    setNoTelpDudi('');
+    setLinkMaps('');
     setSubmitError('');
     setSubmissionResult(null);
   };
@@ -219,9 +221,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
       setCustomDudiName('');
       setCustomDudiAddress('');
       setCustomDudiField('');
-      setNamaPemimpinDudi('');
-      setNamaPicDudi('');
-      setNoTelpDudi('');
+      setLinkMaps('');
       return;
     }
 
@@ -231,9 +231,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
       setCustomDudiName('');
       setCustomDudiAddress('');
       setCustomDudiField('');
-      setNamaPemimpinDudi('');
-      setNamaPicDudi('');
-      setNoTelpDudi('');
+      setLinkMaps('');
     } else {
       setIsDudiUnregistered(false);
       const chosen = dudiList.find((d) => d.id === val);
@@ -242,9 +240,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
         setCustomDudiName(chosen.nama_dudi || '');
         setCustomDudiAddress(chosen.alamat || chosen.kota || '');
         setCustomDudiField(chosen.bidang_usaha || '');
-        setNamaPemimpinDudi(chosen.nama_pemimpin || '');
-        setNamaPicDudi(chosen.nama_pic || '');
-        setNoTelpDudi(chosen.no_telp_dudi || chosen.kontak_pic || chosen.telepon || '');
+        setLinkMaps(chosen.link_maps || '');
       }
     }
   };
@@ -274,19 +270,9 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
       return;
     }
 
-    if (!namaPemimpinDudi.trim()) {
-      setSubmitError('Nama Pemimpin DUDI wajib diisi.');
-      return;
-    }
-
-    if (!namaPicDudi.trim()) {
-      setSubmitError('Nama PIC / Pendamping DUDI wajib diisi.');
-      return;
-    }
-
-    const dudiPhoneDigits = noTelpDudi.replace(/\D/g, '');
-    if (!noTelpDudi.trim() || dudiPhoneDigits.length < 7) {
-      setSubmitError('No. Telp DUDI wajib diisi dengan nomor yang valid.');
+    const mapsCheck = validateGoogleMapsUrl(linkMaps);
+    if (!mapsCheck.valid) {
+      setSubmitError(mapsCheck.error || 'Link Google Maps lokasi tempat PKL tidak valid.');
       return;
     }
 
@@ -305,9 +291,7 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
         nama_dudi: customDudiName.trim(),
         alamat_dudi: customDudiAddress.trim(),
         bidang_dudi: customDudiField.trim() || '-',
-        nama_pemimpin: namaPemimpinDudi.trim(),
-        nama_pic: namaPicDudi.trim(),
-        no_telp_dudi: noTelpDudi.trim(),
+        link_maps: mapsCheck.normalizedUrl,
         is_dudi_unregistered: isDudiUnregistered,
       };
 
@@ -483,22 +467,20 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                   <span className="font-bold text-indigo-700 text-right">{submissionResult.nama_dudi}</span>
                 </div>
                 <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Pemimpin DUDI</span>
-                  <span className="font-semibold text-slate-800 text-right">
-                    {submissionResult.Nama_Pemimpin || '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">PIC / Pendamping</span>
-                  <span className="font-semibold text-slate-800 text-right">
-                    {submissionResult.Nama_PIC || '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">No. Telp DUDI</span>
-                  <span className="font-mono font-semibold text-slate-800 text-right">
-                    {submissionResult.No_Telp_DUDI || '-'}
-                  </span>
+                  <span className="text-slate-500 shrink-0">Link Google Maps</span>
+                  {submissionResult.Link_Maps || submissionResult.link_maps ? (
+                    <a
+                      href={submissionResult.Link_Maps || submissionResult.link_maps}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-blue-600 hover:underline truncate max-w-[240px] inline-flex items-center gap-1"
+                    >
+                      <span className="truncate">{submissionResult.Link_Maps || submissionResult.link_maps}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="text-slate-500">-</span>
+                  )}
                 </div>
                 <div className="flex justify-between gap-3 py-1">
                   <span className="text-slate-500">Status Saat Ini</span>
@@ -681,6 +663,17 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                       </div>
 
                       <div className="pt-2 border-t border-slate-100 space-y-3">
+                        <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-950 flex items-start gap-2.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="space-y-1 leading-relaxed">
+                            <p className="font-bold text-amber-900">
+                              Periksa Data Anda Dengan Teliti Sebelum Konfirmasi
+                            </p>
+                            <p>
+                              Pastikan seluruh biodata di atas (<b>Nama Lengkap, NIS, NIK, Kelas, dan Kompetensi Keahlian</b>) telah sesuai. Data yang sudah dikonfirmasi dan dikirim <b>tidak dapat diubah secara mandiri</b> karena akan dicetak pada surat resmi PKL serta sertifikat. Apabila terdapat kekeliruan sekecil apa pun, klik tombol <b>&ldquo;Belum Sesuai&rdquo;</b> dan segera laporkan kepada Wali Kelas atau Admin Pokja Hubin sebelum melanjutkan.
+                            </p>
+                          </div>
+                        </div>
                         <p className="text-xs font-bold text-slate-800">
                           Apakah data identitas Anda di atas sudah sesuai?
                         </p>
@@ -857,15 +850,15 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                 </div>
               )}
 
-              {/* STEP 3: PILIH DUDI & LENGKAPI BIO DUDI + PEMIMPIN / PIC / NO. TELP DUDI */}
+              {/* STEP 3: PILIH DUDI & SEMATKAN LINK GOOGLE MAPS */}
               {currentStep === 3 && studentData && (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">
-                      Langkah 3: Pilih DUDI &amp; Lengkapi Bio DUDI
+                      Langkah 3: Pilih DUDI &amp; Sematkan Link Google Maps
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Pilih lokasi DUDI tujuan Anda, lalu periksa bio DUDI serta lengkapi data Pemimpin, PIC/Pendamping, dan No. Telp DUDI.
+                      Pilih lokasi DUDI tujuan Anda, periksa bio tempat PKL, lalu masukkan tautan Google Maps lokasi tempat PKL yang valid.
                     </p>
                   </div>
 
@@ -988,55 +981,62 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                         )
                       )}
 
-                      {/* Input Pemimpin, PIC/Pendamping DUDI, dan No. Telp DUDI */}
-                      <div className="pt-1 border-t border-slate-200/80 space-y-3">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                          <Phone className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Data Penanggung Jawab &amp; Kontak DUDI</span>
+                      {/* Input Link Google Maps Tempat PKL (Wajib Valid) */}
+                      <div className="pt-3 border-t border-slate-200/80 space-y-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-1.5 font-bold text-slate-800">
+                            <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span>Link Google Maps Lokasi Tempat PKL *</span>
+                          </label>
+                          {mapsValidation?.valid && (
+                            <a
+                              href={mapsValidation.normalizedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:underline whitespace-nowrap"
+                            >
+                              <span>Buka Maps</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                          <div>
-                            <label className="block font-semibold text-slate-700 mb-1">
-                              Nama Pemimpin DUDI *
-                            </label>
-                            <input
-                              type="text"
-                              value={namaPemimpinDudi}
-                              onChange={(e) => setNamaPemimpinDudi(e.target.value)}
-                              placeholder="Direktur / Kepala Bengkel / Pemilik"
-                              required
-                              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-                            />
-                          </div>
-                          <div>
-                            <label className="block font-semibold text-slate-700 mb-1">
-                              Nama PIC / Pendamping DUDI *
-                            </label>
-                            <input
-                              type="text"
-                              value={namaPicDudi}
-                              onChange={(e) => setNamaPicDudi(e.target.value)}
-                              placeholder="Nama pembimbing lapangan / HRD"
-                              required
-                              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-                            />
-                          </div>
-                          <div className="sm:col-span-2">
-                            <label className="block font-semibold text-slate-700 mb-1">
-                              No. Telp / WhatsApp DUDI *
-                            </label>
-                            <input
-                              type="tel"
-                              inputMode="tel"
-                              value={noTelpDudi}
-                              onChange={(e) => setNoTelpDudi(e.target.value)}
-                              placeholder="0352-xxxxxx atau 08xxxxxxxxxx"
-                              required
-                              className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-600"
-                            />
-                          </div>
-                        </div>
+                        <input
+                          type="url"
+                          value={linkMaps}
+                          onChange={(e) => {
+                            setLinkMaps(e.target.value);
+                            setSubmitError('');
+                          }}
+                          placeholder="https://maps.app.goo.gl/... atau https://www.google.com/maps/..."
+                          required
+                          className={`w-full min-h-[44px] px-3.5 py-2 rounded-xl border bg-white font-mono text-xs focus:outline-none focus:ring-2 ${
+                            mapsValidation && !mapsValidation.valid
+                              ? 'border-rose-400 focus:ring-rose-500'
+                              : mapsValidation?.valid
+                              ? 'border-emerald-400 focus:ring-emerald-500'
+                              : 'border-slate-300 focus:ring-blue-600'
+                          }`}
+                        />
+
+                        {mapsValidation && !mapsValidation.valid ? (
+                          <p className="text-[11px] text-rose-700 font-medium">
+                            {mapsValidation.error}
+                          </p>
+                        ) : mapsValidation?.valid ? (
+                          <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Tautan Google Maps valid dan akan dicetak sebagai QR Code pada surat PKL.</span>
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Salin link langsung dari tombol <b>Bagikan / Share → Salin Link</b> di Google Maps. Pengajuan akan ditolak jika link bukan tautan Google Maps yang valid.
+                          </p>
+                        )}
+
+                        <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-3 py-2">
+                          Catatan: Data Penanggung Jawab (Pemimpin &amp; PIC/Pendamping) serta nomor telepon DUDI akan dicatat langsung oleh Guru Pendamping saat pengantaran siswa ke lokasi PKL.
+                        </p>
                       </div>
                     </div>
                   )}

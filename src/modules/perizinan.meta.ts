@@ -204,5 +204,13 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
       isFormInput: true,
       placeholder: 'https://drive.google.com/...',
     },
+    {
+      key: 'linkSuratPdf',
+      label: 'Tautan PDF Surat (Drive)',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'Otomatis terisi saat Generate PDF ke Google Drive',
+    },
   ],
 };

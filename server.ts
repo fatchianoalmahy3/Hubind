@@ -17,6 +17,7 @@ import {
   normalizeToIsoDate,
 } from './src/core/utils/dateHelpers';
 import { stripNisSymbols } from './src/core/utils/nisHelpers';
+import { validateGoogleMapsUrl } from './src/core/utils/mapsHelpers';
 
 const __dirnameResolved =
   typeof __dirname !== 'undefined'
@@ -1123,6 +1124,66 @@ async function writeLiveSheetViaGas(
   }
 }
 
+async function callGasCustomAction<T = any>(
+  action: string,
+  extraBody: Record<string, any> = {},
+  timeoutMs = 25_000
+): Promise<{ data: T; config: WorkspaceConfig }> {
+  const config = await getFirestoreWorkspaceConfig();
+  if (!config.spreadsheetId) {
+    throw new PortalConfigError(
+      'SPREADSHEET_NOT_CONFIGURED',
+      'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'
+    );
+  }
+  const gasUrl = validateGasUrl(config.gasDeployUrl);
+
+  let gasRes: globalThis.Response;
+  try {
+    gasRes = await fetchWithTimeout(
+      gasUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        redirect: 'follow',
+        body: JSON.stringify({
+          action,
+          year: config.activeYear,
+          spreadsheetId: config.spreadsheetId,
+          driveFolderUrl: config.driveFolderUrl,
+          timestamp: new Date().toISOString(),
+          ...extraBody,
+        }),
+      },
+      timeoutMs
+    );
+  } catch (err: any) {
+    if (err instanceof PortalConfigError) throw err;
+    throw new PortalConfigError(
+      'GAS_WRITE_FAILED',
+      `Server gagal menjalankan aksi [${action}] pada Cloud Server (${err?.message || 'network error'}).`,
+      502
+    );
+  }
+
+  const rawText = await gasRes.text();
+  const json = parseGasJsonSafely(rawText, action, gasRes.status);
+
+  if (!gasRes.ok) {
+    throw new PortalConfigError(
+      'GAS_WRITE_FAILED',
+      `Cloud Server mengembalikan error HTTP ${gasRes.status} saat menjalankan aksi [${action}].`,
+      502
+    );
+  }
+
+  if (json?.error) {
+    throw new PortalConfigError('GAS_WRITE_ERROR', String(json.error), 502);
+  }
+
+  return { data: json as T, config };
+}
+
 function handlePortalError(res: Response, err: any) {
   if (err instanceof PortalConfigError) {
     return res.status(err.status).json({
@@ -1153,6 +1214,7 @@ function normalizeStr(v: any): string {
 }
 
 const ROLE_TITLE_MAP: Record<string, string> = {
+  SuperAdmin: 'Super Administrator Sistem & Server',
   Hubin: 'Koordinator Pokja Hubin & Kerjasama DUDI',
   Kepsek: 'Kepala Sekolah SMK PGRI 2 Ponorogo',
   Waka: 'Wakil Kepala Sekolah Bidang Hubin',
@@ -1161,6 +1223,14 @@ const ROLE_TITLE_MAP: Record<string, string> = {
 };
 
 const DEFAULT_ADMIN_SEED = [
+  {
+    id: 'AKN-SUPERADMIN',
+    username: 'superadmin',
+    defaultPassword: 'SuperAdmin@2026',
+    role: 'SuperAdmin',
+    namaLengkap: 'Super Admin Sistem',
+    jabatan: ROLE_TITLE_MAP.SuperAdmin,
+  },
   {
     id: 'AKN-HUBIN',
     username: 'hubin',
@@ -1312,7 +1382,7 @@ function buildDefaultAdminRecords(): ServerAdminAccountRecord[] {
 function normalizeAccountRecord(raw: any, idx: number): ServerAdminAccountRecord | null {
   const username = pickField(raw, 'Username', 'username').toLowerCase();
   if (!username) return null;
-  const validRoles = ['Hubin', 'Kepsek', 'Waka', 'Pokja', 'Kakomli'];
+  const validRoles = ['SuperAdmin', 'Hubin', 'Kepsek', 'Waka', 'Pokja', 'Kakomli'];
   const rawRole = pickField(raw, 'Role', 'role') || 'Pokja';
   const role = validRoles.includes(rawRole) ? rawRole : 'Pokja';
   const rawStatus = pickField(raw, 'Status', 'status').toLowerCase();
@@ -1411,7 +1481,7 @@ async function requireAdminAuth(req: Request): Promise<{
   }
 
   if (email.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase()) {
-    return { id: uid, username: email, role: 'Hubin', name: fbUser?.displayName || email };
+    return { id: uid, username: email, role: 'SuperAdmin', name: fbUser?.displayName || email };
   }
 
   const adminDocUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
@@ -1498,8 +1568,7 @@ app.post('/api/admin/login', async (req: Request, res: Response) => {
         title: matched.jabatan || ROLE_TITLE_MAP[matched.role] || matched.role,
         email: '',
         identifier: matched.username,
-        canManageSpreadsheet:
-          matched.role === 'Hubin' || matched.role === 'Kepsek' || matched.role === 'Waka',
+        canManageSpreadsheet: matched.role === 'SuperAdmin',
       },
     });
   } catch (err: any) {
@@ -1514,7 +1583,7 @@ app.get('/api/admin/accounts', async (req: Request, res: Response) => {
     const { accounts, syncedToSheet } = await fetchMasterAkunFromGasOrDefaults(true);
 
     const visible =
-      session.role === 'Hubin'
+      session.role === 'SuperAdmin'
         ? accounts
         : accounts.filter((a) => a.id === session.id || a.username === session.username);
 
@@ -1536,10 +1605,10 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
 
     // Support direct rows payload from LocalAccountAuthService (already hashed in browser)
     if (Array.isArray(body.accounts)) {
-      if (session.role !== 'Hubin' && body.accounts.length > 1) {
+      if (session.role !== 'SuperAdmin' && body.accounts.length > 1) {
         return res.status(403).json({
           success: false,
-          message: 'Hanya peran Hubin yang dapat mengelola seluruh daftar akun.',
+          message: 'Hanya peran SuperAdmin yang dapat mengelola seluruh daftar akun.',
         });
       }
       await writeLiveSheetViaGas('Master_Akun', 'SYNC_ALL', body.accounts);
@@ -1555,24 +1624,24 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
     let working = currentAccounts.map((a) => ({ ...a }));
 
     if (op === 'BOOTSTRAP') {
-      if (session.role !== 'Hubin') {
-        return res.status(403).json({ success: false, message: 'Hanya Hubin yang dapat inisialisasi akun.' });
+      if (session.role !== 'SuperAdmin') {
+        return res.status(403).json({ success: false, message: 'Hanya SuperAdmin yang dapat inisialisasi akun.' });
       }
       working = working.map((a) => ({ ...a, isDefaultSeed: false }));
     } else if (op === 'DELETE') {
-      if (session.role !== 'Hubin') {
-        return res.status(403).json({ success: false, message: 'Hanya Hubin yang dapat menghapus akun.' });
+      if (session.role !== 'SuperAdmin') {
+        return res.status(403).json({ success: false, message: 'Hanya SuperAdmin yang dapat menghapus akun.' });
       }
       const targetId = String(body.id || '').trim();
       const target = working.find((a) => a.id === targetId);
       if (target) {
-        const remainingHubin = working.filter(
-          (a) => a.id !== targetId && a.role === 'Hubin' && a.status === 'Aktif'
+        const remainingSuperAdmin = working.filter(
+          (a) => a.id !== targetId && a.role === 'SuperAdmin' && a.status === 'Aktif'
         );
-        if (target.role === 'Hubin' && remainingHubin.length === 0) {
+        if (target.role === 'SuperAdmin' && remainingSuperAdmin.length === 0) {
           return res.status(400).json({
             success: false,
-            message: 'Minimal harus ada 1 akun Hubin aktif.',
+            message: 'Minimal harus ada 1 akun SuperAdmin aktif.',
           });
         }
         working = working.filter((a) => a.id !== targetId);
@@ -1591,7 +1660,7 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
         (a) => (targetId && a.id === targetId) || a.username === cleanUsername
       );
 
-      if (session.role !== 'Hubin') {
+      if (session.role !== 'SuperAdmin') {
         if (existingIdx === -1 || working[existingIdx].id !== session.id) {
           return res.status(403).json({
             success: false,
@@ -1626,7 +1695,7 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
       }
 
       const requestedRole =
-        session.role === 'Hubin'
+        session.role === 'SuperAdmin'
           ? String(body.role || (existingIdx !== -1 ? working[existingIdx].role : 'Pokja'))
           : working[existingIdx].role;
 
@@ -1638,7 +1707,7 @@ app.post('/api/admin/accounts', async (req: Request, res: Response) => {
         namaLengkap: String(body.namaLengkap || '').trim() || cleanUsername,
         jabatan: String(body.jabatan || '').trim() || ROLE_TITLE_MAP[requestedRole] || requestedRole,
         status:
-          session.role === 'Hubin' && String(body.status || '').toLowerCase() === 'nonaktif'
+          session.role === 'SuperAdmin' && String(body.status || '').toLowerCase() === 'nonaktif'
             ? ('Nonaktif' as const)
             : ('Aktif' as const),
         updatedAt: new Date().toISOString(),
@@ -1800,11 +1869,11 @@ app.get('/api/admin/sheet', async (req: Request, res: Response) => {
     if (!ALLOWED_ADMIN_SHEETS.has(sheetName)) {
       return res.status(400).json({ success: false, message: `Tabel [${sheetName}] tidak terdaftar.` });
     }
-    if (sheetName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (sheetName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Akses tabel Master_Akun hanya diperbolehkan untuk peran Admin Hubin.',
+        message: 'Akses tabel Master_Akun hanya diperbolehkan untuk peran SuperAdmin.',
       });
     }
 
@@ -1849,18 +1918,18 @@ app.post('/api/admin/sheet', async (req: Request, res: Response) => {
         message: `Tabel [${targetSheet}] tidak diizinkan untuk dimodifikasi.`,
       });
     }
-    if (targetSheet.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (targetSheet.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Hanya Admin Hubin yang berhak mengubah data Master_Akun.',
+        message: 'Hanya SuperAdmin yang berhak mengubah data Master_Akun.',
       });
     }
-    if (normalizedAction === 'SYNC_ALL' && session.role !== 'Hubin') {
+    if (normalizedAction === 'SYNC_ALL' && session.role !== 'SuperAdmin' && session.role !== 'Hubin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk peran Admin Hubin.',
+        message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk SuperAdmin atau Admin Hubin.',
       });
     }
 
@@ -1972,7 +2041,7 @@ app.get('/api/v1/bootstrap', async (req: Request, res: Response) => {
       : DEFAULT_ADMIN_BOOTSTRAP_TABLES;
 
     const authorizedTables = requestedTables.filter(
-      (t) => t.toLowerCase() !== 'master_akun' || session.role === 'Hubin'
+      (t) => t.toLowerCase() !== 'master_akun' || session.role === 'SuperAdmin'
     );
 
     const optionalSet = new Set(authorizedTables);
@@ -2318,11 +2387,11 @@ app.get('/api/v1/:resource', async (req: Request, res: Response) => {
     if (!tableName) {
       return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
     }
-    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Akses resource akun hanya diperbolehkan untuk peran Admin Hubin.',
+        message: 'Akses resource akun hanya diperbolehkan untuk peran SuperAdmin.',
       });
     }
 
@@ -2401,11 +2470,11 @@ app.get('/api/v1/:resource/:id', async (req: Request, res: Response) => {
     if (!tableName) {
       return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
     }
-    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Akses resource akun hanya diperbolehkan untuk peran Admin Hubin.',
+        message: 'Akses resource akun hanya diperbolehkan untuk peran SuperAdmin.',
       });
     }
 
@@ -2440,11 +2509,11 @@ app.post('/api/v1/:resource', async (req: Request, res: Response) => {
     if (!tableName) {
       return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
     }
-    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Hanya Admin Hubin yang berhak menambah akun.',
+        message: 'Hanya SuperAdmin yang berhak menambah akun.',
       });
     }
 
@@ -2476,18 +2545,18 @@ app.post('/api/v1/:resource/bulk', async (req: Request, res: Response) => {
     if (!allowedBulk.has(normalizedAction)) {
       return res.status(400).json({ success: false, message: 'Aksi bulk tidak valid.' });
     }
-    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Hanya Admin Hubin yang berhak mengubah data akun.',
+        message: 'Hanya SuperAdmin yang berhak mengubah data akun.',
       });
     }
-    if (normalizedAction === 'SYNC_ALL' && session.role !== 'Hubin') {
+    if (normalizedAction === 'SYNC_ALL' && session.role !== 'SuperAdmin' && session.role !== 'Hubin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk peran Admin Hubin.',
+        message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk SuperAdmin atau Admin Hubin.',
       });
     }
 
@@ -2506,11 +2575,11 @@ const handleRestUpdate = async (req: Request, res: Response) => {
     if (!tableName) {
       return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
     }
-    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Hanya Admin Hubin yang berhak mengubah data akun.',
+        message: 'Hanya SuperAdmin yang berhak mengubah data akun.',
       });
     }
 
@@ -2540,11 +2609,11 @@ app.delete('/api/v1/:resource/:id', async (req: Request, res: Response) => {
     if (!tableName) {
       return res.status(404).json({ success: false, message: `Resource [${req.params.resource}] tidak ditemukan.` });
     }
-    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'Hubin') {
+    if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
       return res.status(403).json({
         success: false,
         code: 'FORBIDDEN',
-        message: 'Hanya Admin Hubin yang berhak menghapus data akun.',
+        message: 'Hanya SuperAdmin yang berhak menghapus data akun.',
       });
     }
 
@@ -2679,6 +2748,7 @@ app.get('/api/public/dudi-list', async (req: Request, res: Response) => {
         const namaPic = pickField(d, 'Nama_PIC', 'namaPic', 'nama_pic');
         const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
         const noTelpDudi = pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
+        const linkMaps = pickField(d, 'Link_Maps', 'linkMaps', 'link_maps', 'mapsUrl');
         return {
           id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
           nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
@@ -2692,6 +2762,7 @@ app.get('/api/public/dudi-list', async (req: Request, res: Response) => {
           nama_pic: namaPic,
           kontak_pic: kontakPic,
           no_telp_dudi: noTelpDudi,
+          link_maps: linkMaps,
           pimpinan: namaPemimpin || namaPic,
           telepon: noTelpDudi,
         };
@@ -2717,31 +2788,24 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
       return res.status(400).json({ success: false, message: 'NIS dan Nama Siswa wajib diisi.' });
     }
 
+    const rawMapsInput = String(payload.link_maps || payload.Link_Maps || payload.linkMaps || '').trim();
+    const mapsCheck = validateGoogleMapsUrl(rawMapsInput);
+    if (!mapsCheck.valid) {
+      return res.status(400).json({
+        success: false,
+        message: mapsCheck.error || 'Link Google Maps lokasi PKL tidak valid.',
+      });
+    }
+
     const noPengajuan = `REQ-${new Date().getFullYear()}-${String(payload.jurusan || 'PKL')
       .substring(0, 3)
       .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
     const timestamp = getTodayWibDateTime();
     const cleanNis = stripNisSymbols(payload.nis) || String(payload.nis).trim();
 
-    const namaPemimpin = String(payload.nama_pemimpin || '').trim();
-    const namaPic = String(payload.nama_pic || '').trim();
-    const noTelpDudi = String(payload.no_telp_dudi || '').trim();
-
-    const dudiContactSummary = [
-      namaPemimpin ? `Pemimpin: ${namaPemimpin}` : '',
-      namaPic ? `PIC/Pendamping: ${namaPic}` : '',
-      noTelpDudi ? `Telp DUDI: ${noTelpDudi}` : '',
-    ]
-      .filter(Boolean)
-      .join(' | ');
-
     const baseStatusNote = payload.is_dudi_unregistered
       ? 'Pengajuan DUDI baru (perlu verifikasi kelayakan Hubin).'
       : 'Menunggu review relevansi kompetensi oleh Kakomli.';
-
-    const combinedCatatanKakomli = dudiContactSummary
-      ? `${baseStatusNote} [${dudiContactSummary}]`
-      : baseStatusNote;
 
     const sheetRow = {
       id: noPengajuan,
@@ -2767,14 +2831,17 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
       alamatDudi: String(payload.alamat_dudi || ''),
       Bidang_Pekerjaan: String(payload.bidang_dudi || ''),
       bidangPekerjaan: String(payload.bidang_dudi || ''),
-      Nama_Pemimpin: namaPemimpin,
-      namaPemimpin,
-      Nama_PIC: namaPic,
-      namaPic,
-      No_Telp_DUDI: noTelpDudi,
-      noTelpDudi,
-      Kontak_PIC: noTelpDudi,
-      kontakPic: noTelpDudi,
+      Nama_Pemimpin: '',
+      namaPemimpin: '',
+      Nama_PIC: '',
+      namaPic: '',
+      No_Telp_DUDI: '',
+      noTelpDudi: '',
+      Kontak_PIC: '',
+      kontakPic: '',
+      Link_Maps: mapsCheck.normalizedUrl,
+      linkMaps: mapsCheck.normalizedUrl,
+      link_maps: mapsCheck.normalizedUrl,
       No_WA: String(payload.telepon || ''),
       noWa: String(payload.telepon || ''),
       Alamat_Domisili: String(payload.alamat_domisili || ''),
@@ -2785,8 +2852,8 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
       noOrtuWali: String(payload.telepon_orang_tua || ''),
       Status_Kakomli: 'Pending',
       statusKakomli: 'Pending',
-      Catatan_Kakomli: combinedCatatanKakomli,
-      catatanKakomli: combinedCatatanKakomli,
+      Catatan_Kakomli: baseStatusNote,
+      catatanKakomli: baseStatusNote,
       Status_Hubin: 'Menunggu ACC Kakomli',
       statusHubin: 'Menunggu ACC Kakomli',
       Guru_Pendamping: '',
@@ -2797,6 +2864,33 @@ app.post('/api/public/submit-application', async (req: Request, res: Response) =
     };
 
     await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'CREATE', sheetRow);
+
+    // Backfill Link_Maps into Master_DUDI if empty (non-blocking)
+    if (payload.dudi_id && payload.dudi_id !== 'custom_hubin' && mapsCheck.normalizedUrl) {
+      try {
+        const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', false);
+        const matchedDudi = dudiRes.rows.find((d: any) => {
+          const dId = pickField(d, 'ID', 'id');
+          const dNama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi'));
+          return (
+            dId === String(payload.dudi_id).trim() ||
+            (payload.nama_dudi && dNama === normalizeStr(payload.nama_dudi))
+          );
+        });
+        if (matchedDudi && !pickField(matchedDudi, 'Link_Maps', 'linkMaps', 'link_maps')) {
+          const targetDudiId = pickField(matchedDudi, 'ID', 'id');
+          await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
+            ...matchedDudi,
+            id: targetDudiId,
+            ID: targetDudiId,
+            Link_Maps: mapsCheck.normalizedUrl,
+            linkMaps: mapsCheck.normalizedUrl,
+          });
+        }
+      } catch {
+        // non-blocking backfill
+      }
+    }
 
     res.json({
       success: true,
@@ -2939,6 +3033,16 @@ app.get('/api/public/petugas-dudi', async (req: Request, res: Response) => {
       if (nama) dudiMapByName.set(normalizeStr(nama), d);
     }
 
+    const pengajuanMapsByDudi = new Map<string, string>();
+    for (const reqRow of pengajuanRes.rows) {
+      const lm = pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps');
+      if (!lm) continue;
+      const did = pickField(reqRow, 'ID_DUDI', 'idDudi');
+      const dname = normalizeStr(pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'));
+      if (did && !pengajuanMapsByDudi.has(did)) pengajuanMapsByDudi.set(did, lm);
+      if (dname && !pengajuanMapsByDudi.has(dname)) pengajuanMapsByDudi.set(dname, lm);
+    }
+
     const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
     const targetNamaNorm = normalizeStr(petugasNama);
 
@@ -2964,14 +3068,24 @@ app.get('/api/public/petugas-dudi', async (req: Request, res: Response) => {
 
       const key = normalizeStr(resolvedName);
       if (!grouped.has(key)) {
+        const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
+        const resolvedKontak =
+          pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') || '-';
+        const resolvedMaps =
+          pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
+          pengajuanMapsByDudi.get(masterId) ||
+          pengajuanMapsByDudi.get(key) ||
+          '';
         grouped.set(key, {
           dudi: {
-            id: pickField(master || {}, 'ID', 'id') || dudiId || key,
+            id: masterId,
             nama: resolvedName,
             alamat: pickField(master || {}, 'Alamat', 'alamat') || '-',
             bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || '-',
+            namaPemimpin: pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') || '',
             pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-            kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
+            kontak: resolvedKontak,
+            linkMaps: resolvedMaps,
             kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
           },
           studentNisSet: new Set<string>(),
@@ -3001,14 +3115,29 @@ app.get('/api/public/petugas-dudi', async (req: Request, res: Response) => {
       const key = normalizeStr(dudiNamaRaw);
 
       if (!grouped.has(key)) {
+        const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
+        const resolvedKontak =
+          pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
+          pickField(reqRow, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
+          '-';
+        const resolvedMaps =
+          pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
+          pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps') ||
+          pengajuanMapsByDudi.get(key) ||
+          '';
         grouped.set(key, {
           dudi: {
-            id: pickField(master || {}, 'ID', 'id') || dudiId || key,
+            id: masterId,
             nama: pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw,
             alamat: pickField(master || {}, 'Alamat', 'alamat') || pickField(reqRow, 'Alamat_DUDI', 'alamatDudi') || '-',
             bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || pickField(reqRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') || '-',
-            pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-            kontak: pickField(master || {}, 'Kontak_PIC', 'kontakPic') || '-',
+            namaPemimpin:
+              pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') ||
+              pickField(reqRow, 'Nama_Pemimpin', 'namaPemimpin') ||
+              '',
+            pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || pickField(reqRow, 'Nama_PIC', 'namaPic') || '-',
+            kontak: resolvedKontak,
+            linkMaps: resolvedMaps,
             kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
           },
           studentNisSet: new Set<string>(),
@@ -3202,6 +3331,56 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
       existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const tglVal = normalizeToIsoDate(payload.tanggal) || getTodayWibIsoDate();
 
+    const noteCombined = stripStructuredTagsFromNote(payload.catatan_perkembangan);
+    const stageStr = String(payload.tahap_monitoring);
+    const stageNum = extractStageNumber(stageStr);
+
+    if (stageNum < 1 || stageNum > 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tahap Monitoring tidak valid (harus Tahap 1 sampai Tahap 8).',
+      });
+    }
+
+    // Strict sequential step lock: Tahap N (N >= 2) requires Tahap N - 1 to be completed
+    if (stageNum >= 2) {
+      const monRes = await fetchLiveSheetViaGas('Monitoring_5_Tahap', true).catch(() => ({ rows: [] as any[] }));
+      const summary = buildStudentMonitoringSummary(
+        {
+          nis: cleanNis,
+          nama: String(payload.nama_siswa || ''),
+          idPenempatan: String(payload.id_penempatan || ''),
+          dudi_name: String(payload.nama_dudi || ''),
+        },
+        monRes.rows,
+        []
+      );
+      if (!summary.completedStages.includes(stageNum - 1)) {
+        const prevStageLabel = getStageValueByNumber(stageNum - 1);
+        return res.status(400).json({
+          success: false,
+          code: 'STAGE_LOCKED',
+          message: `${stageStr} masih terkunci. Harap isi dan simpan ${prevStageLabel} untuk ${payload.nama_siswa} terlebih dahulu.`,
+        });
+      }
+    }
+
+    // Stage 1 (Pengantaran) requires DUDI Pemimpin, PIC & Telp/WA
+    const inputPemimpin = String(payload.nama_pemimpin || '').trim();
+    const inputPic = String(payload.nama_pic || '').trim();
+    const inputTelpDudi = String(payload.no_telp_dudi || '').trim();
+    const inputTelpDigits = inputTelpDudi.replace(/\D/g, '');
+    if (stageNum === 1) {
+      if (!inputPemimpin || !inputPic || inputTelpDigits.length < 7) {
+        return res.status(400).json({
+          success: false,
+          code: 'DUDI_CONTACT_REQUIRED',
+          message:
+            'Pada Tahap 1 (Pengantaran), Nama Pemimpin DUDI, Nama PIC/Pendamping, dan No. Telp/WhatsApp DUDI wajib diisi lengkap.',
+        });
+      }
+    }
+
     const sakit = Math.max(0, Math.round(Number(payload.sakit ?? 0) || 0));
     const izin = Math.max(0, Math.round(Number(payload.izin ?? 0) || 0));
     const alpha = Math.max(0, Math.round(Number(payload.alpha ?? 0) || 0));
@@ -3220,10 +3399,6 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
       alurBisnis = Math.min(100, Math.max(0, Number(payload.nilai_alur_bisnis ?? 0) || 0));
       avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
     }
-
-    const noteCombined = stripStructuredTagsFromNote(payload.catatan_perkembangan);
-    const stageStr = String(payload.tahap_monitoring);
-    const stageNum = extractStageNumber(stageStr);
 
     const sheetRow: Record<string, any> = {
       id: idMonitoring,
@@ -3288,6 +3463,92 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
     };
 
     await writeLiveSheetViaGas('Monitoring_5_Tahap', isUpdate ? 'UPDATE' : 'CREATE', sheetRow);
+
+    // Sync DUDI Contact & Pemimpin to Master_DUDI (always if provided on Stage 1 or editor update)
+    let dudiContactSynced = false;
+    if (inputPemimpin || inputPic || inputTelpDudi) {
+      try {
+        const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', true).catch(() => ({ rows: [] as any[] }));
+        const targetDudiId = String(payload.dudi_id || '').trim();
+        const targetDudiName = normalizeStr(payload.nama_dudi);
+        const existingDudi = dudiRes.rows.find((d: any) => {
+          const dId = pickField(d, 'ID', 'id');
+          const dNama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi'));
+          return (
+            (targetDudiId && dId === targetDudiId) ||
+            (targetDudiName && (dNama === targetDudiName || dNama.includes(targetDudiName)))
+          );
+        });
+
+        if (existingDudi) {
+          const resolvedId = pickField(existingDudi, 'ID', 'id') || targetDudiId;
+          await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
+            ...existingDudi,
+            id: resolvedId,
+            ID: resolvedId,
+            Nama_Pemimpin: inputPemimpin || pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin'),
+            namaPemimpin: inputPemimpin || pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin'),
+            Nama_PIC: inputPic || pickField(existingDudi, 'Nama_PIC', 'namaPic'),
+            namaPic: inputPic || pickField(existingDudi, 'Nama_PIC', 'namaPic'),
+            Kontak_PIC: inputTelpDudi || pickField(existingDudi, 'Kontak_PIC', 'kontakPic'),
+            kontakPic: inputTelpDudi || pickField(existingDudi, 'Kontak_PIC', 'kontakPic'),
+            No_Telp_DUDI: inputTelpDudi || pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi'),
+            noTelpDudi: inputTelpDudi || pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi'),
+          });
+          dudiContactSynced = true;
+        } else if (payload.nama_dudi) {
+          const newDudiId =
+            targetDudiId && !targetDudiId.includes('::')
+              ? targetDudiId
+              : `DUD-${Date.now().toString(36).toUpperCase()}`;
+          await writeLiveSheetViaGas('Master_DUDI', 'CREATE', {
+            id: newDudiId,
+            ID: newDudiId,
+            Nama_DUDI: String(payload.nama_dudi).trim(),
+            Bidang_Keahlian: '-',
+            Alamat: String(payload.alamat_dudi || '-').trim(),
+            Wilayah_Kota: 'Ponorogo',
+            Nama_Pemimpin: inputPemimpin,
+            Nama_PIC: inputPic,
+            Kontak_PIC: inputTelpDudi,
+            No_Telp_DUDI: inputTelpDudi,
+            Kuota_Maksimal: 4,
+            Terisi: 1,
+            Status_Kerjasama: 'Mitra Baru',
+          });
+          dudiContactSynced = true;
+        }
+
+        // Backfill matching active Data_Pengajuan_PKL rows whose DUDI contact is blank
+        const reqRes = await fetchLiveSheetViaGas('Data_Pengajuan_PKL', false).catch(() => ({ rows: [] as any[] }));
+        const matchingReqs = reqRes.rows.filter((r: any) => {
+          const rDudiId = pickField(r, 'ID_DUDI', 'idDudi');
+          const rDudiNama = normalizeStr(pickField(r, 'DUDI_Tujuan', 'dudiTujuan'));
+          const isTarget =
+            (targetDudiId && rDudiId === targetDudiId) || (targetDudiName && rDudiNama === targetDudiName);
+          const hasBlankContact =
+            !pickField(r, 'Nama_Pemimpin', 'namaPemimpin') ||
+            !pickField(r, 'Nama_PIC', 'namaPic') ||
+            !pickField(r, 'No_Telp_DUDI', 'noTelpDudi');
+          return isTarget && hasBlankContact;
+        });
+        for (const mr of matchingReqs.slice(0, 10)) {
+          const mrId = pickField(mr, 'No_Pengajuan', 'noPengajuan', 'id');
+          if (!mrId) continue;
+          await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'UPDATE', {
+            ...mr,
+            id: mrId,
+            No_Pengajuan: mrId,
+            Nama_Pemimpin: pickField(mr, 'Nama_Pemimpin', 'namaPemimpin') || inputPemimpin,
+            Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || inputPic,
+            No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || inputTelpDudi,
+            Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || inputTelpDudi,
+          }).catch(() => {});
+        }
+      } catch (dudiErr) {
+        console.warn('[submit-monitoring] Sync DUDI contact warning:', dudiErr);
+      }
+    }
 
     let gradeSynced = false;
     if (nilaiMuncul && avgScore > 0) {
@@ -3386,6 +3647,15 @@ app.post('/api/public/submit-monitoring', async (req: Request, res: Response) =>
     res.json({
       success: true,
       gradeSynced,
+      dudiContactSynced,
+      dudiContact:
+        inputPemimpin || inputPic || inputTelpDudi
+          ? {
+              namaPemimpin: inputPemimpin,
+              pic: inputPic,
+              kontak: inputTelpDudi,
+            }
+          : undefined,
       message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Cloud Server.`,
       monitoring: sheetRow,
     });
@@ -3621,6 +3891,165 @@ app.post('/api/public/update-grades', async (req: Request, res: Response) => {
         tahapDiinput: resolvedStage,
         tanggal: tglVal,
       },
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// Generate Surat Permohonan/Perizinan PKL PDF in Google Drive via GAS & save link to Data_Perizinan_PKL
+app.post('/api/perizinan/generate-pdf', async (req: Request, res: Response) => {
+  try {
+    await requireAdminAuth(req);
+    const body = req.body || {};
+    const perizinanId = String(body.perizinanId || body.id || '').trim();
+
+    let existingRow: any = null;
+    if (perizinanId) {
+      const izinRes = await fetchLiveSheetViaGas('Data_Perizinan_PKL', false).catch(() => ({ rows: [] as any[] }));
+      existingRow = izinRes.rows.find((r: any) => {
+        const rid = pickField(r, 'ID_Perizinan', 'idPerizinan', 'id');
+        return rid === perizinanId;
+      });
+    }
+
+    const dudiTujuan =
+      String(body.dudiTujuan || '').trim() ||
+      pickField(existingRow || {}, 'DUDI_Tujuan', 'dudiTujuan') ||
+      'Mitra DUDI';
+
+    let alamatDudi =
+      String(body.alamatDudi || '').trim() ||
+      pickField(existingRow || {}, 'Alamat_DUDI', 'alamatDudi');
+
+    if (!alamatDudi || alamatDudi === '-') {
+      const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', false).catch(() => ({ rows: [] as any[] }));
+      const matchedDudi = dudiRes.rows.find(
+        (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === normalizeStr(dudiTujuan)
+      );
+      if (matchedDudi) {
+        alamatDudi = pickField(matchedDudi, 'Alamat', 'alamat') || alamatDudi;
+      }
+    }
+
+    const gasPayload = {
+      perizinanId: perizinanId || `IZN-${Date.now()}`,
+      noPerizinan:
+        String(body.noPerizinan || '').trim() ||
+        pickField(existingRow || {}, 'ID_Perizinan', 'idPerizinan', 'id') ||
+        perizinanId,
+      noSuratPermohonan:
+        String(body.noSuratPermohonan || '').trim() ||
+        pickField(existingRow || {}, 'No_Surat_Permohonan', 'noSuratPermohonan') ||
+        `421.5 / ___ / Hubin / SMK.PGRI2 / ${new Date().getFullYear()}`,
+      namaSiswa:
+        String(body.namaSiswa || '').trim() ||
+        pickField(existingRow || {}, 'Nama_Siswa', 'namaSiswa') ||
+        '-',
+      nis: stripNisSymbols(
+        String(body.nis || '').trim() || pickField(existingRow || {}, 'NIS', 'nis')
+      ),
+      kelas:
+        String(body.kelas || '').trim() ||
+        pickField(existingRow || {}, 'Kelas', 'kelas') ||
+        '-',
+      jurusan:
+        String(body.jurusan || '').trim() ||
+        pickField(existingRow || {}, 'Jurusan', 'jurusan') ||
+        '-',
+      dudiTujuan,
+      alamatDudi: alamatDudi || 'Di Tempat',
+      tanggalSurat: String(body.tanggalSurat || '').trim() || getTodayWibIsoDate(),
+      kepalaSekolah: String(body.kepalaSekolah || '').trim() || 'Kepala SMK PGRI 2 Ponorogo',
+    };
+
+    const { data: gasResult } = await callGasCustomAction<{
+      success?: boolean;
+      pdfUrl?: string;
+      fileId?: string;
+      fileName?: string;
+    }>('GENERATE_SURAT_IZIN_PDF', { data: gasPayload });
+
+    const pdfUrl = String(gasResult?.pdfUrl || '').trim();
+    if (!pdfUrl) {
+      throw new PortalConfigError(
+        'GAS_WRITE_ERROR',
+        'Apps Script belum mengembalikan URL PDF. Pastikan Anda sudah memperbarui & Deploy ulang versi terbaru script GAS Web App.',
+        502
+      );
+    }
+
+    if (existingRow && perizinanId) {
+      await writeLiveSheetViaGas('Data_Perizinan_PKL', 'UPDATE', {
+        ...existingRow,
+        id: pickField(existingRow, 'ID_Perizinan', 'idPerizinan', 'id') || perizinanId,
+        ID_Perizinan: pickField(existingRow, 'ID_Perizinan', 'idPerizinan', 'id') || perizinanId,
+        Link_Surat_PDF: pdfUrl,
+        linkSuratPdf: pdfUrl,
+      }).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      pdfUrl,
+      fileId: gasResult?.fileId || '',
+      fileName: gasResult?.fileName || '',
+      message: 'Surat Permohonan PDF berhasil dibuat di Google Drive.',
+    });
+  } catch (err: any) {
+    handlePortalError(res, err);
+  }
+});
+
+// Generate bundled 1-step Monitoring Packet PDF in Google Drive from official Google Docs templates via GAS
+app.post('/api/documents/generate-monitoring-bundle', async (req: Request, res: Response) => {
+  try {
+    await requireAdminAuth(req);
+    const body = req.body || {};
+    const bundles = Array.isArray(body.bundles) ? body.bundles : [];
+    if (bundles.length === 0) {
+      return res.status(400).json({
+        success: false,
+        code: 'EMPTY_BUNDLE',
+        message: 'Pilih minimal satu DUDI siap cetak terlebih dahulu.',
+      });
+    }
+
+    const { data: gasResult } = await callGasCustomAction<{
+      success?: boolean;
+      pdfUrl?: string;
+      fileId?: string;
+      fileName?: string;
+      totalSheets?: number;
+    }>(
+      'GENERATE_MONITORING_BUNDLE_PDF',
+      {
+        data: {
+          templateIds: body.templateIds || {},
+          includeDocs: body.includeDocs || {},
+          meta: body.meta || {},
+          bundles,
+        },
+      },
+      55_000
+    );
+
+    const pdfUrl = String(gasResult?.pdfUrl || '').trim();
+    if (!pdfUrl) {
+      throw new PortalConfigError(
+        'GAS_WRITE_ERROR',
+        'Apps Script belum mengembalikan URL PDF paket. Pastikan script GAS versi terbaru sudah di-Deploy.',
+        502
+      );
+    }
+
+    return res.json({
+      success: true,
+      pdfUrl,
+      fileId: gasResult?.fileId || '',
+      fileName: gasResult?.fileName || '',
+      totalSheets: gasResult?.totalSheets || 0,
+      message: 'Paket dokumen monitoring PDF berhasil dibuat dari Template Google Docs.',
     });
   } catch (err: any) {
     handlePortalError(res, err);

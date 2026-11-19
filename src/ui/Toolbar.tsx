@@ -15,6 +15,8 @@ import {
   MoreHorizontal,
   ChevronDown,
   X,
+  BarChart3,
+  Printer,
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -32,6 +34,8 @@ interface ToolbarProps {
   onOpenSimulatorModal?: () => void;
   onOpenGasModal?: () => void;
   onSyncRelations?: () => void;
+  onOpenMonitoringRecap?: () => void;
+  onOpenMonitoringBundle?: () => void;
   syncingRelations?: boolean;
   canAdd?: boolean;
   viewMode?: 'table' | 'card';
@@ -53,6 +57,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenSimulatorModal,
   onOpenGasModal,
   onSyncRelations,
+  onOpenMonitoringRecap,
+  onOpenMonitoringBundle,
   syncingRelations = false,
   canAdd = true,
   viewMode = 'table',
@@ -171,6 +177,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           >
             <Layers className="w-3.5 h-3.5 shrink-0" />
             <span>Aksi Massal ({selectedCount})</span>
+          </button>
+        )}
+
+        {onOpenMonitoringBundle && (
+          <button
+            type="button"
+            onClick={onOpenMonitoringBundle}
+            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40"
+            title="Cetak Paket Surat Tugas, Lembar Monitoring & Penilaian Kurmer (1-Langkah)"
+          >
+            <Printer className="w-3.5 h-3.5 shrink-0" />
+            <span>Paket Cetak Berkas</span>
+          </button>
+        )}
+
+        {onOpenMonitoringRecap && (
+          <button
+            type="button"
+            onClick={onOpenMonitoringRecap}
+            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            title="Rekap Monitoring Per Jurusan & Info ke Kakomli"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>Rekap &amp; Info Kakomli</span>
           </button>
         )}
 

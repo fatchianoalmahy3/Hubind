@@ -1,0 +1,700 @@
+import React from 'react';
+import { getStageValueByNumber } from '../core/utils/monitoringHelpers';
+
+export interface BundleStudentItem {
+  nis: string;
+  namaSiswa: string;
+  kelas: string;
+  jurusan: string;
+}
+
+export interface SuratTugas0708Props {
+  nomorSurat: string;
+  tanggalSurat: string;
+  kepalaSekolah: string;
+  namaGuru: string;
+  jabatanGuru?: string;
+  alamatGuru?: string;
+  tahapNum: number;
+  namaDudi: string;
+  alamatDudi: string;
+  namaPemimpinDudi?: string;
+  tanggalPenugasan?: string;
+}
+
+export interface OfficialSchoolKop0708Props {
+  variant?: 'surat_tugas' | 'school';
+  showRightLogo?: boolean;
+}
+
+export const OfficialSchoolKop0708: React.FC<OfficialSchoolKop0708Props> = ({
+  variant = 'school',
+  showRightLogo,
+}) => {
+  const isSuratTugas = variant === 'surat_tugas' || showRightLogo === false;
+
+  return (
+    <div className="border-b-[3px] border-double border-blue-900 pb-2 mb-3.5 flex items-center gap-3">
+      {isSuratTugas ? (
+        <div className="w-24 h-24 ml-1 shrink-0 flex items-center justify-center">
+          <img
+            src="/assets/logo-pgri.png"
+            alt="Logo PGRI"
+            className="w-24 h-24 object-contain"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </div>
+      ) : (
+        <div className="w-16 h-16 ml-2 shrink-0 flex items-center justify-center">
+          <img
+            src="/assets/logo-smk-pgri2.png"
+            alt="Logo SMK PGRI 2 Ponorogo"
+            className="w-16 h-16 object-contain"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
+
+      <div className="flex-1 text-center font-serif leading-[1.2] min-w-0">
+        {isSuratTugas && (
+          <>
+            <div className="text-[11px] font-bold uppercase tracking-[0.02em] text-blue-900">
+              PERWAKILAN YAYASAN PEMBINA LEMBAGA PENDIDIKAN
+            </div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.02em] text-blue-900">
+              PERSATUAN GURU REPUBLIK INDONESIA ( YPLP-PGRI )
+            </div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.02em] text-blue-900">
+              KABUPATEN PONOROGO - JAWA TIMUR
+            </div>
+          </>
+        )}
+        <div className="text-[20px] font-bold uppercase tracking-[0.03em] text-red-700 leading-tight mt-0.5">
+          SMK PGRI 2 PONOROGO
+        </div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.03em] text-blue-900">
+          TERAKREDITASI A
+        </div>
+        <div className="text-[10px] text-blue-950 mt-0.5 whitespace-nowrap">
+          Alamat : Jl. Soekarno - Hatta , Kertosari, Babadan, Ponorogo, Telp. 0352-461821/Fax. 0352-462659
+        </div>
+        <div className="text-[10px] text-blue-950 whitespace-nowrap">
+          Website : <span className="underline">www.smkpgri2ponorogo.com</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; E-mail : smkpgri2ponorogo@yahoo.com
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const SuratTugas0708Sheet: React.FC<SuratTugas0708Props> = ({
+  nomorSurat,
+  tanggalSurat,
+  kepalaSekolah,
+  namaGuru,
+  jabatanGuru = 'Guru SMK PGRI 2 Ponorogo',
+  alamatGuru = 'Jl. Soekarno – Hatta Telp. 0352-461821 Ponorogo',
+  tahapNum,
+  namaDudi,
+  alamatDudi,
+  namaPemimpinDudi,
+  tanggalPenugasan,
+}) => {
+  // Keperluan mapping strictly per agreed 8-stage workflow:
+  // Tahap 1 -> Kotak 2 (Penyerahan)
+  // Tahap 2..7 -> Kotak 3 (Monitoring)
+  // Tahap 8 -> Kotak 4 (Pemohonan data Raport PKL / Penarikan)
+  const activeBox = tahapNum === 1 ? 2 : tahapNum >= 8 ? 4 : 3;
+
+  const renderCheckBox = (filled: boolean) => (
+    <span
+      className={`inline-block w-5 h-3 border border-slate-900 rounded-[2px] align-middle shrink-0 ${
+        filled ? 'bg-slate-950' : 'bg-white'
+      }`}
+      aria-label={filled ? 'Terpilih' : 'Tidak terpilih'}
+    />
+  );
+
+  return (
+    <div className="font-serif text-slate-950 text-[12px] leading-snug flex flex-col justify-between min-h-[960px]">
+      <div>
+        <OfficialSchoolKop0708 variant="surat_tugas" />
+
+        <div className="text-center mt-2 mb-4">
+          <div className="text-sm font-bold uppercase underline tracking-[0.18em]">
+            SURAT TUGAS
+          </div>
+          <div className="text-xs font-serif mt-0.5">
+            NOMOR &nbsp;: {nomorSurat}
+          </div>
+        </div>
+
+        <div className="space-y-3 px-2">
+          <div>
+            <div>Yang bertandatangan di bawah ini :</div>
+            <table className="w-full mt-1 ml-6 text-[12px] border-collapse">
+              <tbody>
+                <tr>
+                  <td className="w-28 py-0.5 align-top">Nama</td>
+                  <td className="w-4 py-0.5 align-top">:</td>
+                  <td className="py-0.5 font-semibold">{kepalaSekolah || 'Agus Salim, S. Kom'}</td>
+                </tr>
+                <tr>
+                  <td className="py-0.5 align-top">Jabatan</td>
+                  <td className="py-0.5 align-top">:</td>
+                  <td className="py-0.5">Kepala SMK PGRI 2 Ponorogo</td>
+                </tr>
+                <tr>
+                  <td className="py-0.5 align-top">Alamat</td>
+                  <td className="py-0.5 align-top">:</td>
+                  <td className="py-0.5">Jl. Soekarno – Hatta Telp. 0352-461821 Ponorogo</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <div>Menugaskan Kepada:</div>
+            <table className="w-full mt-1 ml-6 text-[12px] border-collapse">
+              <tbody>
+                <tr>
+                  <td className="w-28 py-0.5 align-top">Nama</td>
+                  <td className="w-4 py-0.5 align-top">:</td>
+                  <td className="py-0.5 font-bold">{namaGuru || '.........................................'}</td>
+                </tr>
+                <tr>
+                  <td className="py-0.5 align-top">Jabatan</td>
+                  <td className="py-0.5 align-top">:</td>
+                  <td className="py-0.5">{jabatanGuru || 'Guru SMK PGRI 2 Ponorogo'}</td>
+                </tr>
+                <tr>
+                  <td className="py-0.5 align-top">Alamat</td>
+                  <td className="py-0.5 align-top">:</td>
+                  <td className="py-0.5">{alamatGuru}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <table className="w-full text-[12px] border-collapse">
+              <tbody>
+                <tr>
+                  <td className="w-28 py-0.5 align-top">Keperluan</td>
+                  <td className="w-4 py-0.5 align-top">:</td>
+                  <td className="py-0.5">
+                    <div className="space-y-1.5 mt-0.5">
+                      <div className="flex items-center gap-2.5">
+                        {renderCheckBox(false)}
+                        <span>Permohonan Penempatan Peserta Didik Praktek Kerja Industri</span>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        {renderCheckBox(activeBox === 2)}
+                        <span>Penyerahan Peserta Didik Praktek Kerja Industri</span>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        {renderCheckBox(activeBox === 3)}
+                        <span>Monitoring Peserta Didik Kerja Industri</span>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <span className="mt-0.5">{renderCheckBox(activeBox === 4)}</span>
+                        <span>
+                          Pemohonan Diri data Raport PKL dari Pelaksanaan Praktek Kerja Industri
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <table className="w-full text-[12px] border-collapse mt-2">
+            <tbody>
+              <tr>
+                <td className="w-28 py-0.5 align-top">Tempat</td>
+                <td className="w-4 py-0.5 align-top">:</td>
+                <td className="py-0.5 font-bold">{namaDudi || '.........................................'}</td>
+              </tr>
+              <tr>
+                <td className="py-0.5 align-top">Alamat</td>
+                <td className="py-0.5 align-top">:</td>
+                <td className="py-0.5">{alamatDudi && alamatDudi !== '-' ? alamatDudi : '.........................................'}</td>
+              </tr>
+              <tr>
+                <td className="py-0.5 align-top">Tanggal</td>
+                <td className="py-0.5 align-top">:</td>
+                <td className="py-0.5">{tanggalPenugasan || tanggalSurat || '.........................................'}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p className="pt-1">
+            Demikian surat tugas ini dibuat untuk dilaksanakan dengan penuh tanggungjawab.
+          </p>
+
+          <div className="grid grid-cols-2 gap-6 pt-3 text-[12px] print-avoid-break">
+            <div className="text-center">
+              <div className="invisible">Ponorogo, {tanggalSurat}</div>
+              <div>Yang diberi Tugas</div>
+              <div className="h-16" />
+              <div className="font-bold underline">
+                {namaGuru || '.........................................'}
+              </div>
+            </div>
+
+            <div className="text-center">
+              <div>Ponorogo, {tanggalSurat}</div>
+              <div>Kepala SMK PGRI 2 Ponorogo</div>
+              <div className="h-16" />
+              <div className="font-bold underline">
+                {kepalaSekolah || 'Agus Salim, S. Kom.'}
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center pt-4 text-[12px] print-avoid-break">
+            <div>Mengetahui,</div>
+            <div>Pimpinan / Direktur</div>
+            <div className="text-[11px] text-slate-600 mt-0.5">{namaDudi}</div>
+            <div className="h-14" />
+            <div className="font-bold underline">
+              {namaPemimpinDudi && namaPemimpinDudi !== '-'
+                ? namaPemimpinDudi
+                : '.........................................'}
+            </div>
+            <div>NIP. .........................................</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-4 mt-4 space-y-2 px-2 print-avoid-break">
+        <div className="text-[11px]">
+          NB : Surat Tugas harap dikembalikan ke Waka Hubungan Industri selambat-lambatnya 2 minggu setelah surat di terbitkan
+        </div>
+        <div className="flex items-end justify-between text-[10px] font-sans text-slate-600 border-t border-slate-300 pt-1.5">
+          <div>Format : 07 . 08</div>
+          <div className="text-right">
+            <div>Halaman 1 dari 1</div>
+            <div>Revisi : 01/ 07-03-2012</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export interface LembarMonitoring0701Props {
+  tahapNum: number;
+  activeYear: string;
+  namaBengkel: string;
+  alamatBengkel: string;
+  pemimpinBengkel: string;
+  noTelpBengkel: string;
+  students: BundleStudentItem[];
+  namaPetugas: string;
+  tanggalSurat: string;
+}
+
+export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
+  tahapNum,
+  activeYear,
+  namaBengkel,
+  alamatBengkel,
+  pemimpinBengkel,
+  noTelpBengkel,
+  students,
+  namaPetugas,
+  tanggalSurat,
+}) => {
+  const stageLabel = getStageValueByNumber(tahapNum);
+  const displayRows: BundleStudentItem[] =
+    students.length > 0
+      ? students
+      : [{ nis: '', namaSiswa: '....................................................', kelas: '', jurusan: '' }];
+
+  return (
+    <div className="font-sans text-slate-950 text-[11px] leading-snug flex flex-col justify-between min-h-[960px]">
+      <div className="space-y-3">
+        <div className="text-center border-b-2 border-slate-900 pb-2">
+          <div className="text-sm font-extrabold uppercase tracking-wide">LEMBAR MONITORING</div>
+          <div className="text-xs font-bold uppercase mt-0.5">
+            TAHAP {tahapNum} ({stageLabel})
+          </div>
+          <div className="text-xs font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
+          <div className="text-xs font-bold uppercase">SMK PGRI 2 PONOROGO</div>
+        </div>
+
+        {/* 1. Identitas Bengkel */}
+        <div>
+          <div className="font-bold">1. Identitas Bengkel (Dudi)</div>
+          <table className="w-full ml-4 mt-1 text-[11px] border-collapse">
+            <tbody>
+              <tr>
+                <td className="w-36 py-0.5">1. Nama Bengkel</td>
+                <td className="w-3 py-0.5">:</td>
+                <td className="py-0.5 font-bold">{namaBengkel || '-'}</td>
+              </tr>
+              <tr>
+                <td className="py-0.5">2. Alamat</td>
+                <td className="py-0.5">:</td>
+                <td className="py-0.5">{alamatBengkel && alamatBengkel !== '-' ? alamatBengkel : '-'}</td>
+              </tr>
+              <tr>
+                <td className="py-0.5">3. Pemimpin</td>
+                <td className="py-0.5">:</td>
+                <td className="py-0.5">
+                  {pemimpinBengkel && pemimpinBengkel !== '-'
+                    ? pemimpinBengkel
+                    : '....................................................'}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5">4. No. Telp.</td>
+                <td className="py-0.5">:</td>
+                <td className="py-0.5 font-mono">
+                  {noTelpBengkel && noTelpBengkel !== '-'
+                    ? noTelpBengkel
+                    : '....................................................'}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 2. Hari / Jam Masuk Kerja */}
+        <div>
+          <div className="font-bold">2. Hari / Jam Masuk Kerja</div>
+          <table className="w-full ml-4 mt-1 text-[11px] border-collapse">
+            <tbody>
+              <tr>
+                <td className="w-36 py-0.5">1. Hari Kerja</td>
+                <td className="w-3 py-0.5">:</td>
+                <td className="py-0.5">
+                  ............................ s/d ............................
+                </td>
+              </tr>
+              <tr>
+                <td className="py-0.5">2. Jam Kerja</td>
+                <td className="py-0.5">:</td>
+                <td className="py-0.5">
+                  ............................ s/d ............................
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 3. Presensi Siswa */}
+        <div>
+          <div className="font-bold mb-1">3. Presensi Siswa :</div>
+          <table className="w-full border-collapse border border-slate-900 text-[10px]">
+            <thead>
+              <tr className="bg-slate-100">
+                <th rowSpan={2} className="border border-slate-900 p-1 w-7 text-center">
+                  No
+                </th>
+                <th rowSpan={2} className="border border-slate-900 p-1 text-left">
+                  Nama Siswa
+                </th>
+                <th colSpan={3} className="border border-slate-900 p-1 text-center">
+                  Monitor<br />
+                  Tgl ......................
+                </th>
+                <th colSpan={3} className="border border-slate-900 p-1 text-center">
+                  Chek List<br />
+                  Buku Laporan
+                </th>
+                <th colSpan={3} className="border border-slate-900 p-1 text-center">
+                  Aktivitas Siswa
+                </th>
+                <th rowSpan={2} className="border border-slate-900 p-1 w-24 text-center">
+                  Tanda Tangan Siswa
+                </th>
+              </tr>
+              <tr className="bg-slate-50">
+                <th className="border border-slate-900 px-1.5 py-0.5 w-6 text-center">S</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 w-6 text-center">I</th>
+                <th className="border border-slate-900 px-1.5 py-0.5 w-6 text-center">A</th>
+                <th className="border border-slate-900 px-1 py-0.5 w-8 text-center">BLM</th>
+                <th className="border border-slate-900 px-1 py-0.5 w-8 text-center">SDH</th>
+                <th className="border border-slate-900 px-1 py-0.5 w-8 text-center">TDK</th>
+                <th className="border border-slate-900 px-1 py-0.5 w-7 text-center">DP</th>
+                <th className="border border-slate-900 px-1 py-0.5 w-7 text-center">MT</th>
+                <th className="border border-slate-900 px-1 py-0.5 w-7 text-center">KRT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayRows.map((stu, idx) => (
+                <tr key={`${stu.nis || 'row'}_${idx}`}>
+                  <td className="border border-slate-900 p-1.5 text-center">{idx + 1}</td>
+                  <td className="border border-slate-900 p-1.5 font-semibold">{stu.namaSiswa}</td>
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5" />
+                  <td className="border border-slate-900 p-1.5 h-7" />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="text-[9.5px] text-slate-700 mt-1 space-y-0.5">
+            <div>
+              <b>KET:</b> BLM : Belum Selesai Mengerjakan &nbsp;|&nbsp; SDH : Sudah Dikerjakan &nbsp;|&nbsp; TDK : Tidak Mengerjakan atau Tertinggal
+            </div>
+            <div>
+              DP : Kedisiplinan (Kurang, Cukup, Baik) &nbsp;|&nbsp; MT : Motivasi (Kurang, Cukup, Baik) &nbsp;|&nbsp; KRT : Kreativitas (Kurang, Cukup, Baik)
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Aktivitas Siswa */}
+        <div>
+          <div className="font-bold">4. Aktivitas Siswa</div>
+          <div className="ml-4 mt-0.5 space-y-1">
+            <div>Kompetensi yang didapat :</div>
+            <div>1. ..................................................................................................................</div>
+            <div>2. ..................................................................................................................</div>
+            <div>3. ..................................................................................................................</div>
+            <div>4. ..................................................................................................................</div>
+          </div>
+        </div>
+
+        {/* 5. Keadaan Bengkel */}
+        <div>
+          <div className="font-bold mb-1">5. Keadaan Bengkel</div>
+          <table className="w-full border-collapse border border-slate-900 text-[10.5px]">
+            <thead>
+              <tr className="bg-slate-100">
+                <th className="border border-slate-900 p-1 w-8 text-center">No</th>
+                <th className="border border-slate-900 p-1 text-left">Aspek Penilaian</th>
+                <th className="border border-slate-900 p-1 text-center w-36">Baik / Sesuai / Layak</th>
+                <th className="border border-slate-900 p-1 text-center w-24">Cukup</th>
+                <th className="border border-slate-900 p-1 text-center w-36">Kurang / Tidak Sesuai</th>
+              </tr>
+            </thead>
+            <tbody>
+              {['Volume Pekerjaan', 'Relevansi Pekerjaan', 'Kenyamanan', 'Kelayakan'].map((aspek, i) => (
+                <tr key={aspek}>
+                  <td className="border border-slate-900 p-1 text-center">{i + 1}</td>
+                  <td className="border border-slate-900 p-1">{aspek}</td>
+                  <td className="border border-slate-900 p-1 text-center text-sm leading-none">☐</td>
+                  <td className="border border-slate-900 p-1 text-center text-sm leading-none">☐</td>
+                  <td className="border border-slate-900 p-1 text-center text-sm leading-none">☐</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Catatan Lain & Tanda Tangan */}
+        <div className="grid grid-cols-12 gap-4 pt-2 print-avoid-break">
+          <div className="col-span-7 space-y-2">
+            <div className="font-bold">Catatan Lain :</div>
+            <div className="border-b border-dotted border-slate-700 h-5" />
+            <div className="border-b border-dotted border-slate-700 h-5" />
+          </div>
+          <div className="col-span-5 text-center">
+            <div>Ponorogo, {tanggalSurat || '..... / ..... / 2026'}</div>
+            <div className="font-semibold">Petugas Monitoring</div>
+            <div className="h-12" />
+            <div className="font-bold underline">
+              {namaPetugas && namaPetugas !== '-' ? namaPetugas : '........................................'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-[10px] text-slate-600 border-t border-slate-400 pt-1.5 mt-4 print-avoid-break">
+        <div>Halaman 1 dari 1</div>
+        <div>Format : 07 . 01</div>
+        <div>Revisi : 01/1-11-2026</div>
+      </div>
+    </div>
+  );
+};
+
+export interface LembarPenilaianKurmerProps {
+  namaSiswa: string;
+  jurusan: string;
+  kelas: string;
+  namaDudi: string;
+}
+
+export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = ({
+  namaSiswa,
+  jurusan,
+  kelas,
+  namaDudi,
+}) => {
+  return (
+    <div className="font-sans text-slate-950 text-[11px] leading-snug flex flex-col justify-between min-h-[960px]">
+      <div className="space-y-3">
+        <div className="text-center pb-2 border-b-2 border-slate-900">
+          <div className="text-sm font-extrabold uppercase tracking-wide">
+            LEMBAR PENILAIAN
+          </div>
+          <div className="text-sm font-extrabold uppercase tracking-wide">
+            PRAKTIK KERJA LAPANGAN
+          </div>
+        </div>
+
+        <table className="w-full text-[11.5px] border-collapse">
+          <tbody>
+            <tr>
+              <td className="w-32 py-0.5 font-semibold">Nama Peserta</td>
+              <td className="w-4 py-0.5">:</td>
+              <td className="py-0.5 font-bold">{namaSiswa || '..........................................'}</td>
+            </tr>
+            <tr>
+              <td className="py-0.5 font-semibold">Jurusan</td>
+              <td className="py-0.5">:</td>
+              <td className="py-0.5">{jurusan && jurusan !== '-' ? jurusan : '..........................................'}</td>
+            </tr>
+            <tr>
+              <td className="py-0.5 font-semibold">Kelas</td>
+              <td className="py-0.5">:</td>
+              <td className="py-0.5">{kelas && kelas !== '-' ? kelas : '..........................................'}</td>
+            </tr>
+            <tr>
+              <td className="py-0.5 font-semibold">Nama DUDI</td>
+              <td className="py-0.5">:</td>
+              <td className="py-0.5 font-semibold">{namaDudi || '..........................................'}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table className="w-full border-collapse border border-slate-900 text-[10.5px]">
+          <thead>
+            <tr className="bg-slate-100">
+              <th className="border border-slate-900 p-1.5 w-8 text-center">NO</th>
+              <th className="border border-slate-900 p-1.5 text-left">KRITERIA PENILAIAN</th>
+              <th className="border border-slate-900 p-1.5 w-24 text-center">ANGKA</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="border border-slate-900 p-2 text-center align-top font-bold">1</td>
+              <td className="border border-slate-900 p-2">
+                <div className="font-bold">
+                  Menerapkan POS dan K3LH yang Ada Pada Dunia Kerja
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 mt-1 text-[10px]">
+                  <li>
+                    <b>Kepatuhan POS (Prosedur Operasi Standard):</b> Melaksanakan setiap tugas sesuai panduan dan arahan kerja resmi perusahaan/bengkel.
+                  </li>
+                  <li>
+                    <b>Pelaksanaan K3LH (Keselamatan, Kesehatan Kerja &amp; Lingkungan Hidup):</b> Menggunakan Alat Pelindung Diri (APD) yang sesuai dan mengutamakan keselamatan diri serta lingkungan kerja.
+                  </li>
+                  <li>
+                    <b>Kebersihan &amp; Kerapian Kerja:</b> Menjaga kebersihan area kerja dan merapikan peralatan setelah digunakan.
+                  </li>
+                </ul>
+              </td>
+              <td className="border border-slate-900 p-2" />
+            </tr>
+            <tr>
+              <td className="border border-slate-900 p-2 text-center align-top font-bold">2</td>
+              <td className="border border-slate-900 p-2">
+                <div className="font-bold">
+                  Menerapkan Softskills yang Dibutuhkan dalam Dunia Kerja
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 mt-1 text-[10px]">
+                  <li>
+                    <b>Ketepatan Masa &amp; Disiplin:</b> Menjaga kehadiran tepat waktu dan mematuhi peraturan jam kerja industri.
+                  </li>
+                  <li>
+                    <b>Komunikasi &amp; Etika Kerja:</b> Berkomunikasi secara sopan, profesional, serta menjaga etika bersama rekan kerja dan pembimbing.
+                  </li>
+                  <li>
+                    <b>Kerjasama Tim:</b> Mampu bekerjasama dalam tim dan berkontribusi aktif dalam menyelesaikan tugas.
+                  </li>
+                  <li>
+                    <b>Inisiatif &amp; Adaptasi:</b> Menunjukkan sikap proaktif, kreatif, dan cepat menyesuaikan diri dengan lingkungan kerja.
+                  </li>
+                </ul>
+              </td>
+              <td className="border border-slate-900 p-2" />
+            </tr>
+            <tr>
+              <td className="border border-slate-900 p-2 text-center align-top font-bold">3</td>
+              <td className="border border-slate-900 p-2">
+                <div className="font-bold">Menerapkan Kompetensi Teknis</div>
+                <ul className="list-disc list-inside space-y-0.5 mt-1 text-[10px]">
+                  <li>
+                    <b>Penguasaan Alat &amp; Teknologi:</b> Menggunakan peralatan dan perkakas kerja sesuai standar kompetensi keahlian.
+                  </li>
+                  <li>
+                    <b>Kualitas Hasil Kerja:</b> Menghasilkan output pekerjaan yang teliti, rapi, dan memenuhi standar mutu industri.
+                  </li>
+                  <li>
+                    <b>Penyelesaian Masalah (Problem Solving):</b> Mampu mengidentifikasi dan menyelesaikan masalah teknis dasar secara efektif.
+                  </li>
+                </ul>
+              </td>
+              <td className="border border-slate-900 p-2" />
+            </tr>
+            <tr>
+              <td className="border border-slate-900 p-2 text-center align-top font-bold">4</td>
+              <td className="border border-slate-900 p-2">
+                <div className="font-bold">Memahami Alur Bisnis Dunia Kerja</div>
+                <ul className="list-disc list-inside space-y-0.5 mt-1 text-[10px]">
+                  <li>
+                    <b>Pemahaman Struktur Organisasi:</b> Memahami peran, fungsi, dan tanggung jawab setiap unit kerja di industri.
+                  </li>
+                  <li>
+                    <b>Aliran Proses Kerja:</b> Memahami rantai proses mulai dari bahan/input, alur pengerjaan, hingga produk/layanan akhir.
+                  </li>
+                  <li>
+                    <b>Budaya Industri &amp; Wawasan Usaha:</b> Memahami nilai-nilai utama perusahaan serta tujuan pelayanan/bisnis tempat praktik.
+                  </li>
+                </ul>
+              </td>
+              <td className="border border-slate-900 p-2" />
+            </tr>
+          </tbody>
+        </table>
+
+        <div className="space-y-1 pt-1 print-avoid-break">
+          <div className="font-bold text-[10.5px]">Rubrik Penilaian:</div>
+          <table className="w-full border-collapse border border-slate-900 text-[10px]">
+            <tbody>
+              <tr>
+                <td className="border border-slate-900 p-1.5 text-center w-1/4">
+                  <div className="font-bold">91 s/d 100 = SB</div>
+                  <div>( Sangat Berkembang )</div>
+                </td>
+                <td className="border border-slate-900 p-1.5 text-center w-1/4">
+                  <div className="font-bold">81 s/d 90 = BSH</div>
+                  <div>( Berkembang Sesuai Harapan )</div>
+                </td>
+                <td className="border border-slate-900 p-1.5 text-center w-1/4">
+                  <div className="font-bold">80 s/d 71 = MB</div>
+                  <div>( Mulai Berkembang )</div>
+                </td>
+                <td className="border border-slate-900 p-1.5 text-center w-1/4">
+                  <div className="font-bold">00 s/d 70 = BB</div>
+                  <div>( Belum Berkembang )</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="text-right text-[10px] text-slate-600 pt-2 border-t border-slate-300 mt-4 print-avoid-break">
+        Halaman 1 dari 1
+      </div>
+    </div>
+  );
+};

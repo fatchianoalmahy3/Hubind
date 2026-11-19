@@ -1,4 +1,4 @@
-export type UserRole = 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli' | 'GuruPendamping' | 'Siswa';
+export type UserRole = 'SuperAdmin' | 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli' | 'GuruPendamping' | 'Siswa';
 
 export const MONITORING_STAGES = [
   { num: 1, value: '1. Pengantaran', shortLabel: 'Pengantaran', label: '1. Pengantaran' },
@@ -65,6 +65,7 @@ export interface Dudi {
   namaPic: string;
   kontakPic: string;
   noTelpDudi?: string;
+  linkMaps?: string;
   kuotaMaksimal: number;
   terisi: number;
   statusKerjasama: 'MoU Aktif' | 'Proses Perpanjangan' | 'Mitra Baru';
@@ -95,6 +96,7 @@ export interface Pengajuan {
   namaPemimpin?: string;
   namaPic?: string;
   noTelpDudi?: string;
+  linkMaps?: string;
   noWa: string;
   alamatDomisili?: string;
   namaOrtuWali?: string;
@@ -125,6 +127,7 @@ export interface PerizinanPKL {
   tanggalBalasan?: string;
   catatanPerizinan?: string;
   linkBuktiBalasan?: string;
+  linkSuratPdf?: string;
 }
 
 export interface PenempatanPKL {

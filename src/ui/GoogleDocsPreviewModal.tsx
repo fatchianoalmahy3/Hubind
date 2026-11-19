@@ -4,7 +4,6 @@ import {
   Printer,
   FileText,
   ShieldCheck,
-  QrCode,
   Layers,
   ChevronLeft,
   ChevronRight,
@@ -18,9 +17,14 @@ import {
   LogOut,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
+import { DudiService } from '../services/DudiService';
+import { PengajuanService } from '../services/PengajuanService';
+import { Dudi, Pengajuan } from '../core/types/schema';
 import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
 import { formatNisVisual } from '../core/utils/nisHelpers';
 import { PrintPortal } from './PrintPortal';
+import { QrCodeSvg } from './QrCodeSvg';
+import { LembarPenilaianKurmerSheet, OfficialSchoolKop0708 } from './DocumentPrintTemplates';
 
 export type DocType =
   | 'pengajuan'
@@ -163,6 +167,19 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
     formatIndonesianDate(getTodayWibIsoDate())
   );
   const [isOverprintOnly, setIsOverprintOnly] = useState(false);
+  const [dudiList, setDudiList] = useState<Dudi[]>([]);
+  const [pengajuanList, setPengajuanList] = useState<Pengajuan[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    Promise.all([
+      DudiService.getInstance().getAll().catch(() => [] as Dudi[]),
+      PengajuanService.getInstance().getAll().catch(() => [] as Pengajuan[]),
+    ]).then(([dRows, pRows]) => {
+      setDudiList(dRows);
+      setPengajuanList(pRows);
+    });
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -474,22 +491,9 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
               </p>
             </div>
           ) : (
-            <div className="bg-white w-full max-w-[760px] p-8 sm:p-10 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm">
+            <div className="bg-white w-full max-w-[760px] px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm">
               {includeKop && !isOverprintOnly && (
-                <div className="border-b-2 border-black pb-3 mb-6 text-center">
-                  <div className="text-[11px] font-sans font-bold tracking-widest text-slate-700 uppercase">
-                    YAYASAN PEMBINA LEMBAGA PENDIDIKAN DASAR DAN MENENGAH PGRI
-                  </div>
-                  <div className="text-xl font-bold uppercase tracking-wide mt-0.5 text-slate-950 font-sans">
-                    SMK PGRI 2 PONOROGO
-                  </div>
-                  <div className="text-[11px] font-sans text-slate-700 mt-0.5 font-medium">
-                    Status: Terakreditasi &quot;A&quot; (Unggul) • NSS: 322051301002 • NPSN: 20510123
-                  </div>
-                  <div className="text-[10px] font-sans text-slate-500">
-                    Jl. Soekarno - Hatta No. 94 Ponorogo, Jawa Timur • Telp: (0352) 481456
-                  </div>
-                </div>
+                <OfficialSchoolKop0708 variant="school" />
               )}
 
               {renderDocContent(docType, currentStudent, {
@@ -498,6 +502,8 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
                 customNomorSurat,
                 includeQrCode,
                 isOverprintOnly,
+                dudiList,
+                pengajuanList,
               })}
             </div>
           )}
@@ -544,19 +550,8 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
               className="print-sheet font-serif text-slate-900 leading-relaxed text-[13px]"
             >
               {includeKop && !isOverprintOnly && (
-                <div className="border-b-2 border-black pb-2.5 mb-5 text-center print-avoid-break">
-                  <div className="text-[11px] font-sans font-bold tracking-widest text-slate-700 uppercase">
-                    YAYASAN PEMBINA LEMBAGA PENDIDIKAN DASAR DAN MENENGAH PGRI
-                  </div>
-                  <div className="text-xl font-bold uppercase tracking-wide mt-0.5 text-slate-950 font-sans">
-                    SMK PGRI 2 PONOROGO
-                  </div>
-                  <div className="text-[11px] font-sans text-slate-700 mt-0.5 font-medium">
-                    Status: Terakreditasi &quot;A&quot; (Unggul) • NSS: 322051301002 • NPSN: 20510123
-                  </div>
-                  <div className="text-[10px] font-sans text-slate-500">
-                    Jl. Soekarno - Hatta No. 94 Ponorogo, Jawa Timur • Telp: (0352) 481456
-                  </div>
+                <div className="print-avoid-break">
+                  <OfficialSchoolKop0708 variant="school" />
                 </div>
               )}
 
@@ -566,6 +561,8 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
                 customNomorSurat,
                 includeQrCode,
                 isOverprintOnly,
+                dudiList,
+                pengajuanList,
               })}
             </div>
           ))}
@@ -574,6 +571,46 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
     </div>
   );
 };
+
+function resolveDudiInfoForStudent(
+  student: any,
+  dudiName: string,
+  dudiList: Dudi[],
+  pengajuanList: Pengajuan[]
+): { mapsUrl: string; signName: string } {
+  const normDudi = String(dudiName || '').trim().toLowerCase();
+  const dudiId = String(student.idDudi || student.ID_DUDI || '').trim();
+  const matchedDudi = dudiList.find(
+    (d) =>
+      (dudiId && d.id === dudiId) ||
+      (normDudi && normDudi !== '-' && d.namaDudi.trim().toLowerCase() === normDudi)
+  );
+  const matchedReq = pengajuanList.find(
+    (p) =>
+      (student.noPengajuan && p.noPengajuan === student.noPengajuan) ||
+      (normDudi && normDudi !== '-' && p.dudiTujuan.trim().toLowerCase() === normDudi && p.linkMaps)
+  );
+
+  const directMap = String(student.linkMaps || student.Link_Maps || student.link_maps || '').trim();
+  const mapsUrl =
+    (directMap && directMap !== '-' ? directMap : '') ||
+    (matchedDudi?.linkMaps && matchedDudi.linkMaps !== '-' ? matchedDudi.linkMaps : '') ||
+    (matchedReq?.linkMaps && matchedReq.linkMaps !== '-' ? matchedReq.linkMaps : '') ||
+    '';
+
+  const signName =
+    String(
+      student.namaPemimpin ||
+        student.Nama_Pemimpin ||
+        student.namaPic ||
+        student.Nama_PIC ||
+        matchedDudi?.namaPic ||
+        matchedDudi?.namaPemimpin ||
+        ''
+    ).trim() || '................................................';
+
+  return { mapsUrl, signName };
+}
 
 function renderDocContent(
   docType: DocType,
@@ -584,9 +621,19 @@ function renderDocContent(
     customNomorSurat: string;
     includeQrCode: boolean;
     isOverprintOnly: boolean;
+    dudiList: Dudi[];
+    pengajuanList: Pengajuan[];
   }
 ) {
-  const { activeYear, documentDate, customNomorSurat, includeQrCode, isOverprintOnly } = options;
+  const {
+    activeYear,
+    documentDate,
+    customNomorSurat,
+    includeQrCode,
+    isOverprintOnly,
+    dudiList,
+    pengajuanList,
+  } = options;
   const studentName = student.nama || student.namaSiswa || student.nama_siswa || '-';
   const studentNis = formatNisVisual(student.nis || student.NIS || '');
   const studentNik = student.nik || student.NIK || '-';
@@ -605,6 +652,7 @@ function renderDocContent(
     student.alamat_dudi ||
     student.Alamat_DUDI ||
     '-';
+  const dudiResolved = resolveDudiInfoForStudent(student, dudiName, dudiList, pengajuanList);
 
   if (docType === 'pengajuan') {
     return (
@@ -662,17 +710,26 @@ function renderDocContent(
           </div>
         </div>
 
-        <div className="flex justify-between items-end mt-8 font-sans text-xs print-avoid-break">
+        <div className="flex justify-between items-end gap-4 mt-8 font-sans text-xs print-avoid-break">
+          <div className="text-center">
+            <div>Mengetahui Tempat PKL,</div>
+            <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
+            <div className="h-16" />
+            <div className="font-bold underline">{dudiResolved.signName}</div>
+            <div className="text-[11px] text-slate-500">{dudiName}</div>
+          </div>
+
           {includeQrCode ? (
-            <div className="text-center p-2 border border-slate-200 rounded-lg bg-slate-50">
-              <QrCode className="w-14 h-14 mx-auto text-slate-800" />
-              <span className="text-[9px] text-slate-500 font-mono block mt-0.5">
-                ID: {studentNis !== '-' ? studentNis : student.id}
-              </span>
-            </div>
+            <QrCodeSvg
+              value={dudiResolved.mapsUrl}
+              size={76}
+              label="QR Lokasi Maps"
+              emptyText="Link Maps belum diisi"
+            />
           ) : (
             <div />
           )}
+
           <div className="text-center">
             <div>Ponorogo, {documentDate}</div>
             <div className="font-semibold mt-1">Ketua Kompetensi Keahlian,</div>
@@ -801,12 +858,12 @@ function renderDocContent(
   }
 
   if (docType === 'nilai') {
-    const k3lhVal = student.nilaiK3lh ?? student.Nilai_K3LH ?? '-';
-    const softskillVal = student.nilaiSoftskill ?? student.Nilai_Softskills ?? student.Nilai_Softskill ?? '-';
+    const k3lhVal = student.nilaiK3lh ?? student.Nilai_K3LH ?? '';
+    const softskillVal = student.nilaiSoftskill ?? student.Nilai_Softskills ?? student.Nilai_Softskill ?? '';
     const teknisVal =
-      student.nilaiKompetensiTeknis ?? student.Nilai_Hardskills ?? student.Nilai_Kompetensi_Teknis ?? '-';
+      student.nilaiKompetensiTeknis ?? student.Nilai_Hardskills ?? student.Nilai_Kompetensi_Teknis ?? '';
     const alurBisnisVal =
-      student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis_Dunia_Kerja ?? student.Nilai_Alur_Bisnis ?? '-';
+      student.nilaiAlurBisnis ?? student.Nilai_Alur_Bisnis_Dunia_Kerja ?? student.Nilai_Alur_Bisnis ?? '';
     const rataRataVal =
       student.nilaiRataRata ??
       student.Nilai_rata_rata ??
@@ -815,7 +872,23 @@ function renderDocContent(
       student.Nilai_DUDI ??
       student.nilaiAkhir ??
       student.Nilai_Akhir ??
-      '-';
+      '';
+
+    const hasNumericGrade =
+      String(k3lhVal).trim() !== '' &&
+      String(k3lhVal).trim() !== '-' &&
+      Number(k3lhVal) > 0;
+
+    if (!hasNumericGrade) {
+      return (
+        <LembarPenilaianKurmerSheet
+          namaSiswa={studentName}
+          jurusan={studentJurusan}
+          kelas={studentKelas}
+          namaDudi={dudiName}
+        />
+      );
+    }
 
     return (
       <div className="space-y-4">
@@ -951,13 +1024,26 @@ function renderDocContent(
           Mohon bimbingan dan pengawasan dari pihak DUDI selama pelaksanaan PKL berlangsung. Atas kerjasama yang baik kami ucapkan terima kasih.
         </p>
 
-        <div className="flex justify-between items-end mt-10 font-sans text-xs print-avoid-break">
+        <div className="flex justify-between items-end gap-4 mt-10 font-sans text-xs print-avoid-break">
           <div className="text-center">
-            <div>Pembimbing DUDI,</div>
+            <div>Diterima Oleh,</div>
+            <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
             <div className="h-14" />
-            <div className="font-bold underline">................................................</div>
+            <div className="font-bold underline">{dudiResolved.signName}</div>
             <div className="text-[10px] text-slate-500">{dudiName}</div>
           </div>
+
+          {includeQrCode ? (
+            <QrCodeSvg
+              value={dudiResolved.mapsUrl}
+              size={74}
+              label="QR Lokasi Maps"
+              emptyText="Link Maps belum diisi"
+            />
+          ) : (
+            <div />
+          )}
+
           <div className="text-center">
             <div>Guru Pendamping Sekolah,</div>
             <div className="h-14" />
@@ -1019,13 +1105,26 @@ function renderDocContent(
           Kami menyampaikan terima kasih yang sebesar-besarnya atas ilmu, pembinaan disiplin, serta kerjasama kemitraan yang telah terjalin dengan SMK PGRI 2 Ponorogo.
         </p>
 
-        <div className="flex justify-between items-end mt-10 font-sans text-xs print-avoid-break">
+        <div className="flex justify-between items-end gap-4 mt-10 font-sans text-xs print-avoid-break">
           <div className="text-center">
-            <div>Pimpinan / Pembimbing DUDI,</div>
+            <div>Diserahkan Kembali Oleh,</div>
+            <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
             <div className="h-14" />
-            <div className="font-bold underline">................................................</div>
+            <div className="font-bold underline">{dudiResolved.signName}</div>
             <div className="text-[10px] text-slate-500">{dudiName}</div>
           </div>
+
+          {includeQrCode ? (
+            <QrCodeSvg
+              value={dudiResolved.mapsUrl}
+              size={74}
+              label="QR Lokasi Maps"
+              emptyText="Link Maps belum diisi"
+            />
+          ) : (
+            <div />
+          )}
+
           <div className="text-center">
             <div>a.n. Kepala Sekolah / Pokja Hubin,</div>
             <div className="h-14" />

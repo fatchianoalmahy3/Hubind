@@ -194,7 +194,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             <summary className="flex items-center justify-between font-semibold text-slate-700 cursor-pointer select-none list-none">
               <span className="inline-flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-blue-600" />
-                <span>Lihat Akun Default (5 Role)</span>
+                <span>Lihat Akun Default (6 Role)</span>
               </span>
               <ChevronDown className="w-4 h-4 text-slate-400 transition-transform group-open:rotate-180" />
             </summary>

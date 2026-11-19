@@ -64,6 +64,7 @@ export class GoogleDriveSheetService {
     Nama_PIC: ['namaPic', 'nama_pic', 'Nama_PIC'],
     Kontak_PIC: ['kontakPic', 'kontak_pic', 'Kontak_PIC'],
     No_Telp_DUDI: ['noTelpDudi', 'no_telp_dudi', 'No_Telp_DUDI', 'teleponDudi'],
+    Link_Maps: ['linkMaps', 'link_maps', 'Link_Maps', 'linkMapsDudi', 'googleMapsUrl'],
     Kuota_Maksimal: ['kuotaMaksimal', 'kuota_maksimal', 'Kuota_Maksimal'],
     Terisi: ['terisi', 'Terisi'],
     Status_Kerjasama: ['statusKerjasama', 'status_kerjasama', 'Status_Kerjasama'],
@@ -98,6 +99,7 @@ export class GoogleDriveSheetService {
     Tgl_Balasan: ['tanggalBalasan', 'tglBalasan', 'tgl_balasan', 'Tgl_Balasan'],
     Catatan_Perizinan: ['catatanPerizinan', 'catatan_perizinan', 'Catatan_Perizinan'],
     Link_Bukti_Balasan: ['linkBuktiBalasan', 'link_bukti_balasan', 'Link_Bukti_Balasan'],
+    Link_Surat_PDF: ['linkSuratPdf', 'link_surat_pdf', 'Link_Surat_PDF', 'pdfUrl'],
 
     // Plotting / Data Siswa PKL
     ID_Penempatan: ['idPenempatan', 'id_penempatan', 'ID_Penempatan', 'id'],

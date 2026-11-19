@@ -19,8 +19,8 @@ export const AppleToastContainer: React.FC = () => {
   const isPending = toast.type === 'pending';
   const isSuccess = toast.type === 'success';
   const isError = toast.type === 'error';
-  const isHubin = getStoredAdminSession()?.user?.role === 'Hubin';
-  const showTableMeta = isHubin && Boolean(toast.sheetName);
+  const isSuperAdmin = getStoredAdminSession()?.user?.role === 'SuperAdmin';
+  const showTableMeta = isSuperAdmin && Boolean(toast.sheetName);
 
   return (
     <div

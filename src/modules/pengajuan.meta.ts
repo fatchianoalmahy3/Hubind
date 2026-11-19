@@ -165,6 +165,14 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       isFormInput: true,
     },
     {
+      key: 'linkMaps',
+      label: 'Link Google Maps DUDI',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'https://maps.app.goo.gl/...',
+    },
+    {
       key: 'noWa',
       label: 'No. WA Siswa',
       type: 'text',

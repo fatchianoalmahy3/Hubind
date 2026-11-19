@@ -15,11 +15,16 @@ export const MASTER_AKUN_HEADERS = [
   'Updated_At',
 ];
 
+export type ManagedAdminRole = Extract<
+  UserRole,
+  'SuperAdmin' | 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli'
+>;
+
 export interface AdminAccountRecord {
   id: string;
   username: string;
   passwordHash: string;
-  role: Extract<UserRole, 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli'>;
+  role: ManagedAdminRole;
   namaLengkap: string;
   jabatan: string;
   status: 'Aktif' | 'Nonaktif';
@@ -44,10 +49,8 @@ export interface StoredAdminSession {
   expiresAt: number;
 }
 
-export const ROLE_TITLE_MAP: Record<
-  Extract<UserRole, 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli'>,
-  string
-> = {
+export const ROLE_TITLE_MAP: Record<ManagedAdminRole, string> = {
+  SuperAdmin: 'Super Administrator Sistem & Server',
   Hubin: 'Koordinator Pokja Hubin & Kerjasama DUDI',
   Kepsek: 'Kepala Sekolah SMK PGRI 2 Ponorogo',
   Waka: 'Wakil Kepala Sekolah Bidang Hubin',
@@ -60,7 +63,7 @@ export interface DefaultAccountDefinition {
   username: string;
   defaultPassword: string;
   passwordHash: string;
-  role: Extract<UserRole, 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli'>;
+  role: ManagedAdminRole;
   namaLengkap: string;
   jabatan: string;
 }
@@ -68,6 +71,15 @@ export interface DefaultAccountDefinition {
 // Pre-computed deterministic salted SHA-256 hashes (format: sha256$<salt>$<hex>)
 // Matches node:crypto and browser SubtleCrypto sha256(`${salt}:${password}`)
 export const DEFAULT_ADMIN_ACCOUNTS: DefaultAccountDefinition[] = [
+  {
+    id: 'AKN-SUPERADMIN',
+    username: 'superadmin',
+    defaultPassword: 'SuperAdmin@2026',
+    passwordHash: 'sha256$superadmin_salt_2026$dbb9ccce169f030c19565e456f0c9a850c3d5d901f29976d3327acf4c1b02d86',
+    role: 'SuperAdmin',
+    namaLengkap: 'Super Admin Sistem',
+    jabatan: ROLE_TITLE_MAP.SuperAdmin,
+  },
   {
     id: 'AKN-HUBIN',
     username: 'hubin',
@@ -154,7 +166,7 @@ function normalizeAccountRow(raw: Record<string, any>, idx: number): AdminAccoun
   if (!username) return null;
 
   const rawRole = String(raw.Role || raw.role || 'Pokja').trim();
-  const validRoles = ['Hubin', 'Kepsek', 'Waka', 'Pokja', 'Kakomli'] as const;
+  const validRoles = ['SuperAdmin', 'Hubin', 'Kepsek', 'Waka', 'Pokja', 'Kakomli'] as const;
   const role = (validRoles.includes(rawRole as any) ? rawRole : 'Pokja') as AdminAccountRecord['role'];
 
   const rawStatus = String(raw.Status || raw.status || 'Aktif').trim().toLowerCase();
@@ -364,8 +376,7 @@ export const LocalAccountAuthService = {
       title: matched.jabatan || ROLE_TITLE_MAP[matched.role],
       email: '',
       identifier: matched.username,
-      canManageSpreadsheet:
-        matched.role === 'Hubin' || matched.role === 'Kepsek' || matched.role === 'Waka',
+      canManageSpreadsheet: matched.role === 'SuperAdmin',
     };
 
     const session: StoredAdminSession = {
@@ -583,11 +594,11 @@ export const LocalAccountAuthService = {
     const target = currentList.find((a) => a.id === accountId);
     if (!target) return currentList;
 
-    const remainingHubin = currentList.filter(
-      (a) => a.id !== accountId && a.role === 'Hubin' && a.status === 'Aktif'
+    const remainingSuperAdmin = currentList.filter(
+      (a) => a.id !== accountId && a.role === 'SuperAdmin' && a.status === 'Aktif'
     );
-    if (target.role === 'Hubin' && remainingHubin.length === 0) {
-      throw new Error('Minimal harus ada 1 akun Hubin aktif agar pengelola tetap bisa masuk.');
+    if (target.role === 'SuperAdmin' && remainingSuperAdmin.length === 0) {
+      throw new Error('Minimal harus ada 1 akun SuperAdmin aktif agar sistem tetap bisa dikelola.');
     }
 
     const updated = currentList.filter((a) => a.id !== accountId);
@@ -648,8 +659,7 @@ export const LocalAccountAuthService = {
           name: record.namaLengkap,
           title: record.jabatan || ROLE_TITLE_MAP[record.role],
           role: record.role,
-          canManageSpreadsheet:
-            record.role === 'Hubin' || record.role === 'Kepsek' || record.role === 'Waka',
+          canManageSpreadsheet: record.role === 'SuperAdmin',
         },
       });
     }

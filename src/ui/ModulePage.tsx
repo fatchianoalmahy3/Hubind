@@ -27,13 +27,18 @@ import {
   MessageCircle,
   Copy,
   ExternalLink,
+  FileDown,
+  Loader2,
 } from 'lucide-react';
 import { DudiService } from '../services/DudiService';
 import { PengajuanService } from '../services/PengajuanService';
 import { PerizinanService } from '../services/PerizinanService';
 import { GuruService } from '../services/GuruService';
+import { JurusanService } from '../services/JurusanService';
 import { RelationSyncService } from '../services/RelationSyncService';
-import { Guru } from '../core/types/schema';
+import { PublicPortalClient } from '../core/PublicPortalClient';
+import { MonitoringRecapModal } from './MonitoringRecapModal';
+import { Guru, Jurusan } from '../core/types/schema';
 import { ToastManager } from '../core/ToastManager';
 import { getTodayIsoDate, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import {
@@ -61,6 +66,7 @@ interface ModulePageProps<T extends { id: string }> {
   onOpenSimulator?: () => void;
   onOpenGas?: () => void;
   onOpenSheetConfig?: () => void;
+  onOpenMonitoringBundle?: () => void;
 }
 
 export function ModulePage<T extends { id: string }>({
@@ -71,6 +77,7 @@ export function ModulePage<T extends { id: string }>({
   onOpenSimulator,
   onOpenGas,
   onOpenSheetConfig,
+  onOpenMonitoringBundle,
 }: ModulePageProps<T>) {
   const {
     data,
@@ -165,21 +172,36 @@ export function ModulePage<T extends { id: string }>({
   const [guruList, setGuruList] = useState<Guru[]>([]);
   const [syncingRelations, setSyncingRelations] = useState(false);
   const [allExistingRows, setAllExistingRows] = useState<T[]>([]);
+  const [isMonitoringRecapOpen, setIsMonitoringRecapOpen] = useState(false);
 
-  // Kirim WA ke DUDI modal state
+  // Kirim WA & PDF Surat Izin modal state (DUDI / Kakomli)
   const [waModal, setWaModal] = useState<{
     isOpen: boolean;
     row: any | null;
+    recipientType: 'dudi' | 'kakomli';
     dudiName: string;
     picName: string;
+    dudiPhone: string;
+    kakomliName: string;
+    kakomliPhone: string;
     phoneInput: string;
+    alamat: string;
+    pdfUrl: string;
+    generatingPdf: boolean;
     message: string;
   }>({
     isOpen: false,
     row: null,
+    recipientType: 'dudi',
     dudiName: '',
     picName: '',
+    dudiPhone: '',
+    kakomliName: '',
+    kakomliPhone: '',
     phoneInput: '',
+    alamat: '-',
+    pdfUrl: '',
+    generatingPdf: false,
     message: '',
   });
 
@@ -250,8 +272,11 @@ export function ModulePage<T extends { id: string }>({
   // Custom row actions based on module
   const customRowActions: any[] = [];
 
+  const isSuperAdmin = userRole === 'SuperAdmin';
+  const isHubinOrSuper = userRole === 'Hubin' || isSuperAdmin;
+
   if (metadata.id === 'pengajuan') {
-    if (userRole === 'Kakomli' || userRole === 'Hubin') {
+    if (userRole === 'Kakomli' || isHubinOrSuper) {
       customRowActions.push({
         name: 'approve_kakomli',
         label: 'ACC Kakomli',
@@ -271,7 +296,7 @@ export function ModulePage<T extends { id: string }>({
         color: 'hover:text-indigo-600 hover:bg-indigo-50 text-indigo-600',
       });
     }
-    if (userRole === 'Hubin') {
+    if (isHubinOrSuper) {
       customRowActions.push({
         name: 'schedule_hubin',
         label: 'Jadwalkan',
@@ -282,10 +307,10 @@ export function ModulePage<T extends { id: string }>({
   }
 
   if (metadata.id === 'perizinan') {
-    if (userRole === 'Hubin' || userRole === 'Kakomli') {
+    if (isHubinOrSuper || userRole === 'Kakomli') {
       customRowActions.push({
         name: 'send_wa_dudi',
-        label: 'Kirim WA ke DUDI',
+        label: 'Kirim WA & PDF',
         icon: MessageCircle,
         color: 'hover:text-emerald-700 hover:bg-emerald-50 text-emerald-600',
       });
@@ -380,9 +405,10 @@ export function ModulePage<T extends { id: string }>({
         submitting: false,
       });
     } else if (actionName === 'send_wa_dudi') {
-      const [dudiList, pengajuanList] = await Promise.all([
+      const [dudiList, pengajuanList, jurusanList] = await Promise.all([
         DudiService.getInstance().getAll().catch(() => []),
         PengajuanService.getInstance().getAll().catch(() => []),
+        JurusanService.getInstance().getAll().catch(() => [] as Jurusan[]),
       ]);
       const targetDudiNorm = String(item.dudiTujuan || '').trim().toLowerCase();
       const matchedDudi = dudiList.find(
@@ -393,53 +419,60 @@ export function ModulePage<T extends { id: string }>({
           (item.noPengajuan && p.noPengajuan === item.noPengajuan) ||
           (item.nis && p.nis === item.nis)
       );
-      const rawPhone =
-        matchedDudi?.kontakPic ||
+
+      const targetJurRaw = String(item.jurusan || '').trim().toLowerCase();
+      const matchedJurusan = jurusanList.find((j) => {
+        const k = String(j.kode || '').trim().toLowerCase();
+        const n = String(j.nama || '').trim().toLowerCase();
+        return (
+          targetJurRaw === k ||
+          targetJurRaw === n ||
+          (k.length >= 2 && targetJurRaw.includes(k)) ||
+          (n.length >= 4 && targetJurRaw.includes(n))
+        );
+      });
+
+      const rawDudiPhone =
         matchedDudi?.noTelpDudi ||
+        matchedDudi?.kontakPic ||
         matchedPengajuan?.noTelpDudi ||
         '';
-      const cleanPhone = rawPhone === '-' ? '' : rawPhone;
-      const tglSurat = formatIndonesianDate(item.tanggalKirimSurat || getTodayIsoDate());
+      const cleanDudiPhone = rawDudiPhone === '-' ? '' : rawDudiPhone;
+      const rawKakomliPhone = matchedJurusan?.kontakWA || '';
+      const cleanKakomliPhone = rawKakomliPhone === '-' ? '' : rawKakomliPhone;
+      const kakomliName = matchedJurusan?.namaKakomli || 'Ketua Kompetensi Keahlian';
+
       const alamat =
         (item.alamatDudi && item.alamatDudi !== '-' ? item.alamatDudi : '') ||
         matchedDudi?.alamat ||
         matchedPengajuan?.alamatDudi ||
         '-';
+      const existingPdfUrl =
+        item.linkSuratPdf && item.linkSuratPdf !== '-' ? String(item.linkSuratPdf).trim() : '';
+      const dudiName = item.dudiTujuan || matchedDudi?.namaDudi || 'Mitra DUDI';
 
-      const composedMsg = [
-        'Yth. Pimpinan / Pembimbing Industri',
-        `${item.dudiTujuan || 'Mitra DUDI'}`,
-        'di Tempat',
-        '',
-        'Dengan hormat,',
-        'Kami dari Pokja Hubin SMK PGRI 2 Ponorogo menyampaikan surat permohonan & konfirmasi Perizinan PKL peserta didik kami:',
-        '',
-        `• No. Perizinan: ${item.noPerizinan || item.id || '-'}`,
-        `• No. Surat: ${item.noSuratPermohonan || '-'}`,
-        `• Tanggal Surat: ${tglSurat}`,
-        `• Nama Siswa: ${item.namaSiswa || '-'} (NIS: ${formatNisVisual(item.nis)})`,
-        `• Kelas / Jurusan: ${item.kelas || '-'} / ${item.jurusan || '-'}`,
-        `• Nama Ortu / Wali: ${item.namaOrtuWali || '-'} (${item.statusIzinOrtu || 'Menunggu Izin'})`,
-        `• Lokasi DUDI: ${item.dudiTujuan || '-'}`,
-        `• Alamat DUDI: ${alamat}`,
-        item.linkBuktiBalasan && item.linkBuktiBalasan !== '-'
-          ? `• Tautan Berkas: ${item.linkBuktiBalasan}`
-          : '',
-        '',
-        'Mohon konfirmasi kesediaan penempatan PKL dari pihak Bapak/Ibu. Atas perhatian dan kerjasamanya kami ucapkan terima kasih.',
-        '',
-        'Hormat kami,',
-        'Pokja Hubin SMK PGRI 2 Ponorogo',
-      ]
-        .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
-        .join('\n');
+      const composedMsg = composePerizinanWaMessage({
+        row: item,
+        recipientType: 'dudi',
+        dudiName,
+        kakomliName,
+        alamat,
+        pdfUrl: existingPdfUrl,
+      });
 
       setWaModal({
         isOpen: true,
         row: item,
-        dudiName: item.dudiTujuan || matchedDudi?.namaDudi || 'Mitra DUDI',
+        recipientType: 'dudi',
+        dudiName,
         picName: matchedDudi?.namaPic || matchedDudi?.namaPemimpin || 'PIC / HRD Industri',
-        phoneInput: cleanPhone,
+        dudiPhone: cleanDudiPhone,
+        kakomliName,
+        kakomliPhone: cleanKakomliPhone,
+        phoneInput: cleanDudiPhone,
+        alamat,
+        pdfUrl: existingPdfUrl,
+        generatingPdf: false,
         message: composedMsg,
       });
     } else if (actionName === 'mark_ortu_ok') {
@@ -704,7 +737,7 @@ export function ModulePage<T extends { id: string }>({
           </h1>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1">
             <span>{metadata.subtitle}</span>
-            {userRole === 'Hubin' && (
+            {isSuperAdmin && (
               <>
                 <span className="text-slate-300" aria-hidden="true">·</span>
                 <span className="font-mono text-slate-600 font-medium">
@@ -715,7 +748,7 @@ export function ModulePage<T extends { id: string }>({
           </div>
         </div>
 
-        {userRole === 'Hubin' && onOpenSheetConfig && (
+        {isSuperAdmin && onOpenSheetConfig && (
           <button
             type="button"
             onClick={onOpenSheetConfig}
@@ -748,7 +781,7 @@ export function ModulePage<T extends { id: string }>({
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
               <span>Muat Ulang</span>
             </button>
-            {userRole === 'Hubin' && onOpenSheetConfig && (
+            {isSuperAdmin && onOpenSheetConfig && (
               <button
                 type="button"
                 onClick={onOpenSheetConfig}
@@ -785,9 +818,17 @@ export function ModulePage<T extends { id: string }>({
               }
             : undefined
         }
-        onOpenSimulatorModal={userRole === 'Hubin' ? onOpenSimulator : undefined}
-        onOpenGasModal={userRole === 'Hubin' ? onOpenGas : undefined}
+        onOpenSimulatorModal={isSuperAdmin ? onOpenSimulator : undefined}
+        onOpenGasModal={isSuperAdmin ? onOpenGas : undefined}
         onSyncRelations={isRelationalModule ? handleSyncRelations : undefined}
+        onOpenMonitoringRecap={
+          metadata.id === 'monitoring' || metadata.id === 'jurusan'
+            ? () => setIsMonitoringRecapOpen(true)
+            : undefined
+        }
+        onOpenMonitoringBundle={
+          metadata.id === 'monitoring' ? onOpenMonitoringBundle : undefined
+        }
         syncingRelations={syncingRelations}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -836,7 +877,7 @@ export function ModulePage<T extends { id: string }>({
         }}
         title={confirmModal.title}
         description={confirmModal.description}
-        sheetName={userRole === 'Hubin' ? metadata.tableName : ''}
+        sheetName={isSuperAdmin ? metadata.tableName : ''}
         variant={confirmModal.variant}
         confirmText={confirmModal.confirmText}
       />
@@ -902,7 +943,7 @@ export function ModulePage<T extends { id: string }>({
           });
         }}
         onBulkApprove={
-          metadata.id === 'pengajuan' && (userRole === 'Kakomli' || userRole === 'Hubin')
+          metadata.id === 'pengajuan' && (userRole === 'Kakomli' || isHubinOrSuper)
             ? async () => {
                 setConfirmModal({
                   isOpen: true,
@@ -916,7 +957,7 @@ export function ModulePage<T extends { id: string }>({
                       `Menyetujui Massal ${count} Pengajuan...`,
                       'pending',
                       'Memperbarui status pengajuan ke Cloud Server',
-                      userRole === 'Hubin' ? 'Data_Pengajuan_PKL' : undefined
+                      isSuperAdmin ? 'Data_Pengajuan_PKL' : undefined
                     );
                     try {
                       const pengajuanService = PengajuanService.getInstance();
@@ -1147,51 +1188,212 @@ export function ModulePage<T extends { id: string }>({
         </div>
       )}
 
-      {/* Kirim WA ke DUDI Modal */}
+      {/* Kirim WA & PDF Surat Izin Modal (DUDI / Kakomli) */}
       {waModal.isOpen && waModal.row && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
-          onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
+          onClick={() => !waModal.generatingPdf && setWaModal((p) => ({ ...p, isOpen: false }))}
         >
           <div
-            className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden"
+            className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-emerald-50/70">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-emerald-50/70 shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
                   <MessageCircle className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-slate-900 truncate">
-                    Kirim Pesan WhatsApp ke DUDI
+                    Kirim Surat PDF &amp; WhatsApp ({waModal.recipientType === 'dudi' ? 'DUDI' : 'Kakomli'})
                   </h3>
                   <p className="text-xs text-slate-600 truncate">
-                    {waModal.dudiName} · {waModal.picName}
+                    {waModal.recipientType === 'dudi'
+                      ? `${waModal.dudiName} · ${waModal.picName}`
+                      : `${waModal.kakomliName} · ${waModal.row.jurusan || 'Jurusan'}`}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
+                disabled={waModal.generatingPdf}
                 onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
-                className="w-9 h-9 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0"
+                className="w-9 h-9 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40"
                 aria-label="Tutup modal WhatsApp"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4 text-xs">
+            <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
+              {/* Recipient Toggle: DUDI vs Kakomli */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1.5">
-                  Nomor WhatsApp Tujuan (PIC / HRD DUDI)
+                  Pilih Penerima Pesan WhatsApp
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWaModal((prev) => ({
+                        ...prev,
+                        recipientType: 'dudi',
+                        phoneInput: prev.dudiPhone,
+                        message: composePerizinanWaMessage({
+                          row: prev.row,
+                          recipientType: 'dudi',
+                          dudiName: prev.dudiName,
+                          kakomliName: prev.kakomliName,
+                          alamat: prev.alamat,
+                          pdfUrl: prev.pdfUrl,
+                        }),
+                      }));
+                    }}
+                    className={`min-h-[40px] px-3 py-2 rounded-lg border font-semibold transition-colors cursor-pointer text-left ${
+                      waModal.recipientType === 'dudi'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold">1. Kirim ke DUDI</div>
+                    <div className="text-[11px] text-slate-500 truncate">{waModal.dudiName}</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWaModal((prev) => ({
+                        ...prev,
+                        recipientType: 'kakomli',
+                        phoneInput: prev.kakomliPhone,
+                        message: composePerizinanWaMessage({
+                          row: prev.row,
+                          recipientType: 'kakomli',
+                          dudiName: prev.dudiName,
+                          kakomliName: prev.kakomliName,
+                          alamat: prev.alamat,
+                          pdfUrl: prev.pdfUrl,
+                        }),
+                      }));
+                    }}
+                    className={`min-h-[40px] px-3 py-2 rounded-lg border font-semibold transition-colors cursor-pointer text-left ${
+                      waModal.recipientType === 'kakomli'
+                        ? 'bg-blue-50 border-blue-500 text-blue-900'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="font-bold">2. Kirim ke Kakomli</div>
+                    <div className="text-[11px] text-slate-500 truncate">{waModal.kakomliName}</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Google Drive PDF Generator */}
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="font-bold text-slate-800">
+                      File Surat Permohonan PDF (Google Drive)
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {waModal.pdfUrl
+                        ? 'Tautan PDF Google Drive sudah tersemat otomatis ke dalam pesan WhatsApp.'
+                        : 'Generate PDF ke Google Drive agar penerima dapat mengunduh surat permohonan resmi.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={waModal.generatingPdf}
+                    onClick={async () => {
+                      if (!waModal.row) return;
+                      setWaModal((p) => ({ ...p, generatingPdf: true }));
+                      try {
+                        const res = await PublicPortalClient.generatePerizinanPdf({
+                          perizinanId: waModal.row.id || waModal.row.noPerizinan,
+                          noPerizinan: waModal.row.noPerizinan,
+                          noSuratPermohonan: waModal.row.noSuratPermohonan,
+                          namaSiswa: waModal.row.namaSiswa,
+                          nis: waModal.row.nis,
+                          kelas: waModal.row.kelas,
+                          jurusan: waModal.row.jurusan,
+                          dudiTujuan: waModal.dudiName,
+                          alamatDudi: waModal.alamat,
+                          tanggalSurat: formatIndonesianDate(
+                            waModal.row.tanggalKirimSurat || getTodayIsoDate()
+                          ),
+                        });
+                        const nextUrl = res.pdfUrl;
+                        setWaModal((prev) => ({
+                          ...prev,
+                          generatingPdf: false,
+                          pdfUrl: nextUrl,
+                          message: composePerizinanWaMessage({
+                            row: prev.row,
+                            recipientType: prev.recipientType,
+                            dudiName: prev.dudiName,
+                            kakomliName: prev.kakomliName,
+                            alamat: prev.alamat,
+                            pdfUrl: nextUrl,
+                          }),
+                        }));
+                        await refresh();
+                      } catch {
+                        setWaModal((prev) => ({ ...prev, generatingPdf: false }));
+                      }
+                    }}
+                    className="h-9 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                  >
+                    {waModal.generatingPdf ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Membuat PDF...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileDown className="w-3.5 h-3.5" />
+                        <span>{waModal.pdfUrl ? 'Buat Ulang PDF' : 'Generate PDF ke GDrive'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {waModal.pdfUrl && (
+                  <div className="p-2.5 rounded-lg border border-emerald-200 bg-white flex items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] text-emerald-800 truncate">
+                      {waModal.pdfUrl}
+                    </span>
+                    <a
+                      href={waModal.pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-bold text-blue-600 hover:underline inline-flex items-center gap-1 shrink-0 whitespace-nowrap"
+                    >
+                      <span>Buka PDF</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  {waModal.recipientType === 'dudi'
+                    ? 'Nomor WhatsApp Tujuan (PIC / HRD DUDI)'
+                    : `Nomor WhatsApp Kakomli (${waModal.kakomliName})`}
                 </label>
                 <input
                   type="text"
                   value={waModal.phoneInput}
-                  onChange={(e) =>
-                    setWaModal((prev) => ({ ...prev, phoneInput: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setWaModal((prev) => ({
+                      ...prev,
+                      phoneInput: val,
+                      ...(prev.recipientType === 'dudi'
+                        ? { dudiPhone: val }
+                        : { kakomliPhone: val }),
+                    }));
+                  }}
                   placeholder="Contoh: 081234567890"
                   className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                 />
@@ -1201,17 +1403,19 @@ export function ModulePage<T extends { id: string }>({
                   </p>
                 ) : (
                   <p className="text-[11px] text-amber-700 mt-1">
-                    Nomor WA DUDI belum tercatat di Master DUDI. Silakan masukkan nomor WA tujuan secara manual di atas.
+                    {waModal.recipientType === 'dudi'
+                      ? 'Nomor WA DUDI belum tercatat. Masukkan nomor WA yang valid di atas.'
+                      : 'Nomor WA Kakomli belum tercatat di Master Jurusan. Masukkan nomor WA Kakomli di atas.'}
                   </p>
                 )}
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1.5">
-                  Pratinjau Pesan (Dapat Diedit)
+                  Pratinjau Pesan WhatsApp (Dapat Diedit)
                 </label>
                 <textarea
-                  rows={10}
+                  rows={8}
                   value={waModal.message}
                   onChange={(e) =>
                     setWaModal((prev) => ({ ...prev, message: e.target.value }))
@@ -1219,86 +1423,164 @@ export function ModulePage<T extends { id: string }>({
                   className="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white text-xs text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
                 />
               </div>
+            </div>
 
-              <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(waModal.message);
+                    ToastManager.getInstance().show(
+                      'Pesan Disalin',
+                      'success',
+                      'Teks konfirmasi beserta tautan PDF siap ditempel ke WhatsApp.'
+                    );
+                  } catch {
+                    ToastManager.getInstance().show(
+                      'Gagal Menyalin Otomatis',
+                      'info',
+                      'Silakan blok teks pesan dan tekan Ctrl+C.'
+                    );
+                  }
+                }}
+                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Salin Pesan</span>
+              </button>
+
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(waModal.message);
-                      ToastManager.getInstance().show(
-                        'Pesan Disalin',
-                        'success',
-                        'Teks konfirmasi DUDI siap ditempel ke WhatsApp.'
-                      );
-                    } catch {
-                      ToastManager.getInstance().show(
-                        'Gagal Menyalin Otomatis',
-                        'info',
-                        'Silakan blok teks pesan dan tekan Ctrl+C.'
-                      );
-                    }
-                  }}
-                  className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                  disabled={waModal.generatingPdf}
+                  onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
+                  className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Salin Pesan</span>
+                  Tutup
                 </button>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
-                    className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
-                  >
-                    Tutup
-                  </button>
-                  {normalizeWhatsAppNumber(waModal.phoneInput) ? (
-                    <a
-                      href={`https://wa.me/${normalizeWhatsAppNumber(
-                        waModal.phoneInput
-                      )}?text=${encodeURIComponent(waModal.message)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => {
+                {normalizeWhatsAppNumber(waModal.phoneInput) ? (
+                  <a
+                    href={`https://wa.me/${normalizeWhatsAppNumber(
+                      waModal.phoneInput
+                    )}?text=${encodeURIComponent(waModal.message)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      if (waModal.recipientType === 'dudi') {
                         PerizinanService.getInstance()
                           .markSuratSentToday(waModal.row.id, { silentToast: true })
                           .then(() => refresh())
                           .catch(() => {});
-                        ToastManager.getInstance().show(
-                          'Membuka WhatsApp DUDI',
-                          'success',
-                          `Mengirim surat permohonan ${waModal.row.namaSiswa} ke ${waModal.dudiName}.`
-                        );
-                        setWaModal((p) => ({ ...p, isOpen: false }));
-                      }}
-                      className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center gap-1.5 transition-colors"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Kirim via WhatsApp</span>
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        ToastManager.getInstance().show(
-                          'Nomor WA Kosong',
-                          'error',
-                          'Isi nomor WhatsApp DUDI terlebih dahulu sebelum mengirim.'
-                        )
                       }
-                      className="h-9 px-4 rounded-lg bg-slate-300 text-slate-600 font-semibold inline-flex items-center gap-1.5 cursor-not-allowed"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Isi No. WA Dulu</span>
-                    </button>
-                  )}
-                </div>
+                      ToastManager.getInstance().show(
+                        waModal.recipientType === 'dudi'
+                          ? 'Membuka WhatsApp DUDI'
+                          : 'Membuka WhatsApp Kakomli',
+                        'success',
+                        `Mengirim surat permohonan ${waModal.row.namaSiswa} ke ${
+                          waModal.recipientType === 'dudi' ? waModal.dudiName : waModal.kakomliName
+                        }.`
+                      );
+                      setWaModal((p) => ({ ...p, isOpen: false }));
+                    }}
+                    className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Kirim via WhatsApp</span>
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      ToastManager.getInstance().show(
+                        'Nomor WA Kosong',
+                        'error',
+                        'Isi nomor WhatsApp tujuan terlebih dahulu sebelum mengirim.'
+                      )
+                    }
+                    className="h-9 px-4 rounded-lg bg-slate-300 text-slate-600 font-semibold inline-flex items-center gap-1.5 cursor-not-allowed"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Isi No. WA Dulu</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {isMonitoringRecapOpen && (
+        <MonitoringRecapModal
+          isOpen={isMonitoringRecapOpen}
+          onClose={() => setIsMonitoringRecapOpen(false)}
+        />
+      )}
     </div>
   );
+}
+
+function composePerizinanWaMessage(params: {
+  row: any;
+  recipientType: 'dudi' | 'kakomli';
+  dudiName: string;
+  kakomliName: string;
+  alamat: string;
+  pdfUrl: string;
+}): string {
+  const { row, recipientType, dudiName, kakomliName, alamat, pdfUrl } = params;
+  const tglSurat = formatIndonesianDate(row?.tanggalKirimSurat || getTodayIsoDate());
+  const baseDetails = [
+    `• No. Perizinan: ${row?.noPerizinan || row?.id || '-'}`,
+    `• No. Surat: ${row?.noSuratPermohonan || '-'}`,
+    `• Tanggal Surat: ${tglSurat}`,
+    `• Nama Siswa: ${row?.namaSiswa || '-'} (NIS: ${formatNisVisual(row?.nis)})`,
+    `• Kelas / Jurusan: ${row?.kelas || '-'} / ${row?.jurusan || '-'}`,
+    `• Nama Ortu / Wali: ${row?.namaOrtuWali || '-'} (${row?.statusIzinOrtu || 'Menunggu Izin'})`,
+    `• Lokasi DUDI: ${dudiName || '-'}`,
+    `• Alamat DUDI: ${alamat || '-'}`,
+    pdfUrl && pdfUrl !== '-' ? `• Unduh Surat Resmi (PDF): ${pdfUrl}` : '',
+    row?.linkBuktiBalasan && row.linkBuktiBalasan !== '-'
+      ? `• Tautan Bukti Balasan: ${row.linkBuktiBalasan}`
+      : '',
+  ];
+
+  if (recipientType === 'kakomli') {
+    return [
+      `Yth. Bapak/Ibu ${kakomliName || 'Ketua Kompetensi Keahlian'}`,
+      `Ketua Kompetensi Keahlian ${row?.jurusan || 'Terkait'}`,
+      'SMK PGRI 2 Ponorogo',
+      '',
+      'Dengan hormat,',
+      'Kami informasikan penerbitan berkas Surat Permohonan / Perizinan PKL peserta didik jurusan Anda:',
+      '',
+      ...baseDetails,
+      '',
+      'Mohon dapat dipantau & dikoordinasikan bersama siswa/orang tua terkait tindak lanjut konfirmasi DUDI.',
+      '',
+      'Hormat kami,',
+      'Pokja Hubin SMK PGRI 2 Ponorogo',
+    ]
+      .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
+      .join('\n');
+  }
+
+  return [
+    'Yth. Pimpinan / Pembimbing Industri',
+    `${dudiName || 'Mitra DUDI'}`,
+    'di Tempat',
+    '',
+    'Dengan hormat,',
+    'Kami dari Pokja Hubin SMK PGRI 2 Ponorogo menyampaikan surat permohonan & konfirmasi Perizinan PKL peserta didik kami:',
+    '',
+    ...baseDetails,
+    '',
+    'Mohon konfirmasi kesediaan penempatan PKL dari pihak Bapak/Ibu. Atas perhatian dan kerjasamanya kami ucapkan terima kasih.',
+    '',
+    'Hormat kami,',
+    'Pokja Hubin SMK PGRI 2 Ponorogo',
+  ]
+    .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
+    .join('\n');
 }

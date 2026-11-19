@@ -134,6 +134,14 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       placeholder: '0352-xxxxxx / 0812xxxxxxxx',
     },
     {
+      key: 'linkMaps',
+      label: 'Link Google Maps',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'https://maps.app.goo.gl/...',
+    },
+    {
       key: 'kuotaMaksimal',
       label: 'Kuota Maks',
       type: 'number',
