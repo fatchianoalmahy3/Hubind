@@ -1157,12 +1157,12 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     <div className="space-y-4 animate-in fade-in duration-150">
       {/* Clean Document Hub Header */}
       <div className="no-print">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+        <div className="flex flex-col gap-2.5 pb-3 border-b border-slate-200">
           <div className="flex items-start gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0">
               <meta.icon className="w-4 h-4" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="text-lg font-bold text-slate-900 tracking-tight truncate">
                 {meta.label}
               </h1>
@@ -1174,7 +1174,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setIsSidebarCollapsed((prev) => !prev)}
