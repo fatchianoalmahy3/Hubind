@@ -67,6 +67,7 @@ interface RowActionsProps<T> {
   onEdit: (row: T) => void;
   onDelete: (row: T) => void;
   openUpward?: boolean;
+  variant?: 'table' | 'card';
 }
 
 function RowActions<T>({
@@ -76,6 +77,7 @@ function RowActions<T>({
   onEdit,
   onDelete,
   openUpward = false,
+  variant = 'table',
 }: RowActionsProps<T>) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -98,37 +100,154 @@ function RowActions<T>({
     };
   }, [menuOpen]);
 
-  // If no custom workflow actions, render clean Edit | Delete with generous 36x36px hit targets
+  const primaryActions = customRowActions.slice(0, 1);
+  const secondaryActions = customRowActions.slice(1);
+  const isCard = variant === 'card';
+  const rowIdText = String((row as any)?.id ?? '');
+
+  if (isCard) {
+    return (
+      <div className="w-full flex items-center justify-between gap-2 relative" ref={menuRef}>
+        <div className="min-w-0 flex-1 flex items-center">
+          {primaryActions.length > 0 ? (
+            primaryActions.map((act) => {
+              const Icon = act.icon;
+              return (
+                <button
+                  key={act.name}
+                  type="button"
+                  onClick={() => onCustomAction && onCustomAction(act.name, row)}
+                  className={`h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap max-w-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                    act.color || 'text-slate-700'
+                  }`}
+                  title={act.label}
+                >
+                  {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
+                  <span className="truncate">{act.label}</span>
+                </button>
+              );
+            })
+          ) : (
+            <span className="font-mono text-[11px] text-slate-400 tabular-nums truncate">
+              ID: {rowIdText}
+            </span>
+          )}
+        </div>
+
+        <div className="inline-flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onEdit(row)}
+            className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            title="Edit Data"
+            aria-label="Edit Data"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+
+          {customRowActions.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => onDelete(row)}
+              className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-700 hover:bg-rose-50 hover:border-rose-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+              title="Hapus Data"
+              aria-label="Hapus Data"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMenuOpen((prev) => !prev)}
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                menuOpen
+                  ? 'bg-slate-200 border-slate-300 text-slate-900'
+                  : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+              title="Aksi Lainnya"
+              aria-label="Aksi Lainnya"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {menuOpen && (
+          <div
+            role="menu"
+            className={`absolute right-0 w-52 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-30 text-left ${
+              openUpward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+            }`}
+          >
+            {secondaryActions.map((act) => {
+              const Icon = act.icon;
+              return (
+                <button
+                  key={act.name}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onCustomAction && onCustomAction(act.name, row);
+                  }}
+                  className="w-full min-h-9 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
+                >
+                  {Icon && <Icon className={`w-4 h-4 shrink-0 ${act.color || 'text-slate-500'}`} />}
+                  <span className="truncate">{act.label}</span>
+                </button>
+              );
+            })}
+
+            {secondaryActions.length > 0 && <div className="my-1 border-t border-slate-100" />}
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete(row);
+              }}
+              className="w-full min-h-9 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Hapus Data</span>
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Table Mode: If no custom workflow actions, render clean proportional 32x32px Edit | Delete
   if (customRowActions.length === 0) {
     return (
-      <div className="inline-flex items-center justify-end gap-1.5">
+      <div className="inline-flex items-center justify-end gap-1">
         <button
           type="button"
           onClick={() => onEdit(row)}
-          className="w-9 h-9 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          className="w-8 h-8 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
           title="Edit Data"
           aria-label="Edit Data"
         >
-          <Edit2 className="w-4 h-4" />
+          <Edit2 className="w-3.5 h-3.5" />
         </button>
         <span className="w-px h-4 bg-slate-200" aria-hidden="true" />
         <button
           type="button"
           onClick={() => onDelete(row)}
-          className="w-9 h-9 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+          className="w-8 h-8 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
           title="Hapus Data"
           aria-label="Hapus Data"
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     );
   }
 
-  // With custom actions: expose primary inline action + Edit, overflow remaining workflow actions + Delete into clean menu
-  const primaryActions = customRowActions.slice(0, 1);
-  const secondaryActions = customRowActions.slice(1);
-
+  // Table Mode with custom actions: expose primary inline action + Edit + Overflow menu (uniform h-8 height)
   return (
     <div className="inline-flex items-center justify-end gap-1.5 relative" ref={menuRef}>
       {primaryActions.map((act) => {
@@ -138,7 +257,7 @@ function RowActions<T>({
             key={act.name}
             type="button"
             onClick={() => onCustomAction && onCustomAction(act.name, row)}
-            className={`h-9 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+            className={`h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
               act.color || 'text-slate-700'
             }`}
             title={act.label}
@@ -152,11 +271,11 @@ function RowActions<T>({
       <button
         type="button"
         onClick={() => onEdit(row)}
-        className="w-9 h-9 rounded-lg text-slate-600 hover:text-blue-700 hover:bg-blue-50 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+        className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
         title="Edit Data"
         aria-label="Edit Data"
       >
-        <Edit2 className="w-4 h-4" />
+        <Edit2 className="w-3.5 h-3.5" />
       </button>
 
       <button
@@ -164,15 +283,15 @@ function RowActions<T>({
         onClick={() => setMenuOpen((prev) => !prev)}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
-        className={`w-9 h-9 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+        className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
           menuOpen
-            ? 'bg-slate-200 text-slate-900'
-            : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+            ? 'bg-slate-200 border-slate-300 text-slate-900'
+            : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
         }`}
         title="Aksi Lainnya"
         aria-label="Aksi Lainnya"
       >
-        <MoreVertical className="w-4 h-4" />
+        <MoreVertical className="w-3.5 h-3.5" />
       </button>
 
       {menuOpen && (
@@ -473,8 +592,8 @@ export function DynamicDataGrid<T extends { id: string }>({
                     }`}
                   >
                     <div>
-                      <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3 mb-3">
-                        <div className="flex items-start gap-2.5 min-w-0">
+                      <div className="flex items-start justify-between gap-2.5 border-b border-slate-100 pb-3 mb-3">
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -482,23 +601,24 @@ export function DynamicDataGrid<T extends { id: string }>({
                             aria-label={`Pilih baris ${row.id}`}
                             className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-4 h-4 cursor-pointer shrink-0"
                           />
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <span className="text-[11px] font-medium text-slate-400 block truncate">
                               {primaryField?.label}
                             </span>
                             <div className="text-xs font-bold text-slate-900 truncate mt-0.5">
-                              {renderCellContent(primaryField, row)}
+                              {primaryField ? renderCellContent(primaryField, row) : row.id}
                             </div>
                           </div>
                         </div>
 
-                        <RowActions
-                          row={row}
-                          customRowActions={customRowActions}
-                          onCustomAction={onCustomAction}
-                          onEdit={onEdit}
-                          onDelete={onDelete}
-                        />
+                        {realStatus && (
+                          <span
+                            className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 truncate max-w-[130px] shrink-0"
+                            title={realStatus}
+                          >
+                            {realStatus}
+                          </span>
+                        )}
                       </div>
 
                       {secondaryField && (
@@ -526,14 +646,22 @@ export function DynamicDataGrid<T extends { id: string }>({
                       </div>
                     </div>
 
-                    {/* Footer: Real ID + Real Status (no hardcoded fake status) */}
-                    <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-400">
-                      <span className="font-mono tabular-nums truncate">ID: {row.id}</span>
-                      {realStatus && (
-                        <span className="text-slate-600 font-semibold truncate">
-                          {realStatus}
-                        </span>
+                    {/* Card Bottom Action Strip (Clean proportional controls, never overlaps header) */}
+                    <div className="pt-3 mt-3 border-t border-slate-100 space-y-2">
+                      {customRowActions.length > 0 && primaryField?.key !== 'id' && (
+                        <div className="text-[11px] font-mono text-slate-400 tabular-nums truncate">
+                          ID: {row.id}
+                        </div>
                       )}
+                      <RowActions
+                        row={row}
+                        customRowActions={customRowActions}
+                        onCustomAction={onCustomAction}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
+                        openUpward={true}
+                        variant="card"
+                      />
                     </div>
                   </div>
                 );

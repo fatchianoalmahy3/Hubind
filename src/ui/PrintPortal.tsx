@@ -39,7 +39,7 @@ export const PrintPortal: React.FC<PrintPortalProps> = ({ paperSize = 'A4', chil
       <style>{`
         @page {
           size: ${pageCssSize};
-          margin: 8mm 14mm 12mm 14mm;
+          margin: 6mm 10mm 7mm 10mm;
         }
       `}</style>
       {children}

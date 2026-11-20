@@ -1178,7 +1178,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             <button
               type="button"
               onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-              className="h-9 hidden lg:inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              className="h-9 hidden lg:inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
               title={isSidebarCollapsed ? 'Tampilkan panel pilih data' : 'Sembunyikan panel agar pratinjau penuh'}
             >
               {isSidebarCollapsed ? (
@@ -1194,7 +1194,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                 href={templateConfig.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors whitespace-nowrap"
+                className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors whitespace-nowrap"
               >
                 <ExternalLink className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 <span>Master Docs</span>
@@ -1204,7 +1204,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                 <button
                   type="button"
                   onClick={onOpenTemplateManager}
-                  className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Settings2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>Atur Template</span>
@@ -1215,7 +1215,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             <button
               type="button"
               onClick={() => setIsParamModalOpen(true)}
-              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
               title="Ubah Nomor Surat, Tanggal, Ukuran Kertas, Penandatangan & Tahap"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -1226,7 +1226,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
               type="button"
               onClick={() => loadDataForDoc(true)}
               disabled={loading}
-              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 shrink-0 ${
@@ -1246,12 +1246,12 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                     ? `Pasang template Google Docs dahulu untuk: ${missingBundleTemplates.join(', ')}`
                     : 'Buat 1 file PDF di Google Drive memakai Master Template Google Docs'
                 }
-                className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 {generatingDocsPdf ? (
-                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                 ) : (
-                  <FileDown className="w-4 h-4 shrink-0" />
+                  <FileDown className="w-3.5 h-3.5 shrink-0" />
                 )}
                 <span>
                   {generatingDocsPdf ? 'Memproses...' : 'PDF Drive'}
@@ -1268,12 +1268,12 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   ? suratTugasAudit.blockReason
                   : `Cetak dokumen (${paperSize})`
               }
-              className="h-9 inline-flex items-center gap-1.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap tabular-nums"
+              className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap tabular-nums"
             >
               {activeDocKey === 'doc_surat_tugas' && !isMultiCheckedMode && suratTugasAudit.isPrintBlocked ? (
-                <Lock className="w-4 h-4 shrink-0" />
+                <Lock className="w-3.5 h-3.5 shrink-0" />
               ) : (
-                <Printer className="w-4 h-4 shrink-0" />
+                <Printer className="w-3.5 h-3.5 shrink-0" />
               )}
               <span>
                 {activeDocKey === 'doc_surat_tugas' && !isMultiCheckedMode && suratTugasAudit.isPrintBlocked
@@ -2112,7 +2112,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                 </div>
                 <div
                   id="doc-hub-print-area"
-                  className="bg-white w-full px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-xl shadow-md border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm"
+                  className="bg-white w-full px-6 pb-6 pt-4 sm:px-8 sm:pb-8 sm:pt-5 rounded-xl shadow-md border border-slate-300 font-serif text-slate-950 leading-[1.35] text-[12pt]"
                 >
                   {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
                   {renderDocumentBody({
@@ -2155,7 +2155,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             ) : (
               <div
                 id="doc-hub-print-area"
-                className="bg-white w-full max-w-[794px] px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-xl shadow-md border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm"
+                className="bg-white w-full max-w-[794px] px-6 pb-6 pt-4 sm:px-8 sm:pb-8 sm:pt-5 rounded-xl shadow-md border border-slate-300 font-serif text-slate-950 leading-[1.35] text-[12pt]"
               >
                 {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
 
@@ -2218,7 +2218,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
             {checkedItems.map((it) => (
               <div
                 key={`print_batch_${it.id}`}
-                className="print-sheet font-serif text-slate-900 leading-relaxed text-sm"
+                className="print-sheet font-serif text-slate-950 leading-[1.35] text-[12pt]"
               >
                 {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
                 {renderDocumentBody({
@@ -2279,7 +2279,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         activeDocKey !== 'doc_surat_tugas' &&
         activeRecord && (
           <PrintPortal paperSize={paperSize}>
-            <div className="print-sheet font-serif text-slate-900 leading-relaxed text-sm">
+            <div className="print-sheet font-serif text-slate-950 leading-[1.35] text-[12pt]">
               {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
 
               {renderDocumentBody({
@@ -2619,22 +2619,22 @@ function renderDocumentBody(params: {
   if (docKey === 'doc_mou') {
     const dudi = record as Dudi;
     return (
-      <div className="space-y-4">
-        <div className="text-center space-y-1">
-          <div className="font-bold uppercase underline text-sm tracking-wide">
+      <div className="space-y-3 text-[12pt] font-serif leading-[1.35]">
+        <div className="text-center space-y-0.5">
+          <div className="font-bold uppercase underline text-[13pt] tracking-wide">
             NASKAH PERJANJIAN KERJASAMA (MEMORANDUM OF UNDERSTANDING)
           </div>
-          <div className="text-xs font-sans font-mono text-slate-600">Nomor: {nomorSurat}</div>
+          <div className="text-[12pt] font-serif text-slate-700">Nomor: {nomorSurat}</div>
         </div>
 
-        <p className="text-justify text-xs mt-4">
+        <p className="text-justify text-[12pt] mt-3">
           Pada hari ini, tanggal <b>{tanggalSurat}</b>, bertempat di Ponorogo, kami yang bertanda tangan di bawah ini:
         </p>
 
-        <table className="w-full text-xs font-sans border-collapse my-2">
+        <table className="w-full text-[12pt] font-serif border-collapse my-1.5">
           <tbody>
             <tr>
-              <td className="py-1 font-bold w-36 align-top">1. PIHAK PERTAMA</td>
+              <td className="py-1 font-bold w-40 align-top">1. PIHAK PERTAMA</td>
               <td className="py-1">
                 <b>SMK PGRI 2 Ponorogo</b>, berkedudukan di Jl. Soekarno - Hatta No. 94 Ponorogo, dalam hal ini diwakili oleh <b>{kepalaSekolah}</b>.
               </td>
@@ -2648,7 +2648,7 @@ function renderDocumentBody(params: {
                     href={getWhatsAppHref(dudi.kontakPic)!}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-mono text-emerald-700 hover:underline print:text-slate-900 print:no-underline"
+                    className="font-mono text-[11pt] text-emerald-700 hover:underline print:text-slate-950 print:no-underline"
                   >
                     {formatPhoneDisplay(dudi.kontakPic)}
                   </a>
@@ -2661,33 +2661,33 @@ function renderDocumentBody(params: {
           </tbody>
         </table>
 
-        <p className="text-justify text-xs">
+        <p className="text-justify text-[12pt]">
           Kedua belah pihak sepakat untuk menjalin kerjasama dalam rangka Penyelenggaraan Praktik Kerja Industri (PKL), penyelarasan kurikulum kejuruan, dan pembinaan kompetensi kerja peserta didik pada Tahun Ajaran <b>{activeYear}</b> dengan kapasitas penempatan hingga <b>{dudi.kuotaMaksimal || '-'} siswa</b>.
         </p>
 
-        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-sans space-y-1 print-avoid-break">
-          <div className="font-bold text-slate-800">Ruang Lingkup Kerjasama:</div>
-          <ol className="list-decimal list-inside space-y-0.5 text-slate-700">
+        <div className="p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-[12pt] font-serif space-y-1 print-avoid-break">
+          <div className="font-bold text-slate-900">Ruang Lingkup Kerjasama:</div>
+          <ol className="list-decimal list-inside space-y-0.5 text-slate-800">
             <li>Penempatan peserta didik PKL sesuai kompetensi keahlian dan tata tertib K3 industri.</li>
             <li>Bimbingan teknis oleh instruktur industri (DUDI) dan guru pendamping sekolah.</li>
             <li>Penilaian akhir hasil PKL dan penerbitan sertifikat kompetensi industri.</li>
           </ol>
         </div>
 
-        <div className="flex justify-between items-end pt-8 font-sans text-xs print-avoid-break">
+        <div className="flex justify-between items-end pt-6 font-serif text-[12pt] print-avoid-break">
           <div className="text-center">
             <div>PIHAK KEDUA,</div>
             <div className="font-semibold">{dudi.namaDudi}</div>
-            <div className="h-16" />
+            <div className="h-14" />
             <div className="font-bold underline">{dudi.namaPic || '..........................................'}</div>
-            <div className="text-[11px] text-slate-500">Pimpinan / Pembimbing Industri</div>
+            <div className="text-[10.5pt] text-slate-600">Pimpinan / Pembimbing Industri</div>
           </div>
           <div className="text-center">
             <div>PIHAK PERTAMA,</div>
             <div className="font-semibold">Kepala SMK PGRI 2 Ponorogo</div>
-            <div className="h-16" />
+            <div className="h-14" />
             <div className="font-bold underline">{kepalaSekolah}</div>
-            <div className="text-[11px] text-slate-500">NIP. ..................................</div>
+            <div className="text-[10.5pt] text-slate-600">NIP. ..................................</div>
           </div>
         </div>
       </div>
@@ -2708,76 +2708,76 @@ function renderDocumentBody(params: {
       '..........................................';
 
     return (
-      <div className="space-y-4">
-        <div className="text-center space-y-1">
-          <div className="font-bold uppercase underline text-sm tracking-wide">
+      <div className="space-y-3 text-[12pt] font-serif leading-[1.35]">
+        <div className="text-center space-y-0.5">
+          <div className="font-bold uppercase underline text-[13pt] tracking-wide">
             LEMBAR PERMOHONAN REKOMENDASI PRAKERIN
           </div>
-          <div className="text-xs font-sans text-slate-500">
-            No. Registrasi: <b className="font-mono text-slate-800">{req.noPengajuan}</b> • TA {activeYear}
+          <div className="text-[11.5pt] font-serif text-slate-700">
+            No. Registrasi: <b className="font-mono text-slate-900">{req.noPengajuan}</b> • TA {activeYear}
           </div>
         </div>
 
-        <p className="text-justify text-xs mt-4">
+        <p className="text-justify text-[12pt] mt-2.5">
           Berdasarkan pendaftaran siswa pada Portal Pokja Hubin SMK PGRI 2 Ponorogo, diajukan permohonan rekomendasi penempatan Praktik Kerja Industri (PKL) sebagai berikut:
         </p>
 
-        <table className="w-full text-xs font-sans border-collapse my-2">
+        <table className="w-full text-[12pt] font-serif border-collapse my-1.5">
           <tbody>
             <tr className="border-b border-slate-200">
-              <td className="py-1.5 font-bold w-44">Nama Peserta Didik</td>
-              <td className="py-1.5 font-semibold">: {req.namaSiswa}</td>
+              <td className="py-1 font-bold w-56">Nama Peserta Didik</td>
+              <td className="py-1 font-semibold">: {req.namaSiswa}</td>
             </tr>
             <tr className="border-b border-slate-200">
-              <td className="py-1.5 font-bold">NIS</td>
-              <td className="py-1.5 font-mono">: {formatNisVisual(req.nis)}</td>
+              <td className="py-1 font-bold">NIS</td>
+              <td className="py-1 font-mono text-[11pt]">: {formatNisVisual(req.nis)}</td>
             </tr>
             <tr className="border-b border-slate-200">
-              <td className="py-1.5 font-bold">Kompetensi Keahlian / Kelas</td>
-              <td className="py-1.5">: {req.jurusan} / {req.kelas}</td>
+              <td className="py-1 font-bold">Kompetensi Keahlian / Kelas</td>
+              <td className="py-1">: {req.jurusan} / {req.kelas}</td>
             </tr>
             <tr className="border-b border-slate-200">
-              <td className="py-1.5 font-bold">DUDI Tujuan</td>
-              <td className="py-1.5 font-bold text-blue-900">: {req.dudiTujuan}</td>
+              <td className="py-1 font-bold">DUDI Tujuan</td>
+              <td className="py-1 font-bold text-blue-900">: {req.dudiTujuan}</td>
             </tr>
             <tr className="border-b border-slate-200">
-              <td className="py-1.5 font-bold">Alamat / Bidang Usaha</td>
-              <td className="py-1.5">: {req.alamatDudi || '-'} ({req.bidangPekerjaan || '-'})</td>
+              <td className="py-1 font-bold">Alamat / Bidang Usaha</td>
+              <td className="py-1">: {req.alamatDudi || '-'} ({req.bidangPekerjaan || '-'})</td>
             </tr>
             {mapsUrl && (
               <tr className="border-b border-slate-200">
-                <td className="py-1.5 font-bold">Tautan Google Maps</td>
-                <td className="py-1.5 font-mono text-[11px] break-all text-blue-800">: {mapsUrl}</td>
+                <td className="py-1 font-bold">Tautan Google Maps</td>
+                <td className="py-1 font-mono text-[10pt] break-all text-blue-800">: {mapsUrl}</td>
               </tr>
             )}
           </tbody>
         </table>
 
-        <div className="border border-slate-300 rounded-lg p-3.5 bg-slate-50 font-sans text-xs print-avoid-break">
-          <div className="font-bold text-slate-800 mb-1.5">
+        <div className="border border-slate-300 rounded-lg p-3 bg-slate-50 font-serif text-[12pt] print-avoid-break">
+          <div className="font-bold text-slate-900 mb-1">
             KEPUTUSAN KETUA KOMPETENSI KEAHLIAN (KAKOMLI):
           </div>
-          <div className="flex items-center gap-6 mb-1.5">
+          <div className="flex items-center gap-6 mb-1">
             <span>[{req.statusKakomli === 'Disetujui' ? ' ✓ ' : '   '}] DISETUJUI</span>
             <span>[{req.statusKakomli === 'Ditolak' ? ' ✓ ' : '   '}] DITOLAK</span>
           </div>
-          <div className="text-[11px] text-slate-600">
+          <div className="text-[11pt] text-slate-700">
             Catatan: {req.catatanKakomli || '..................................................................'}
           </div>
         </div>
 
-        <div className="flex justify-between items-end gap-4 pt-8 font-sans text-xs print-avoid-break">
+        <div className="flex justify-between items-end gap-4 pt-5 font-serif text-[12pt] print-avoid-break">
           <div className="text-center">
             <div>Mengetahui Tempat PKL,</div>
             <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
-            <div className="h-16" />
+            <div className="h-14" />
             <div className="font-bold underline">{picDudiName}</div>
-            <div className="text-[11px] text-slate-500">{req.dudiTujuan}</div>
+            <div className="text-[10.5pt] text-slate-600">{req.dudiTujuan}</div>
           </div>
 
           <QrCodeSvg
             value={mapsUrl}
-            size={76}
+            size={72}
             label="QR Lokasi Maps"
             emptyText="Link Maps belum diisi"
           />
@@ -2785,9 +2785,9 @@ function renderDocumentBody(params: {
           <div className="text-center">
             <div>Ponorogo, {tanggalSurat}</div>
             <div className="font-semibold mt-0.5">Ketua Kompetensi Keahlian,</div>
-            <div className="h-16" />
+            <div className="h-14" />
             <div className="font-bold underline">................................................</div>
-            <div className="text-[11px] text-slate-500">NIP. ..................................</div>
+            <div className="text-[10.5pt] text-slate-600">NIP. ..................................</div>
           </div>
         </div>
       </div>
@@ -2855,8 +2855,8 @@ function renderDocumentBody(params: {
 
   if (docKey === 'doc_pengantaran') {
     return (
-      <div className="space-y-4">
-        <div className="flex justify-between gap-4 font-sans text-xs">
+      <div className="space-y-3 text-[12pt] font-serif leading-[1.35]">
+        <div className="flex justify-between gap-4 font-serif text-[12pt]">
           <div>
             <div>Nomor : {nomorSurat}</div>
             <div>Lamp. : 1 (satu) Berkas</div>
@@ -2865,54 +2865,54 @@ function renderDocumentBody(params: {
           <div className="shrink-0">Ponorogo, {tanggalSurat}</div>
         </div>
 
-        <div className="font-sans text-xs mt-3">
+        <div className="font-serif text-[12pt] mt-2">
           Kepada Yth.<br />
           <b>Pimpinan / HRD {penempatan.namaDudi}</b><br />
           {dudiDetail?.alamat ? `${dudiDetail.alamat}, ${dudiDetail.wilayahKota || ''}` : 'Di Tempat'}
         </div>
 
-        <p className="text-justify text-xs">
+        <p className="text-justify text-[12pt]">
           Dengan hormat,<br />
           Berdasarkan surat balasan kesediaan tempat PKL Tahun Ajaran {activeYear}, bersama ini kami menyerahkan peserta didik SMK PGRI 2 Ponorogo untuk melaksanakan Praktik Kerja Industri terhitung mulai tanggal <b>{formatIndonesianDate(penempatan.tanggalBerangkat)}</b> s.d. <b>{formatIndonesianDate(penempatan.tanggalRencanaTarik)}</b> di bawah pendampingan <b>{penempatan.guruPendamping || '-'}</b>:
         </p>
 
-        <table className="w-full text-xs font-sans border border-slate-300 border-collapse">
+        <table className="w-full text-[11pt] font-serif border border-slate-400 border-collapse">
           <thead className="bg-slate-100">
             <tr>
-              <th className="border border-slate-300 p-1.5 w-8">No</th>
-              <th className="border border-slate-300 p-1.5">NIS</th>
-              <th className="border border-slate-300 p-1.5">Nama Siswa</th>
-              <th className="border border-slate-300 p-1.5">ID Penempatan</th>
+              <th className="border border-slate-400 px-2 py-1 w-9 text-center">No</th>
+              <th className="border border-slate-400 px-2 py-1 text-left">NIS</th>
+              <th className="border border-slate-400 px-2 py-1 text-left">Nama Siswa</th>
+              <th className="border border-slate-400 px-2 py-1 text-left">ID Penempatan</th>
             </tr>
           </thead>
           <tbody>
             {(groupPeers.length > 0 ? groupPeers : [penempatan]).map((s, idx) => (
               <tr key={`${s.id || 'peer'}_${idx}`}>
-                <td className="border border-slate-300 p-1.5 text-center">{idx + 1}</td>
-                <td className="border border-slate-300 p-1.5 font-mono">{formatNisVisual(s.nis)}</td>
-                <td className="border border-slate-300 p-1.5 font-semibold">{s.namaSiswa}</td>
-                <td className="border border-slate-300 p-1.5 font-mono">{s.idPenempatan}</td>
+                <td className="border border-slate-400 px-2 py-1 text-center">{idx + 1}</td>
+                <td className="border border-slate-400 px-2 py-1 font-mono text-[10.5pt]">{formatNisVisual(s.nis)}</td>
+                <td className="border border-slate-400 px-2 py-1 font-semibold">{s.namaSiswa}</td>
+                <td className="border border-slate-400 px-2 py-1 font-mono text-[10.5pt]">{s.idPenempatan}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <p className="text-justify text-xs">
+        <p className="text-justify text-[12pt]">
           Demikian surat pengantaran dan berita acara serah terima ini dibuat untuk dipergunakan sebagaimana mestinya. Atas bimbingan dan kerjasamanya kami ucapkan terima kasih.
         </p>
 
-        <div className="flex justify-between items-end gap-4 pt-8 font-sans text-xs print-avoid-break">
+        <div className="flex justify-between items-end gap-4 pt-5 font-serif text-[12pt] print-avoid-break">
           <div className="text-center">
             <div>Diterima Oleh,</div>
             <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
-            <div className="h-16" />
+            <div className="h-14" />
             <div className="font-bold underline">{resolvedDudiSignName}</div>
-            <div className="text-[11px] text-slate-500">{penempatan.namaDudi}</div>
+            <div className="text-[10.5pt] text-slate-600">{penempatan.namaDudi}</div>
           </div>
 
           <QrCodeSvg
             value={resolvedDudiMaps}
-            size={76}
+            size={72}
             label="QR Lokasi Maps"
             emptyText="Link Maps belum diisi"
           />
@@ -2920,9 +2920,9 @@ function renderDocumentBody(params: {
           <div className="text-center">
             <div>Yang Menyerahkan,</div>
             <div className="font-semibold">Guru Pendamping Sekolah</div>
-            <div className="h-16" />
+            <div className="h-14" />
             <div className="font-bold underline">{penempatan.guruPendamping || '..........................................'}</div>
-            <div className="text-[11px] text-slate-500">SMK PGRI 2 Ponorogo</div>
+            <div className="text-[10.5pt] text-slate-600">SMK PGRI 2 Ponorogo</div>
           </div>
         </div>
       </div>
@@ -2931,8 +2931,8 @@ function renderDocumentBody(params: {
 
   // doc_penarikan
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between gap-4 font-sans text-xs">
+    <div className="space-y-3 text-[12pt] font-serif leading-[1.35]">
+      <div className="flex justify-between gap-4 font-serif text-[12pt]">
         <div>
           <div>Nomor : {nomorSurat}</div>
           <div>Lamp. : -</div>
@@ -2941,33 +2941,33 @@ function renderDocumentBody(params: {
         <div className="shrink-0">Ponorogo, {tanggalSurat}</div>
       </div>
 
-      <div className="font-sans text-xs mt-3">
+      <div className="font-serif text-[12pt] mt-2">
         Kepada Yth.<br />
         <b>Pimpinan / HRD {penempatan.namaDudi}</b><br />
         {dudiDetail?.alamat ? `${dudiDetail.alamat}, ${dudiDetail.wilayahKota || ''}` : 'Di Tempat'}
       </div>
 
-      <p className="text-justify text-xs">
+      <p className="text-justify text-[12pt]">
         Dengan hormat,<br />
         Sehubungan dengan berakhirnya masa pelaksanaan Praktik Kerja Industri (PKL) siswa SMK PGRI 2 Ponorogo Tahun Ajaran {activeYear} (rencana tanggal selesai: <b>{formatIndonesianDate(penempatan.tanggalRencanaTarik, tanggalSurat)}</b>), kami menugaskan <b>{penempatan.guruPendamping || '-'}</b> untuk melakukan penarikan resmi peserta didik berikut:
       </p>
 
-      <table className="w-full text-xs font-sans border border-slate-300 border-collapse">
+      <table className="w-full text-[11pt] font-serif border border-slate-400 border-collapse">
         <thead className="bg-slate-100">
           <tr>
-            <th className="border border-slate-300 p-1.5 w-8">No</th>
-            <th className="border border-slate-300 p-1.5">NIS</th>
-            <th className="border border-slate-300 p-1.5">Nama Siswa</th>
-            <th className="border border-slate-300 p-1.5">Periode PKL</th>
+            <th className="border border-slate-400 px-2 py-1 w-9 text-center">No</th>
+            <th className="border border-slate-400 px-2 py-1 text-left">NIS</th>
+            <th className="border border-slate-400 px-2 py-1 text-left">Nama Siswa</th>
+            <th className="border border-slate-400 px-2 py-1 text-left">Periode PKL</th>
           </tr>
         </thead>
         <tbody>
           {(groupPeers.length > 0 ? groupPeers : [penempatan]).map((s, idx) => (
             <tr key={`${s.id || 'pull'}_${idx}`}>
-              <td className="border border-slate-300 p-1.5 text-center">{idx + 1}</td>
-              <td className="border border-slate-300 p-1.5 font-mono">{formatNisVisual(s.nis)}</td>
-              <td className="border border-slate-300 p-1.5 font-semibold">{s.namaSiswa}</td>
-              <td className="border border-slate-300 p-1.5">
+              <td className="border border-slate-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-slate-400 px-2 py-1 font-mono text-[10.5pt]">{formatNisVisual(s.nis)}</td>
+              <td className="border border-slate-400 px-2 py-1 font-semibold">{s.namaSiswa}</td>
+              <td className="border border-slate-400 px-2 py-1">
                 {formatIndonesianDateRange(s.tanggalBerangkat, s.tanggalRencanaTarik)}
               </td>
             </tr>
@@ -2975,22 +2975,22 @@ function renderDocumentBody(params: {
         </tbody>
       </table>
 
-      <p className="text-justify text-xs">
+      <p className="text-justify text-[12pt]">
         Kami mengucapkan terima kasih sebesar-besarnya atas bimbingan, ilmu, dan kesempatan yang telah diberikan kepada siswa kami. Apabila selama pelaksanaan terdapat kekhilafan dari siswa kami, kami mohon maaf yang sebesar-besarnya.
       </p>
 
-      <div className="flex justify-between items-end gap-4 pt-8 font-sans text-xs print-avoid-break">
+      <div className="flex justify-between items-end gap-4 pt-5 font-serif text-[12pt] print-avoid-break">
         <div className="text-center">
           <div>Diserahkan Kembali Oleh,</div>
           <div className="font-semibold">Pimpinan / Pembimbing DUDI</div>
-          <div className="h-16" />
+          <div className="h-14" />
           <div className="font-bold underline">{resolvedDudiSignName}</div>
-          <div className="text-[11px] text-slate-500">{penempatan.namaDudi}</div>
+          <div className="text-[10.5pt] text-slate-600">{penempatan.namaDudi}</div>
         </div>
 
         <QrCodeSvg
           value={resolvedDudiMaps}
-          size={76}
+          size={72}
           label="QR Lokasi Maps"
           emptyText="Link Maps belum diisi"
         />
@@ -2998,9 +2998,9 @@ function renderDocumentBody(params: {
         <div className="text-center">
           <div>Menarik / Mengetahui,</div>
           <div className="font-semibold">Kepala SMK PGRI 2 Ponorogo</div>
-          <div className="h-16" />
+          <div className="h-14" />
           <div className="font-bold underline">{kepalaSekolah}</div>
-          <div className="text-[11px] text-slate-500">SMK PGRI 2 Ponorogo</div>
+          <div className="text-[10.5pt] text-slate-600">SMK PGRI 2 Ponorogo</div>
         </div>
       </div>
     </div>

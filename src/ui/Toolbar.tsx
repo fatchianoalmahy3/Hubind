@@ -85,10 +85,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     };
   }, [toolsMenuOpen]);
 
+  const hasLeftWorkflowActions =
+    selectedCount > 0 || Boolean(onOpenMonitoringBundle) || Boolean(onOpenMonitoringRecap);
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-      {/* Left Zone: Search, Filter & Segmented View Switcher */}
-      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 flex-1 min-w-0 lg:max-w-xl">
+    <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col gap-2.5">
+      {/* Row 1: Search, Filter & Segmented View Switcher (Isolated from action bar so it never collides) */}
+      <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -130,17 +133,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           )}
         </button>
 
-        {/* Segmented View Toggle (Table / Card) */}
+        {/* Segmented View Toggle (Exact h-9 = 36px height to match adjacent controls) */}
         {onViewModeChange && (
           <div
-            className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200 shrink-0"
+            className="h-9 inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200 shrink-0"
             role="group"
             aria-label="Mode tampilan data"
           >
             <button
               type="button"
               onClick={() => onViewModeChange('table')}
-              className={`h-8 px-2.5 rounded-md text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+              className={`h-full px-3 rounded-md text-xs font-semibold transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
                 viewMode === 'table'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -153,7 +156,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <button
               type="button"
               onClick={() => onViewModeChange('card')}
-              className={`h-8 px-2.5 rounded-md text-xs font-semibold transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+              className={`h-full px-3 rounded-md text-xs font-semibold transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
                 viewMode === 'card'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -167,209 +170,215 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         )}
       </div>
 
-      {/* Right Zone: Disciplined 3-4 Controls + Overflow Tools Menu */}
-      <div className="flex items-center flex-wrap gap-2 justify-end shrink-0">
-        {selectedCount > 0 && (
-          <button
-            type="button"
-            onClick={onOpenBulkModal}
-            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40"
-          >
-            <Layers className="w-3.5 h-3.5 shrink-0" />
-            <span>Aksi Massal ({selectedCount})</span>
-          </button>
-        )}
-
-        {onOpenMonitoringBundle && (
-          <button
-            type="button"
-            onClick={onOpenMonitoringBundle}
-            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40"
-            title="Cetak Paket Surat Tugas, Lembar Monitoring & Penilaian Kurmer (1-Langkah)"
-          >
-            <Printer className="w-3.5 h-3.5 shrink-0" />
-            <span>Paket Cetak Berkas</span>
-          </button>
-        )}
-
-        {onOpenMonitoringRecap && (
-          <button
-            type="button"
-            onClick={onOpenMonitoringRecap}
-            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Rekap Monitoring Per Jurusan & Info ke Kakomli"
-          >
-            <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-            <span>Rekap &amp; Info Kakomli</span>
-          </button>
-        )}
-
-        {/* Secondary Action: Sync Active Cloud Table */}
-        <button
-          type="button"
-          onClick={onSyncSpreadsheet}
-          disabled={syncing}
-          className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-          title="Muat ulang data terbaru dari Cloud Server"
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 shrink-0 ${
-              syncing ? 'animate-spin text-blue-600' : 'text-slate-500'
-            }`}
-          />
-          <span>{syncing ? 'Menyinkronkan...' : 'Segarkan Data'}</span>
-        </button>
-
-        {/* Secondary Tools Overflow Dropdown */}
-        <div className="relative shrink-0" ref={toolsMenuRef}>
-          <button
-            type="button"
-            onClick={() => setToolsMenuOpen((prev) => !prev)}
-            aria-expanded={toolsMenuOpen}
-            aria-haspopup="menu"
-            className={`h-9 px-3 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
-              toolsMenuOpen
-                ? 'bg-slate-100 border-slate-300 text-slate-900'
-                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <MoreHorizontal className="w-4 h-4 text-slate-500 shrink-0" />
-            <span>Alat Lainnya</span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
-                toolsMenuOpen ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-
-          {toolsMenuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-30"
-            >
-              {onSyncRelations && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={syncingRelations}
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onSyncRelations();
-                  }}
-                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 disabled:opacity-50 cursor-pointer"
-                >
-                  <Link2
-                    className={`w-4 h-4 text-blue-600 shrink-0 ${
-                      syncingRelations ? 'animate-spin' : ''
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">
-                      {syncingRelations ? 'Menghitung Relasi...' : 'Sinkronisasi Relasi Data'}
-                    </div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      Hitung ulang Siswa, DUDI, Guru &amp; Kelas
-                    </div>
-                  </div>
-                </button>
-              )}
-
+      {/* Row 2: Standardized Action Bar (Contextual Left + Universal Right) */}
+      <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+        {hasLeftWorkflowActions && (
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedCount > 0 && (
               <button
                 type="button"
-                role="menuitem"
-                onClick={() => {
-                  setToolsMenuOpen(false);
-                  onOpenImportModal();
-                }}
-                className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                onClick={onOpenBulkModal}
+                className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40"
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                <div className="min-w-0">
-                  <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
-                  <div className="text-[11px] text-slate-500 truncate">
-                    Unggah baris massal ke Cloud Server
-                  </div>
-                </div>
+                <Layers className="w-3.5 h-3.5 shrink-0" />
+                <span>Aksi Massal ({selectedCount})</span>
               </button>
+            )}
 
-              {onOpenDocsModal && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenDocsModal();
-                  }}
-                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
-                >
-                  <FileText className="w-4 h-4 text-amber-600 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">Cetak Dokumen Massal</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      Surat pengajuan, izin, pengantaran &amp; sertifikat
-                    </div>
-                  </div>
-                </button>
-              )}
+            {onOpenMonitoringBundle && (
+              <button
+                type="button"
+                onClick={onOpenMonitoringBundle}
+                className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40"
+                title="Cetak Paket Surat Tugas, Lembar Monitoring & Penilaian Kurmer (1-Langkah)"
+              >
+                <Printer className="w-3.5 h-3.5 shrink-0" />
+                <span>Paket Cetak Berkas</span>
+              </button>
+            )}
 
-              {(onOpenSimulatorModal || onOpenGasModal) && (
-                <div className="my-1 border-t border-slate-100" />
-              )}
+            {onOpenMonitoringRecap && (
+              <button
+                type="button"
+                onClick={onOpenMonitoringRecap}
+                className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                title="Rekap Monitoring Per Jurusan & Info ke Kakomli"
+              >
+                <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>Rekap &amp; Info Kakomli</span>
+              </button>
+            )}
+          </div>
+        )}
 
-              {onOpenSimulatorModal && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenSimulatorModal();
-                  }}
-                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
-                >
-                  <Sparkles className="w-4 h-4 text-slate-500 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">Simulasi Portal Siswa</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      Uji alur dropdown Jurusan → Kelas → Siswa
-                    </div>
-                  </div>
-                </button>
-              )}
-
-              {onOpenGasModal && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenGasModal();
-                  }}
-                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
-                >
-                  <Code2 className="w-4 h-4 text-slate-500 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">Integrasi API Server</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      Konfigurasi skrip konektor Cloud Server
-                    </div>
-                  </div>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Single Primary CTA */}
-        {canAdd && (
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
+          {/* Secondary Action: Sync Active Cloud Table */}
           <button
             type="button"
-            onClick={onOpenAddModal}
-            className="h-9 px-4 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            onClick={onSyncSpreadsheet}
+            disabled={syncing}
+            className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            title="Muat ulang data terbaru dari Cloud Server"
           >
-            <Plus className="w-4 h-4 shrink-0" />
-            <span>Tambah Data</span>
+            <RefreshCw
+              className={`w-3.5 h-3.5 shrink-0 ${
+                syncing ? 'animate-spin text-blue-600' : 'text-slate-500'
+              }`}
+            />
+            <span>{syncing ? 'Menyinkronkan...' : 'Segarkan Data'}</span>
           </button>
-        )}
+
+          {/* Secondary Tools Overflow Dropdown */}
+          <div className="relative shrink-0" ref={toolsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setToolsMenuOpen((prev) => !prev)}
+              aria-expanded={toolsMenuOpen}
+              aria-haspopup="menu"
+              className={`h-9 px-3.5 text-xs font-semibold rounded-lg border transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                toolsMenuOpen
+                  ? 'bg-slate-100 border-slate-300 text-slate-900'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <MoreHorizontal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span>Alat Lainnya</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${
+                  toolsMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {toolsMenuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-30"
+              >
+                {onSyncRelations && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={syncingRelations}
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onSyncRelations();
+                    }}
+                    className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Link2
+                      className={`w-4 h-4 text-blue-600 shrink-0 ${
+                        syncingRelations ? 'animate-spin' : ''
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">
+                        {syncingRelations ? 'Menghitung Relasi...' : 'Sinkronisasi Relasi Data'}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Hitung ulang Siswa, DUDI, Guru &amp; Kelas
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenImportModal();
+                  }}
+                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      Unggah baris massal ke Cloud Server
+                    </div>
+                  </div>
+                </button>
+
+                {onOpenDocsModal && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onOpenDocsModal();
+                    }}
+                    className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-amber-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">Cetak Dokumen Massal</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Surat pengajuan, izin, pengantaran &amp; sertifikat
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {(onOpenSimulatorModal || onOpenGasModal) && (
+                  <div className="my-1 border-t border-slate-100" />
+                )}
+
+                {onOpenSimulatorModal && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onOpenSimulatorModal();
+                    }}
+                    className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-slate-500 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">Simulasi Portal Siswa</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Uji alur dropdown Jurusan → Kelas → Siswa
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenGasModal && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onOpenGasModal();
+                    }}
+                    className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                  >
+                    <Code2 className="w-4 h-4 text-slate-500 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">Integrasi API Server</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Konfigurasi skrip konektor Cloud Server
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Single Primary CTA */}
+          {canAdd && (
+            <button
+              type="button"
+              onClick={onOpenAddModal}
+              className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span>Tambah Data</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

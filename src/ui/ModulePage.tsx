@@ -752,7 +752,7 @@ export function ModulePage<T extends { id: string }>({
           <button
             type="button"
             onClick={onOpenSheetConfig}
-            className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
             title="Lihat Konfigurasi Cloud Server"
           >
             <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -1341,7 +1341,7 @@ export function ModulePage<T extends { id: string }>({
                         setWaModal((prev) => ({ ...prev, generatingPdf: false }));
                       }
                     }}
-                    className="h-9 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                    className="h-9 px-3.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
                   >
                     {waModal.generatingPdf ? (
                       <>
