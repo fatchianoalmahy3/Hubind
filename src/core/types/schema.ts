@@ -108,6 +108,12 @@ export interface Pengajuan {
   tanggalBerangkat?: string;
 }
 
+export type PerizinanIzinOption =
+  | 'Sakit di izinkan Orangtua (SO)'
+  | 'Surat Dokter (SD)'
+  | 'Izin (I)'
+  | 'Izin dispensasi (ID)';
+
 export interface PerizinanPKL {
   id: string;
   noPerizinan: string;
@@ -118,7 +124,10 @@ export interface PerizinanPKL {
   kelas: string;
   namaOrtuWali: string;
   noOrtuWali?: string;
-  statusIzinOrtu: 'Menunggu Izin' | 'Diizinkan Ortu' | 'Tidak Diizinkan';
+  statusIzinOrtu: PerizinanIzinOption | '';
+  tanggalMulaiIzin?: string;
+  tanggalSelesaiIzin?: string;
+  rentangTanggal?: string;
   noSuratPermohonan: string;
   dudiTujuan: string;
   alamatDudi: string;

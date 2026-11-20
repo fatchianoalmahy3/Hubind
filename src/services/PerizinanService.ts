@@ -66,7 +66,10 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
         jurusan: pengajuan.jurusan,
         kelas: pengajuan.kelas,
         namaOrtuWali: siswa?.namaOrtuWali || pengajuan.namaOrtuWali || '',
-        statusIzinOrtu: 'Menunggu Izin',
+        statusIzinOrtu: '',
+        tanggalMulaiIzin: '',
+        tanggalSelesaiIzin: '',
+        rentangTanggal: '',
         noSuratPermohonan,
         dudiTujuan: pengajuan.dudiTujuan,
         alamatDudi: pengajuan.alamatDudi || '-',
@@ -82,19 +85,6 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
       .catch(() => {});
 
     return created;
-  }
-
-  public async markOrtuApproved(
-    id: string,
-    options?: { silentToast?: boolean }
-  ): Promise<PerizinanPKL | null> {
-    return this.update(
-      id,
-      {
-        statusIzinOrtu: 'Diizinkan Ortu',
-      },
-      options
-    );
   }
 
   public async markSuratSentToday(
@@ -186,14 +176,15 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
       );
     }
 
-    await this.update(
-      perizinanId,
-      {
-        statusIzinOrtu: 'Diizinkan Ortu',
-        tanggalKirimSurat: item.tanggalKirimSurat || getTodayIsoDate(),
-      },
-      { silentToast: true }
-    );
+    if (!item.tanggalKirimSurat) {
+      await this.update(
+        perizinanId,
+        {
+          tanggalKirimSurat: getTodayIsoDate(),
+        },
+        { silentToast: true }
+      );
+    }
 
     if (item.nis) {
       await SiswaService.getInstance().updateStatusPKL(item.nis, 'Sedang PKL', {

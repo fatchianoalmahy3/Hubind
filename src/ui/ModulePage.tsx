@@ -21,7 +21,6 @@ import {
   AlertTriangle,
   RefreshCw,
   FileCheck,
-  UserCheck,
   Send,
   X,
   MessageCircle,
@@ -43,6 +42,7 @@ import { ToastManager } from '../core/ToastManager';
 import { getTodayIsoDate, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import {
   formatIndonesianDate,
+  formatPerizinanDateRange,
   getOffsetWibIsoDate,
   getTodayWibIsoDate,
   normalizeToIsoDate,
@@ -315,12 +315,6 @@ export function ModulePage<T extends { id: string }>({
         color: 'hover:text-emerald-700 hover:bg-emerald-50 text-emerald-600',
       });
       customRowActions.push({
-        name: 'mark_ortu_ok',
-        label: 'Izin Ortu OK',
-        icon: UserCheck,
-        color: 'hover:text-sky-600 hover:bg-sky-50 text-sky-600',
-      });
-      customRowActions.push({
         name: 'promote_to_pkl',
         label: 'Terbitkan ke Data Siswa PKL',
         icon: Send,
@@ -474,18 +468,6 @@ export function ModulePage<T extends { id: string }>({
         pdfUrl: existingPdfUrl,
         generatingPdf: false,
         message: composedMsg,
-      });
-    } else if (actionName === 'mark_ortu_ok') {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Konfirmasi Izin Orang Tua / Wali?',
-        description: `Tandai bahwa orang tua/wali dari ${item.namaSiswa} telah menyetujui keikutsertaan PKL di ${item.dudiTujuan}.`,
-        variant: 'primary',
-        confirmText: 'Ya, Diizinkan Ortu',
-        onConfirm: async () => {
-          await PerizinanService.getInstance().markOrtuApproved(row.id);
-          await refresh();
-        },
       });
     } else if (actionName === 'promote_to_pkl') {
       await loadGuruOptions();
@@ -1531,13 +1513,20 @@ function composePerizinanWaMessage(params: {
 }): string {
   const { row, recipientType, dudiName, kakomliName, alamat, pdfUrl } = params;
   const tglSurat = formatIndonesianDate(row?.tanggalKirimSurat || getTodayIsoDate());
+  const rentangIzin = formatPerizinanDateRange(
+    row?.tanggalMulaiIzin,
+    row?.tanggalSelesaiIzin,
+    row?.rentangTanggal || '-'
+  );
   const baseDetails = [
     `• No. Perizinan: ${row?.noPerizinan || row?.id || '-'}`,
     `• No. Surat: ${row?.noSuratPermohonan || '-'}`,
     `• Tanggal Surat: ${tglSurat}`,
     `• Nama Siswa: ${row?.namaSiswa || '-'} (NIS: ${formatNisVisual(row?.nis)})`,
     `• Kelas / Jurusan: ${row?.kelas || '-'} / ${row?.jurusan || '-'}`,
-    `• Nama Ortu / Wali: ${row?.namaOrtuWali || '-'} (${row?.statusIzinOrtu || 'Menunggu Izin'})`,
+    `• Nama Ortu / Wali: ${row?.namaOrtuWali || '-'}`,
+    `• Izin: ${row?.statusIzinOrtu || '-'}`,
+    rentangIzin && rentangIzin !== '-' ? `• Rentang Tanggal: ${rentangIzin}` : '',
     `• Lokasi DUDI: ${dudiName || '-'}`,
     `• Alamat DUDI: ${alamat || '-'}`,
     pdfUrl && pdfUrl !== '-' ? `• Unduh Surat Resmi (PDF): ${pdfUrl}` : '',

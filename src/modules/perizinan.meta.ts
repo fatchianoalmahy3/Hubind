@@ -1,10 +1,12 @@
+import React from 'react';
 import { ModuleMetadata } from '../core/types/metadata';
 import { PerizinanPKL } from '../core/types/schema';
+import { formatPerizinanDateRange } from '../core/utils/dateHelpers';
 
 export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
   id: 'perizinan',
-  title: 'Perizinan PKL (Ortu & Surat DUDI)',
-  subtitle: 'Kelola persetujuan Orang Tua/Wali, surat permohonan ke DUDI, dan penerbitan ke Data Siswa PKL',
+  title: 'Perizinan PKL (Izin & Surat DUDI)',
+  subtitle: 'Kelola kategori izin siswa, rentang tanggal izin, surat permohonan ke DUDI, dan penerbitan ke Data Siswa PKL',
   tableName: 'Data_Perizinan_PKL',
   icon: 'FileCheck',
   allowedRoles: ['Hubin', 'Kakomli'],
@@ -13,15 +15,32 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
       title: 'Total Berkas Perizinan',
       computedValue: (data) => data.length,
       icon: 'FileCheck',
-      change: 'Dari pengajuan ACC',
+      change: 'Dari pengajuan & input langsung',
       variant: 'primary',
     },
     {
-      title: 'Izin Ortu Lengkap',
-      computedValue: (data) => data.filter((p) => p.statusIzinOrtu === 'Diizinkan Ortu').length,
+      title: 'Sakit (SO & SD)',
+      computedValue: (data) =>
+        data.filter(
+          (p) =>
+            p.statusIzinOrtu === 'Sakit di izinkan Orangtua (SO)' ||
+            p.statusIzinOrtu === 'Surat Dokter (SD)'
+        ).length,
       icon: 'CheckCircle',
-      change: 'Orang tua menyetujui',
-      variant: 'success',
+      change: 'SO & Surat Dokter',
+      variant: 'warning',
+    },
+    {
+      title: 'Izin & Dispensasi (I / ID)',
+      computedValue: (data) =>
+        data.filter(
+          (p) =>
+            p.statusIzinOrtu === 'Izin (I)' ||
+            p.statusIzinOrtu === 'Izin dispensasi (ID)'
+        ).length,
+      icon: 'Building2',
+      change: 'Izin & Dispensasi resmi',
+      variant: 'info',
     },
     {
       title: 'Surat Terkirim ke DUDI',
@@ -29,15 +48,7 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
         data.filter((p) => Boolean(p.noSuratPermohonan && p.tanggalKirimSurat)).length,
       icon: 'Send',
       change: 'Sudah dibuat & dicatat',
-      variant: 'warning',
-    },
-    {
-      title: 'Siap Terbit PKL',
-      computedValue: (data) =>
-        data.filter((p) => p.statusIzinOrtu === 'Diizinkan Ortu' && Boolean(p.dudiTujuan)).length,
-      icon: 'Building2',
-      change: 'Izin ortu & surat lengkap',
-      variant: 'info',
+      variant: 'success',
     },
   ],
   fields: [
@@ -132,19 +143,81 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
     },
     {
       key: 'statusIzinOrtu',
-      label: 'Izin Orang Tua',
+      label: 'Izin',
       type: 'select',
       isTableColumn: true,
       isFormInput: true,
       isFilterable: true,
       isSortable: true,
-      defaultValue: 'Menunggu Izin',
       options: [
-        { label: 'Menunggu Izin', value: 'Menunggu Izin', badgeColor: 'bg-amber-100 text-amber-800' },
-        { label: 'Diizinkan Ortu', value: 'Diizinkan Ortu', badgeColor: 'bg-emerald-100 text-emerald-800' },
-        { label: 'Tidak Diizinkan', value: 'Tidak Diizinkan', badgeColor: 'bg-rose-100 text-rose-800' },
+        {
+          label: 'Sakit di izinkan Orangtua (SO)',
+          value: 'Sakit di izinkan Orangtua (SO)',
+          badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
+        },
+        {
+          label: 'Surat Dokter (SD)',
+          value: 'Surat Dokter (SD)',
+          badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
+        },
+        {
+          label: 'Izin (I)',
+          value: 'Izin (I)',
+          badgeColor: 'bg-sky-100 text-sky-800 border-sky-200',
+        },
+        {
+          label: 'Izin dispensasi (ID)',
+          value: 'Izin dispensasi (ID)',
+          badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+        },
       ],
       validation: { required: true },
+    },
+    {
+      key: 'rentangTanggal',
+      label: 'Rentang Tanggal',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: false,
+      isSearchable: true,
+      isSortable: true,
+      renderCell: (_val, row) => {
+        const text = formatPerizinanDateRange(
+          row?.tanggalMulaiIzin,
+          row?.tanggalSelesaiIzin,
+          row?.rentangTanggal || '-'
+        );
+        if (!text || text === '-') {
+          return React.createElement(
+            'span',
+            { className: 'text-slate-400 text-xs' },
+            '-'
+          );
+        }
+        return React.createElement(
+          'span',
+          { className: 'text-xs font-medium text-slate-700 whitespace-nowrap' },
+          text
+        );
+      },
+    },
+    {
+      key: 'tanggalMulaiIzin',
+      label: 'Tanggal Mulai Izin',
+      type: 'date',
+      isTableColumn: false,
+      isFormInput: true,
+      isSortable: true,
+      helperText: 'Pilih tanggal mulai izin siswa',
+    },
+    {
+      key: 'tanggalSelesaiIzin',
+      label: 'Tanggal Selesai Izin',
+      type: 'date',
+      isTableColumn: false,
+      isFormInput: true,
+      isSortable: true,
+      helperText: 'Pilih tanggal selesai izin (kosongkan jika hanya 1 hari)',
     },
     {
       key: 'noSuratPermohonan',

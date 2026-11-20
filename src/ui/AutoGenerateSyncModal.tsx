@@ -132,7 +132,7 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Data_Perizinan_PKL",
-      headers: ["ID_Perizinan", "No_Pengajuan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Izin_Ortu", "No_Surat_Permohonan", "DUDI_Tujuan", "Alamat_DUDI", "Tgl_Kirim_Surat", "Status_Balasan_DUDI", "Tgl_Balasan", "Catatan_Perizinan", "Link_Bukti_Balasan"]
+      headers: ["ID_Perizinan", "No_Pengajuan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "Nama_Ortu_Wali", "No_Ortu_Wali", "Izin", "Tgl_Mulai_Izin", "Tgl_Selesai_Izin", "Rentang_Tanggal", "No_Surat_Permohonan", "DUDI_Tujuan", "Alamat_DUDI", "Tgl_Kirim_Surat", "Status_Balasan_DUDI", "Tgl_Balasan", "Catatan_Perizinan", "Link_Bukti_Balasan", "Link_Surat_PDF"]
     },
     {
       name: "Plotting_Pemberangkatan",

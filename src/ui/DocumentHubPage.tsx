@@ -58,6 +58,12 @@ import { formatPhoneDisplay, getWhatsAppHref } from '../core/utils/autoIdHelpers
 import { PrintPortal } from './PrintPortal';
 import { QrCodeSvg } from './QrCodeSvg';
 import {
+  PAPER_DIMENSIONS,
+  PAPER_SHEET_PADDING,
+  PreviewZoomMode,
+  ResizablePaperPreview,
+} from './ResizablePaperPreview';
+import {
   BundleStudentItem,
   LembarMonitoring0701Sheet,
   LembarPenilaianKurmerSheet,
@@ -205,6 +211,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isMobilePickerModalOpen, setIsMobilePickerModalOpen] = useState<boolean>(false);
   const [paperSize, setPaperSize] = useState<'A4' | 'F4'>('A4');
+  const [previewZoomMode, setPreviewZoomMode] = useState<PreviewZoomMode>('auto');
   const [nomorSurat, setNomorSurat] = useState(DOC_META[activeDocKey].defaultNoSurat);
   const [tanggalSurat, setTanggalSurat] = useState(() =>
     formatIndonesianDate(getTodayWibIsoDate())
@@ -1942,7 +1949,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
 
         {/* Right: Document Paper Preview */}
         <div className={isSidebarCollapsed ? 'lg:col-span-12' : 'lg:col-span-8'}>
-          <div className="bg-slate-200/70 rounded-2xl p-4 sm:p-6 border border-slate-200/80 flex flex-col items-center min-h-[600px]">
+          <div className="bg-slate-200/70 rounded-2xl p-3 sm:p-5 border border-slate-200/80 flex flex-col items-center min-h-[600px]">
             {activeDocKey === 'doc_paket_monitoring' ? (
               bundlePrintPages.length === 0 ? (
                 <div className="bg-white rounded-xl border border-slate-200 p-10 my-auto max-w-md text-center space-y-3">
@@ -1955,51 +1962,54 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   </p>
                 </div>
               ) : (
-                <div className="w-full max-w-[794px] space-y-3">
-                  <div className="flex items-center justify-between gap-2 bg-white px-3.5 py-2 rounded-xl border border-slate-200 text-xs no-print">
-                    <div className="min-w-0 truncate">
-                      <span className="font-bold text-slate-900 tabular-nums">
-                        Halaman {Math.min(bundlePreviewIdx, bundlePrintPages.length - 1) + 1} /{' '}
-                        {bundlePrintPages.length}
-                      </span>
-                      <span className="text-slate-300 mx-2">·</span>
-                      <span className="text-slate-600">
-                        {
-                          bundlePrintPages[Math.min(bundlePreviewIdx, bundlePrintPages.length - 1)]
-                            .subtitle
-                        }
-                      </span>
+                <ResizablePaperPreview
+                  paperSize={paperSize}
+                  zoomMode={previewZoomMode}
+                  onChangeZoomMode={setPreviewZoomMode}
+                  topSlot={
+                    <div className="flex items-center justify-between gap-2 bg-white px-3.5 py-2 rounded-xl border border-slate-200 text-xs no-print">
+                      <div className="min-w-0 truncate">
+                        <span className="font-bold text-slate-900 tabular-nums">
+                          Halaman {Math.min(bundlePreviewIdx, bundlePrintPages.length - 1) + 1} /{' '}
+                          {bundlePrintPages.length}
+                        </span>
+                        <span className="text-slate-300 mx-2">·</span>
+                        <span className="text-slate-600">
+                          {
+                            bundlePrintPages[Math.min(bundlePreviewIdx, bundlePrintPages.length - 1)]
+                              .subtitle
+                          }
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={bundlePreviewIdx <= 0}
+                          onClick={() => setBundlePreviewIdx((p) => Math.max(0, p - 1))}
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={bundlePreviewIdx >= bundlePrintPages.length - 1}
+                          onClick={() =>
+                            setBundlePreviewIdx((p) =>
+                              Math.min(bundlePrintPages.length - 1, p + 1)
+                            )
+                          }
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        disabled={bundlePreviewIdx <= 0}
-                        onClick={() => setBundlePreviewIdx((p) => Math.max(0, p - 1))}
-                        className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={bundlePreviewIdx >= bundlePrintPages.length - 1}
-                        onClick={() =>
-                          setBundlePreviewIdx((p) =>
-                            Math.min(bundlePrintPages.length - 1, p + 1)
-                          )
-                        }
-                        className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                      >
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-white w-full px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-xl shadow-md border border-slate-300 text-slate-950">
-                    {renderBundlePageContent(
-                      bundlePrintPages[Math.min(bundlePreviewIdx, bundlePrintPages.length - 1)]
-                    )}
-                  </div>
-                </div>
+                  }
+                >
+                  {renderBundlePageContent(
+                    bundlePrintPages[Math.min(bundlePreviewIdx, bundlePrintPages.length - 1)]
+                  )}
+                </ResizablePaperPreview>
               )
             ) : isMultiCheckedMode && activeDocKey === 'doc_surat_tugas' ? (
               batchSuratTugasPages.length === 0 ? (
@@ -2013,20 +2023,90 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   </p>
                 </div>
               ) : (
-                <div className="w-full max-w-[794px] space-y-3">
+                <ResizablePaperPreview
+                  paperSize={paperSize}
+                  zoomMode={previewZoomMode}
+                  onChangeZoomMode={setPreviewZoomMode}
+                  topSlot={
+                    <div className="flex items-center justify-between gap-2 bg-white px-3.5 py-2 rounded-xl border border-slate-200 text-xs no-print">
+                      <div className="min-w-0 truncate">
+                        <span className="font-bold text-slate-900 tabular-nums">
+                          Halaman {Math.min(multiPreviewIdx, batchSuratTugasPages.length - 1) + 1} /{' '}
+                          {batchSuratTugasPages.length}
+                        </span>
+                        <span className="text-slate-300 mx-2">·</span>
+                        <span className="text-slate-600">
+                          {
+                            batchSuratTugasPages[
+                              Math.min(multiPreviewIdx, batchSuratTugasPages.length - 1)
+                            ].subtitle
+                          }
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={multiPreviewIdx <= 0}
+                          onClick={() => setMultiPreviewIdx((p) => Math.max(0, p - 1))}
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={multiPreviewIdx >= batchSuratTugasPages.length - 1}
+                          onClick={() =>
+                            setMultiPreviewIdx((p) =>
+                              Math.min(batchSuratTugasPages.length - 1, p + 1)
+                            )
+                          }
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  }
+                >
+                  {(() => {
+                    const pg =
+                      batchSuratTugasPages[
+                        Math.min(multiPreviewIdx, batchSuratTugasPages.length - 1)
+                      ];
+                    return (
+                      <SuratTugas0708Sheet
+                        nomorSurat={nomorSurat}
+                        tanggalSurat={tanggalSurat}
+                        kepalaSekolah={kepalaSekolah}
+                        namaGuru={pg.guru.nama}
+                        jabatanGuru={pg.guru.peranUtama || 'Guru SMK PGRI 2 Ponorogo'}
+                        tahapNum={suratTugasStageNum}
+                        namaDudi={pg.namaDudi}
+                        alamatDudi={pg.alamatDudi}
+                        namaPemimpinDudi={pg.pemimpinDudi}
+                        tanggalPenugasan={tanggalSurat}
+                      />
+                    );
+                  })()}
+                </ResizablePaperPreview>
+              )
+            ) : isMultiCheckedMode ? (
+              <ResizablePaperPreview
+                paperSize={paperSize}
+                zoomMode={previewZoomMode}
+                onChangeZoomMode={setPreviewZoomMode}
+                sheetId="doc-hub-print-area"
+                sheetClassName="font-serif leading-[1.35] text-[12pt]"
+                topSlot={
                   <div className="flex items-center justify-between gap-2 bg-white px-3.5 py-2 rounded-xl border border-slate-200 text-xs no-print">
                     <div className="min-w-0 truncate">
                       <span className="font-bold text-slate-900 tabular-nums">
-                        Halaman {Math.min(multiPreviewIdx, batchSuratTugasPages.length - 1) + 1} /{' '}
-                        {batchSuratTugasPages.length}
+                        Halaman {Math.min(multiPreviewIdx, checkedItems.length - 1) + 1} /{' '}
+                        {checkedItems.length}
                       </span>
                       <span className="text-slate-300 mx-2">·</span>
                       <span className="text-slate-600">
-                        {
-                          batchSuratTugasPages[
-                            Math.min(multiPreviewIdx, batchSuratTugasPages.length - 1)
-                          ].subtitle
-                        }
+                        {checkedItems[Math.min(multiPreviewIdx, checkedItems.length - 1)].title}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -2040,11 +2120,9 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                       </button>
                       <button
                         type="button"
-                        disabled={multiPreviewIdx >= batchSuratTugasPages.length - 1}
+                        disabled={multiPreviewIdx >= checkedItems.length - 1}
                         onClick={() =>
-                          setMultiPreviewIdx((p) =>
-                            Math.min(batchSuratTugasPages.length - 1, p + 1)
-                          )
+                          setMultiPreviewIdx((p) => Math.min(checkedItems.length - 1, p + 1))
                         }
                         className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
                       >
@@ -2052,86 +2130,25 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                       </button>
                     </div>
                   </div>
-                  {(() => {
-                    const pg =
-                      batchSuratTugasPages[
-                        Math.min(multiPreviewIdx, batchSuratTugasPages.length - 1)
-                      ];
-                    return (
-                      <div className="bg-white w-full px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-xl shadow-md border border-slate-300 text-slate-950">
-                        <SuratTugas0708Sheet
-                          nomorSurat={nomorSurat}
-                          tanggalSurat={tanggalSurat}
-                          kepalaSekolah={kepalaSekolah}
-                          namaGuru={pg.guru.nama}
-                          jabatanGuru={pg.guru.peranUtama || 'Guru SMK PGRI 2 Ponorogo'}
-                          tahapNum={suratTugasStageNum}
-                          namaDudi={pg.namaDudi}
-                          alamatDudi={pg.alamatDudi}
-                          namaPemimpinDudi={pg.pemimpinDudi}
-                          tanggalPenugasan={tanggalSurat}
-                        />
-                      </div>
-                    );
-                  })()}
-                </div>
-              )
-            ) : isMultiCheckedMode ? (
-              <div className="w-full max-w-[794px] space-y-3">
-                <div className="flex items-center justify-between gap-2 bg-white px-3.5 py-2 rounded-xl border border-slate-200 text-xs no-print">
-                  <div className="min-w-0 truncate">
-                    <span className="font-bold text-slate-900 tabular-nums">
-                      Halaman {Math.min(multiPreviewIdx, checkedItems.length - 1) + 1} /{' '}
-                      {checkedItems.length}
-                    </span>
-                    <span className="text-slate-300 mx-2">·</span>
-                    <span className="text-slate-600">
-                      {checkedItems[Math.min(multiPreviewIdx, checkedItems.length - 1)].title}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      disabled={multiPreviewIdx <= 0}
-                      onClick={() => setMultiPreviewIdx((p) => Math.max(0, p - 1))}
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={multiPreviewIdx >= checkedItems.length - 1}
-                      onClick={() =>
-                        setMultiPreviewIdx((p) => Math.min(checkedItems.length - 1, p + 1))
-                      }
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <div
-                  id="doc-hub-print-area"
-                  className="bg-white w-full px-6 pb-6 pt-4 sm:px-8 sm:pb-8 sm:pt-5 rounded-xl shadow-md border border-slate-300 font-serif text-slate-950 leading-[1.35] text-[12pt]"
-                >
-                  {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
-                  {renderDocumentBody({
-                    docKey: activeDocKey,
-                    record:
-                      checkedItems[Math.min(multiPreviewIdx, checkedItems.length - 1)].raw,
-                    activeYear,
-                    nomorSurat,
-                    tanggalSurat,
-                    kepalaSekolah,
-                    includeGroupPeers,
-                    penempatanList,
-                    dudiList,
-                    pengajuanList,
-                    siswaByNis,
-                    suratTugasStageNum,
-                  })}
-                </div>
-              </div>
+                }
+              >
+                {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
+                {renderDocumentBody({
+                  docKey: activeDocKey,
+                  record:
+                    checkedItems[Math.min(multiPreviewIdx, checkedItems.length - 1)].raw,
+                  activeYear,
+                  nomorSurat,
+                  tanggalSurat,
+                  kepalaSekolah,
+                  includeGroupPeers,
+                  penempatanList,
+                  dudiList,
+                  pengajuanList,
+                  siswaByNis,
+                  suratTugasStageNum,
+                })}
+              </ResizablePaperPreview>
             ) : !activeRecord ? (
               <div className="bg-white rounded-xl border border-slate-200 p-10 my-auto max-w-md text-center space-y-3">
                 <Building2 className="w-10 h-10 text-slate-300 mx-auto" />
@@ -2151,11 +2168,17 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                 suratTugasStageNum,
                 selectedSuratTugasDudi,
                 suratTugasAudit,
+                paperSize,
+                zoomMode: previewZoomMode,
+                onChangeZoomMode: setPreviewZoomMode,
               })
             ) : (
-              <div
-                id="doc-hub-print-area"
-                className="bg-white w-full max-w-[794px] px-6 pb-6 pt-4 sm:px-8 sm:pb-8 sm:pt-5 rounded-xl shadow-md border border-slate-300 font-serif text-slate-950 leading-[1.35] text-[12pt]"
+              <ResizablePaperPreview
+                paperSize={paperSize}
+                zoomMode={previewZoomMode}
+                onChangeZoomMode={setPreviewZoomMode}
+                sheetId="doc-hub-print-area"
+                sheetClassName="font-serif leading-[1.35] text-[12pt]"
               >
                 {activeDocKey !== 'doc_monitoring' && <OfficialSchoolKop0708 variant="school" />}
 
@@ -2173,7 +2196,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   siswaByNis,
                   suratTugasStageNum,
                 })}
-              </div>
+              </ResizablePaperPreview>
             )}
           </div>
         </div>
@@ -2484,6 +2507,9 @@ function renderSuratTugasMultiPreview(params: {
   kepalaSekolah: string;
   suratTugasStageNum: number;
   selectedSuratTugasDudi: string;
+  paperSize: 'A4' | 'F4';
+  zoomMode: PreviewZoomMode;
+  onChangeZoomMode: (next: PreviewZoomMode) => void;
   suratTugasAudit: {
     dudiGroups: any[];
     unlockedGroups: any[];
@@ -2499,9 +2525,13 @@ function renderSuratTugasMultiPreview(params: {
     kepalaSekolah,
     suratTugasStageNum,
     selectedSuratTugasDudi,
+    paperSize,
+    zoomMode,
+    onChangeZoomMode,
     suratTugasAudit,
   } = params;
   const targetStageLabel = getStageValueByNumber(suratTugasStageNum);
+  const paper = PAPER_DIMENSIONS[paperSize];
 
   if (suratTugasAudit.isPrintBlocked) {
     return (
@@ -2534,27 +2564,40 @@ function renderSuratTugasMultiPreview(params: {
   }
 
   return (
-    <div className="w-full max-w-[794px] space-y-5">
-      {activeGroups.map((grp: any) => (
-        <div
-          key={grp.key}
-          className="bg-white w-full px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-xl shadow-md border border-slate-300 text-slate-950"
-        >
-          <SuratTugas0708Sheet
-            nomorSurat={nomorSurat}
-            tanggalSurat={tanggalSurat}
-            kepalaSekolah={kepalaSekolah}
-            namaGuru={guru.nama}
-            jabatanGuru={guru.peranUtama || 'Guru SMK PGRI 2 Ponorogo'}
-            tahapNum={suratTugasStageNum}
-            namaDudi={grp.namaDudi}
-            alamatDudi={grp.alamatDudi}
-            namaPemimpinDudi={grp.pemimpinDudi}
-            tanggalPenugasan={tanggalSurat}
-          />
-        </div>
-      ))}
-    </div>
+    <ResizablePaperPreview
+      paperSize={paperSize}
+      zoomMode={zoomMode}
+      onChangeZoomMode={onChangeZoomMode}
+      unstyledCanvas={true}
+    >
+      <div className="space-y-5">
+        {activeGroups.map((grp: any) => (
+          <div
+            key={grp.key}
+            style={{
+              width: `${paper.widthPx}px`,
+              minHeight: `${paper.heightPx}px`,
+              padding: PAPER_SHEET_PADDING,
+              boxSizing: 'border-box',
+            }}
+            className="bg-white rounded-xl shadow-md border border-slate-300 text-slate-950"
+          >
+            <SuratTugas0708Sheet
+              nomorSurat={nomorSurat}
+              tanggalSurat={tanggalSurat}
+              kepalaSekolah={kepalaSekolah}
+              namaGuru={guru.nama}
+              jabatanGuru={guru.peranUtama || 'Guru SMK PGRI 2 Ponorogo'}
+              tahapNum={suratTugasStageNum}
+              namaDudi={grp.namaDudi}
+              alamatDudi={grp.alamatDudi}
+              namaPemimpinDudi={grp.pemimpinDudi}
+              tanggalPenugasan={tanggalSurat}
+            />
+          </div>
+        ))}
+      </div>
+    </ResizablePaperPreview>
   );
 }
 

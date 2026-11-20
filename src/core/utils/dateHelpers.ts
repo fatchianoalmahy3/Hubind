@@ -247,3 +247,43 @@ export function formatIndonesianDateRange(
   }
   return startFormatted || endFormatted || fallback;
 }
+
+/**
+ * Formats Perizinan PKL leave/permission date range with inclusive day count,
+ * e.g. "19 November 2026 s/d 21 November 2026 (3 hari)" or "19 November 2026 (1 hari)".
+ */
+export function formatPerizinanDateRange(
+  startVal: unknown,
+  endVal: unknown,
+  fallback = '-'
+): string {
+  const startIso = normalizeToIsoDate(startVal);
+  const endIso = normalizeToIsoDate(endVal);
+
+  if (!startIso && !endIso) {
+    const rawFallback = String(fallback ?? '').trim();
+    return rawFallback || '-';
+  }
+
+  if (startIso && !endIso) {
+    return `${formatIndonesianDate(startIso)} (1 hari)`;
+  }
+
+  if (!startIso && endIso) {
+    return `${formatIndonesianDate(endIso)} (1 hari)`;
+  }
+
+  const [sy, sm, sd] = startIso.split('-').map(Number);
+  const [ey, em, ed] = endIso.split('-').map(Number);
+  const startUtc = Date.UTC(sy, sm - 1, sd);
+  const endUtc = Date.UTC(ey, em - 1, ed);
+  const diffDays = Math.round((endUtc - startUtc) / 86400000);
+
+  if (diffDays <= 0) {
+    return `${formatIndonesianDate(startIso)} (1 hari)`;
+  }
+
+  const totalDays = diffDays + 1;
+  return `${formatIndonesianDate(startIso)} s/d ${formatIndonesianDate(endIso)} (${totalDays} hari)`;
+}
+

@@ -4,7 +4,8 @@ import { FieldConfig } from '../core/types/metadata';
 export function useDynamicForm<T extends Record<string, any>>(
   fields: FieldConfig<T>[],
   initialValues: Partial<T> = {},
-  onSubmit: (values: T) => Promise<void> | void
+  onSubmit: (values: T) => Promise<void> | void,
+  customValidate?: (values: Record<string, any>) => Record<string, string>
 ) {
   const [values, setValues] = useState<Record<string, any>>(() => {
     const defaults: Record<string, any> = {};
@@ -96,6 +97,15 @@ export function useDynamicForm<T extends Record<string, any>>(
         }
       }
     });
+
+    if (customValidate) {
+      const extraErrors = customValidate(values);
+      Object.entries(extraErrors || {}).forEach(([k, msg]) => {
+        if (msg && !newErrors[k]) {
+          newErrors[k] = msg;
+        }
+      });
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;

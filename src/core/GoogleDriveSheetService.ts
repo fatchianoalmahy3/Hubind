@@ -92,7 +92,10 @@ export class GoogleDriveSheetService {
 
     // Perizinan PKL
     ID_Perizinan: ['noPerizinan', 'idPerizinan', 'id_perizinan', 'ID_Perizinan', 'id'],
-    Status_Izin_Ortu: ['statusIzinOrtu', 'status_izin_ortu', 'Status_Izin_Ortu'],
+    Status_Izin_Ortu: ['statusIzinOrtu', 'status_izin_ortu', 'Status_Izin_Ortu', 'Izin'],
+    Tgl_Mulai_Izin: ['tanggalMulaiIzin', 'tglMulaiIzin', 'tgl_mulai_izin', 'Tgl_Mulai_Izin'],
+    Tgl_Selesai_Izin: ['tanggalSelesaiIzin', 'tglSelesaiIzin', 'tgl_selesai_izin', 'Tgl_Selesai_Izin'],
+    Rentang_Tanggal: ['rentangTanggal', 'rentang_tanggal', 'Rentang_Tanggal'],
     No_Surat_Permohonan: ['noSuratPermohonan', 'no_surat_permohonan', 'No_Surat_Permohonan'],
     Tgl_Kirim_Surat: ['tanggalKirimSurat', 'tglKirimSurat', 'tgl_kirim_surat', 'Tgl_Kirim_Surat'],
     Status_Balasan_DUDI: ['statusBalasanDudi', 'status_balasan_dudi', 'Status_Balasan_DUDI'],
@@ -175,10 +178,24 @@ export class GoogleDriveSheetService {
     'tglkunjungan',
     'tglterbit',
     'tanggalterbit',
+    'tglmulaiizin',
+    'tanggalmulaiizin',
+    'tglselesaiizin',
+    'tanggalselesaiizin',
   ]);
 
   private static normalizeKey(key: string): string {
     return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  private getFieldAliases(sheetName: string, header: string): string[] {
+    if (
+      sheetName === 'Data_Perizinan_PKL' &&
+      (header === 'Izin' || header === 'Status_Izin_Ortu')
+    ) {
+      return ['statusIzinOrtu', 'Status_Izin_Ortu', 'status_izin_ortu', 'Izin', 'izin'];
+    }
+    return GoogleDriveSheetService.FIELD_ALIASES[header] || [];
   }
 
   public static stripSyntheticRowSuffix(rawId: unknown): { cleanId: string; hintedRowNumber?: number } {
@@ -254,10 +271,21 @@ export class GoogleDriveSheetService {
         updatedNormalized.add(GoogleDriveSheetService.normalizeKey(k));
         // Add any header aliases whose camelCase matches k
         for (const [header, aliases] of Object.entries(GoogleDriveSheetService.FIELD_ALIASES)) {
-          const allForms = [header, ...aliases].map((f) => GoogleDriveSheetService.normalizeKey(f));
+          const effectiveAliases = this.getFieldAliases(sheetName, header);
+          const allForms = [header, ...effectiveAliases, ...aliases].map((f) =>
+            GoogleDriveSheetService.normalizeKey(f)
+          );
           if (allForms.includes(GoogleDriveSheetService.normalizeKey(k))) {
             allForms.forEach((f) => updatedNormalized.add(f));
           }
+        }
+        if (
+          sheetName === 'Data_Perizinan_PKL' &&
+          (GoogleDriveSheetService.normalizeKey(k) === 'statusizinortu' ||
+            GoogleDriveSheetService.normalizeKey(k) === 'izin')
+        ) {
+          updatedNormalized.add('izin');
+          updatedNormalized.add('statusizinortu');
         }
       }
     }
@@ -266,7 +294,7 @@ export class GoogleDriveSheetService {
     const allRecordKeys = Object.keys(out);
 
     for (const header of blueprintHeaders) {
-      const aliases = GoogleDriveSheetService.FIELD_ALIASES[header] || [];
+      const aliases = this.getFieldAliases(sheetName, header);
       const cleanHeader = GoogleDriveSheetService.normalizeKey(header);
       const isFieldUpdated = updatedNormalized.has(cleanHeader);
 
@@ -358,10 +386,21 @@ export class GoogleDriveSheetService {
     for (const k of updatedKeys) {
       updatedNorms.add(GoogleDriveSheetService.normalizeKey(k));
       for (const [header, aliases] of Object.entries(GoogleDriveSheetService.FIELD_ALIASES)) {
-        const forms = [header, ...aliases].map((f) => GoogleDriveSheetService.normalizeKey(f));
+        const effectiveAliases = this.getFieldAliases(sheetName, header);
+        const forms = [header, ...effectiveAliases, ...aliases].map((f) =>
+          GoogleDriveSheetService.normalizeKey(f)
+        );
         if (forms.includes(GoogleDriveSheetService.normalizeKey(k))) {
           forms.forEach((f) => updatedNorms.add(f));
         }
+      }
+      if (
+        sheetName === 'Data_Perizinan_PKL' &&
+        (GoogleDriveSheetService.normalizeKey(k) === 'statusizinortu' ||
+          GoogleDriveSheetService.normalizeKey(k) === 'izin')
+      ) {
+        updatedNorms.add('izin');
+        updatedNorms.add('statusizinortu');
       }
     }
 
@@ -389,13 +428,13 @@ export class GoogleDriveSheetService {
     return this.prepareOutgoingRecord(sheetName, merged, updatedKeys);
   }
 
-  public recordToRow(headers: string[], record: any): any[] {
+  public recordToRow(headers: string[], record: any, sheetName = ''): any[] {
     return headers.map((header) => {
       if (record[header] !== undefined && record[header] !== null) {
         return this.formatCellValue(record[header]);
       }
 
-      const aliases = GoogleDriveSheetService.FIELD_ALIASES[header] || [];
+      const aliases = this.getFieldAliases(sheetName, header);
       for (const alias of aliases) {
         if (record[alias] !== undefined && record[alias] !== null) {
           return this.formatCellValue(record[alias]);
@@ -414,13 +453,13 @@ export class GoogleDriveSheetService {
     });
   }
 
-  public rowToRecord(_sheetName: string, headers: string[], rowValues: any[], rowIndex: number = 0): any {
+  public rowToRecord(sheetName: string, headers: string[], rowValues: any[], rowIndex: number = 0): any {
     const record: any = {};
 
     headers.forEach((header, idx) => {
       if (header === '_sheetRowNumber') return;
       const cellVal = rowValues[idx] !== undefined && rowValues[idx] !== null ? rowValues[idx] : '';
-      const aliases = GoogleDriveSheetService.FIELD_ALIASES[header] || [];
+      const aliases = this.getFieldAliases(sheetName, header);
       const primaryKey = aliases[0] || header.charAt(0).toLowerCase() + header.slice(1);
       const upperHeader = header.toUpperCase();
 
@@ -511,7 +550,7 @@ export class GoogleDriveSheetService {
 
         const rowValues = headers.map((header) => {
           if (raw[header] !== undefined && raw[header] !== null) return raw[header];
-          const aliases = GoogleDriveSheetService.FIELD_ALIASES[header] || [];
+          const aliases = this.getFieldAliases(sheetName, header);
           for (const alias of aliases) {
             if (raw[alias] !== undefined && raw[alias] !== null) return raw[alias];
           }

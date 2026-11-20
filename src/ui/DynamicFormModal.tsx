@@ -13,7 +13,11 @@ import {
   getPredikatFromScore,
   stripStructuredTagsFromNote,
 } from '../core/utils/monitoringHelpers';
-import { getTodayWibIsoDate, normalizeToIsoDate } from '../core/utils/dateHelpers';
+import {
+  formatPerizinanDateRange,
+  getTodayWibIsoDate,
+  normalizeToIsoDate,
+} from '../core/utils/dateHelpers';
 import {
   formatNisVisual,
   handleNisKeyDown,
@@ -119,10 +123,37 @@ export function DynamicFormModal<T extends Record<string, any>>({
     submitting,
     handleSubmit,
     resetForm,
-  } = useDynamicForm<T>(formFields, initialData, async (formValues) => {
-    await onSubmit(formValues);
-    onClose();
-  });
+  } = useDynamicForm<T>(
+    formFields,
+    initialData,
+    async (formValues) => {
+      const payload: Record<string, any> = { ...(formValues as Record<string, any>) };
+      if (moduleId === 'perizinan') {
+        const startIso = normalizeToIsoDate(payload.tanggalMulaiIzin);
+        const endIso = normalizeToIsoDate(payload.tanggalSelesaiIzin);
+        payload.tanggalMulaiIzin = startIso || '';
+        payload.tanggalSelesaiIzin = endIso || '';
+        payload.rentangTanggal = formatPerizinanDateRange(startIso, endIso, '');
+        if (payload.rentangTanggal === '-') {
+          payload.rentangTanggal = '';
+        }
+      }
+      await onSubmit(payload as T);
+      onClose();
+    },
+    (formValues): Record<string, string> => {
+      if (moduleId !== 'perizinan') return {};
+      const startIso = normalizeToIsoDate(formValues.tanggalMulaiIzin);
+      const endIso = normalizeToIsoDate(formValues.tanggalSelesaiIzin);
+      if (startIso && endIso && endIso < startIso) {
+        return {
+          tanggalSelesaiIzin:
+            'Tanggal Selesai Izin tidak boleh lebih awal dari Tanggal Mulai Izin',
+        };
+      }
+      return {};
+    }
+  );
 
   const [masterJurusan, setMasterJurusan] = useState<Jurusan[]>([]);
   const [masterKelas, setMasterKelas] = useState<Kelas[]>([]);
