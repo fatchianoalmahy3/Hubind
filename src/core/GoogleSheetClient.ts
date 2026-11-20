@@ -7,7 +7,9 @@ import {
   EMPTY_WORKSPACE_CONFIG,
   EMPTY_DEFAULT_TEMPLATES,
   PersistedWorkspaceConfig,
+  normalizeMonitoringStageControl,
 } from './firebase/WorkspaceConfigStore';
+import { DEFAULT_MONITORING_STAGE_CONTROL, type MonitoringStageControl } from './types/schema';
 import type { Unsubscribe } from 'firebase/firestore';
 import {
   safeFetchJson,
@@ -17,24 +19,7 @@ import {
   isBackendProxyUnavailableError,
 } from './utils/safeFetchJson';
 import { IndexedDbSheetCache } from './cache/IndexedDbSheetCache';
-
-const SHEET_TO_REST_RESOURCE: Record<string, string> = {
-  Master_Siswa_XI: 'students',
-  Master_Siswa: 'students',
-  Master_Jurusan: 'majors',
-  Master_Kelas_Walas: 'classes',
-  Master_DUDI: 'dudi',
-  Master_Guru_Pendamping: 'teachers',
-  Data_Pengajuan_PKL: 'submissions',
-  Data_Perizinan_PKL: 'permits',
-  Plotting_Pemberangkatan: 'placements',
-  Monitoring_5_Tahap: 'monitoring',
-  Monitoring_6_Tahap: 'monitoring',
-  Monitoring_8_Tahap: 'monitoring',
-  Monitoring_PKL: 'monitoring',
-  Nilai_Dan_Sertifikat: 'certificates',
-  Master_Akun: 'accounts',
-};
+import { SHEET_TO_REST_RESOURCE } from './constants/sheetResourceMap';
 
 export interface AcademicYearConfig {
   year: string;
@@ -71,6 +56,7 @@ export interface SheetConnectionConfig {
   lastTestedAt: string | null;
   academicYears: AcademicYearConfig[];
   templates: WorkspaceTemplateConfig[];
+  monitoringStageControl: MonitoringStageControl;
 }
 
 export class GoogleSheetClient {
@@ -84,6 +70,10 @@ export class GoogleSheetClient {
   private isOnline: boolean = typeof navigator !== 'undefined' ? navigator.onLine : true;
   private academicYears: AcademicYearConfig[] = [];
   private templates: WorkspaceTemplateConfig[] = [...EMPTY_DEFAULT_TEMPLATES];
+  private monitoringStageControl: MonitoringStageControl = {
+    ...DEFAULT_MONITORING_STAGE_CONTROL,
+    unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
+  };
   private isFirestoreHydrated: boolean = false;
   private lastTestedAt: string | null = null;
   private unsubscribeFirestore: Unsubscribe | null = null;
@@ -97,6 +87,7 @@ export class GoogleSheetClient {
   private bootstrapEtag: string | null = null;
   private cacheInvalidationListeners = new Set<(sheetName?: string) => void>();
   private bootstrapListeners = new Set<(tables: string[]) => void>();
+  private sheetLocalMutationAt = new Map<string, number>();
   private broadcastChannel: BroadcastChannel | null = null;
   private static readonly CLIENT_SHEET_CACHE_TTL_MS = 90_000;
 
@@ -206,6 +197,7 @@ export class GoogleSheetClient {
       Array.isArray(cfg.templates) && cfg.templates.length > 0
         ? cfg.templates
         : [...EMPTY_DEFAULT_TEMPLATES];
+    this.monitoringStageControl = normalizeMonitoringStageControl(cfg.monitoringStageControl);
 
     const currentYearObj =
       this.academicYears.find((ay) => ay.year === this.activeYear) || this.academicYears[0];
@@ -224,6 +216,7 @@ export class GoogleSheetClient {
     const prevActiveYear = this.activeYear;
     const prevSpreadsheetName = this.spreadsheetName;
     const prevTemplatesSig = JSON.stringify(this.templates || []);
+    const prevStageControlSig = JSON.stringify(this.monitoringStageControl);
 
     this.activeYear = cfg.activeYear || '2026/2027';
     this.gasDeployUrl = normalizeGasUrl(cfg.gasDeployUrl || '');
@@ -233,6 +226,7 @@ export class GoogleSheetClient {
       Array.isArray(cfg.templates) && cfg.templates.length > 0
         ? cfg.templates
         : [...EMPTY_DEFAULT_TEMPLATES];
+    this.monitoringStageControl = normalizeMonitoringStageControl(cfg.monitoringStageControl);
 
     const currentYearObj =
       this.academicYears.find((ay) => ay.year === this.activeYear) || this.academicYears[0];
@@ -263,7 +257,8 @@ export class GoogleSheetClient {
     const anyVisualChanged =
       coreChanged ||
       prevSpreadsheetName !== this.spreadsheetName ||
-      prevTemplatesSig !== JSON.stringify(this.templates || []);
+      prevTemplatesSig !== JSON.stringify(this.templates || []) ||
+      prevStageControlSig !== JSON.stringify(this.monitoringStageControl);
 
     const firstHydration = !this.isFirestoreHydrated;
     this.isFirestoreHydrated = true;
@@ -282,6 +277,7 @@ export class GoogleSheetClient {
       gasDeployUrl: this.gasDeployUrl,
       academicYears: this.academicYears,
       templates: this.templates,
+      monitoringStageControl: normalizeMonitoringStageControl(this.monitoringStageControl),
     };
   }
 
@@ -347,6 +343,7 @@ export class GoogleSheetClient {
       lastTestedAt: this.lastTestedAt,
       academicYears: this.academicYears,
       templates: this.templates,
+      monitoringStageControl: normalizeMonitoringStageControl(this.monitoringStageControl),
     };
   }
 
@@ -368,6 +365,10 @@ export class GoogleSheetClient {
 
   public getTemplates(): WorkspaceTemplateConfig[] {
     return this.templates;
+  }
+
+  public getMonitoringStageControl(): MonitoringStageControl {
+    return normalizeMonitoringStageControl(this.monitoringStageControl);
   }
 
   public getSpreadsheetId(): string {
@@ -695,6 +696,40 @@ export class GoogleSheetClient {
   }
 
   /**
+   * Update global monitoring stage lock & sequential settings (SuperAdmin only)
+   */
+  public async updateMonitoringStageControl(control: MonitoringStageControl): Promise<boolean> {
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan Pengaturan Tahap Monitoring...',
+      'pending',
+      'Menyinkronkan kebijakan kunci/buka tahap monitoring ke Cloud Server...'
+    );
+
+    try {
+      this.monitoringStageControl = normalizeMonitoringStageControl(control);
+      await this.persistToFirestoreAndNotify();
+
+      ToastManager.getInstance().update(
+        toastId,
+        'Pengaturan Tahap Monitoring Tersimpan!',
+        'success',
+        this.monitoringStageControl.requireSequential
+          ? `Mode Berurutan aktif (${this.monitoringStageControl.unlockedStages.length} tahap terbuka).`
+          : `Mode Transisi aktif (${this.monitoringStageControl.unlockedStages.length} tahap bisa langsung diisi).`
+      );
+      return true;
+    } catch (e: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Menyimpan Pengaturan Tahap',
+        'error',
+        e?.message || 'Verifikasi SuperAdmin Google diperlukan untuk menyimpan kebijakan monitoring.'
+      );
+      return false;
+    }
+  }
+
+  /**
    * Silent verification for Cloud GAS Web App channel (cross-device & refresh-proof).
    */
   public async pingGasConnection(
@@ -966,6 +1001,20 @@ export class GoogleSheetClient {
     await IndexedDbSheetCache.getInstance().set(idbKey, rows, etag).catch(() => {});
   }
 
+  public markSheetMutated(sheetName: string): void {
+    const now = Date.now();
+    this.sheetLocalMutationAt.set(sheetName, now);
+    if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
+      this.sheetLocalMutationAt.set('Master_Siswa_XI', now);
+      this.sheetLocalMutationAt.set('Master_Siswa', now);
+    }
+    this.bootstrapEtag = null;
+  }
+
+  public getSheetLastMutatedAt(sheetName: string): number {
+    return this.sheetLocalMutationAt.get(sheetName) || 0;
+  }
+
   public invalidateClientSheetCache(sheetName?: string, fromBroadcast: boolean = false): void {
     const idb = IndexedDbSheetCache.getInstance();
     if (!sheetName) {
@@ -1019,6 +1068,7 @@ export class GoogleSheetClient {
     this.bootstrapPromise = (async () => {
       const bearerToken = await this.resolveAuthBearerToken();
       if (!bearerToken) return false;
+      const requestStartedAt = Date.now();
 
       try {
         const headers: Record<string, string> = {
@@ -1058,6 +1108,10 @@ export class GoogleSheetClient {
           await Promise.all(
             Object.entries(json.tables).map(async ([tableName, rawRows]) => {
               if (!Array.isArray(rawRows)) return;
+              const lastLocalMut = this.getSheetLastMutatedAt(tableName);
+              if (!forceFresh && lastLocalMut >= requestStartedAt) {
+                return;
+              }
               const normalized = normalizer.normalizeExternalRows(tableName, rawRows);
               await this.saveCachedSnapshot(tableName, normalized, etagsMap[tableName]);
               updatedTables.push(tableName);
@@ -1257,7 +1311,7 @@ export class GoogleSheetClient {
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT' | 'SYNC_ALL',
     payload: any
   ): Promise<void> {
-    this.invalidateClientSheetCache(sheetName);
+    this.markSheetMutated(sheetName);
     const preparedPayload = this.normalizeOutgoingPayload(sheetName, action, payload);
 
     const bearerToken = await this.resolveAuthBearerToken();
@@ -1306,6 +1360,7 @@ export class GoogleSheetClient {
           body: JSON.stringify(requestBody),
         });
         if (ok && json?.success) {
+          this.markSheetMutated(sheetName);
           return;
         }
         if (json?.message && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 404) {
@@ -1353,6 +1408,7 @@ export class GoogleSheetClient {
       if (!ok || json?.error) {
         throw new Error(json?.error || `Cloud Server mengembalikan status ${status}`);
       }
+      this.markSheetMutated(sheetName);
       await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
         method: 'POST',
         timeoutMs: 2_500,
@@ -1362,7 +1418,10 @@ export class GoogleSheetClient {
     }
   }
 
-  public async recalculateRelationsOnServer(scope: string = 'all'): Promise<{
+  public async recalculateRelationsOnServer(
+    scope: string = 'all',
+    forceRefresh: boolean = true
+  ): Promise<{
     handledByServer: boolean;
     summary?: {
       updatedPlacements: number;
@@ -1383,19 +1442,16 @@ export class GoogleSheetClient {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${bearerToken}`,
         },
-        body: JSON.stringify({ scope }),
+        body: JSON.stringify({ scope, forceRefresh }),
       });
 
       if (ok && json?.success && json?.summary) {
-        for (const tbl of [
-          'Master_DUDI',
-          'Master_Guru_Pendamping',
-          'Master_Jurusan',
-          'Master_Kelas_Walas',
-        ]) {
-          this.invalidateClientSheetCache(tbl);
-        }
-        return { handledByServer: true, summary: json.summary };
+        const s = json.summary;
+        if (s.updatedDudi > 0) this.invalidateClientSheetCache('Master_DUDI');
+        if (s.updatedGuru > 0) this.invalidateClientSheetCache('Master_Guru_Pendamping');
+        if (s.updatedJurusan > 0) this.invalidateClientSheetCache('Master_Jurusan');
+        if (s.updatedKelas > 0) this.invalidateClientSheetCache('Master_Kelas_Walas');
+        return { handledByServer: true, summary: s };
       }
       return { handledByServer: false };
     } catch {

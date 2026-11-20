@@ -121,9 +121,11 @@ export const SuratTugas0708Sheet: React.FC<SuratTugas0708Props> = ({
   );
 
   return (
-    <div className="font-serif text-slate-950 text-[12pt] leading-[1.3] flex flex-col justify-between">
-      <div>
-        <OfficialSchoolKop0708 variant="surat_tugas" />
+    <table className="hubin-doc-shell font-serif text-slate-950 text-[12pt] leading-[1.3]">
+      <tbody>
+        <tr>
+          <td>
+            <OfficialSchoolKop0708 variant="surat_tugas" />
 
         <div className="text-center mt-1.5 mb-3">
           <div className="text-[13pt] font-bold uppercase underline tracking-[0.16em]">
@@ -142,7 +144,7 @@ export const SuratTugas0708Sheet: React.FC<SuratTugas0708Props> = ({
                 <tr>
                   <td className="w-28 py-0.5 align-top">Nama</td>
                   <td className="w-4 py-0.5 align-top">:</td>
-                  <td className="py-0.5 font-semibold">{kepalaSekolah || 'Agus Salim, S. Kom'}</td>
+                  <td className="py-0.5 font-semibold">{kepalaSekolah || '.........................................'}</td>
                 </tr>
                 <tr>
                   <td className="py-0.5 align-top">Jabatan</td>
@@ -253,7 +255,7 @@ export const SuratTugas0708Sheet: React.FC<SuratTugas0708Props> = ({
               <div>Kepala SMK PGRI 2 Ponorogo</div>
               <div className="h-14" />
               <div className="font-bold underline">
-                {kepalaSekolah || 'Agus Salim, S. Kom.'}
+                {kepalaSekolah || '.........................................'}
               </div>
             </div>
           </div>
@@ -271,21 +273,28 @@ export const SuratTugas0708Sheet: React.FC<SuratTugas0708Props> = ({
             <div>NIP. .........................................</div>
           </div>
         </div>
-      </div>
-
-      <div className="pt-3 mt-3 space-y-1.5 px-1 print-avoid-break">
-        <div className="text-[10.5pt]">
-          NB : Surat Tugas harap dikembalikan ke Waka Hubungan Industri selambat-lambatnya 2 minggu setelah surat di terbitkan
-        </div>
-        <div className="flex items-end justify-between text-[9.5pt] font-sans text-slate-600 border-t border-slate-300 pt-1">
-          <div>Format : 07 . 08</div>
-          <div className="text-right">
-            <div>Halaman 1 dari 1</div>
-            <div>Revisi : 01/ 07-03-2012</div>
-          </div>
-        </div>
-      </div>
-    </div>
+          </td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>
+            <div className="pt-3 mt-2 space-y-1.5 px-1">
+              <div className="text-[10.5pt]">
+                NB : Surat Tugas harap dikembalikan ke Waka Hubungan Industri selambat-lambatnya 2 minggu setelah surat di terbitkan
+              </div>
+              <div className="flex items-end justify-between text-[9.5pt] font-sans text-slate-600 border-t border-slate-300 pt-1">
+                <div>Format : 07 . 08</div>
+                <div className="text-right leading-tight">
+                  <div>Halaman 1 dari 1</div>
+                  <div>Revisi : 11/11/2026</div>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 };
 
@@ -319,9 +328,12 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
       : [{ nis: '', namaSiswa: '....................................................', kelas: '', jurusan: '' }];
 
   return (
-    <div className="font-sans text-slate-950 text-[10.5pt] leading-[1.2] flex flex-col justify-between">
-      <div className="space-y-1.5">
-        <div className="border-b-2 border-slate-900 pb-1.5 flex items-center gap-2.5">
+    <table className="hubin-doc-shell font-sans text-slate-950 text-[10.5pt] leading-[1.2]">
+      <tbody>
+        <tr>
+          <td className="pb-1.5">
+            <div className="space-y-1.5">
+              <div className="border-b-2 border-slate-900 pb-1.5 flex items-center gap-2.5">
           <div className="w-14 h-14 shrink-0 flex items-center justify-center">
             <img
               src="/assets/logo-smk-pgri2.png"
@@ -403,10 +415,14 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             </tbody>
           </table>
         </div>
-
-        {/* 3. Presensi Siswa */}
-        <div>
-          <div className="font-bold mb-0.5">3. Presensi Siswa :</div>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td className="pb-1.5">
+            {/* 3. Presensi Siswa */}
+            <div>
+              <div className="font-bold mb-0.5">3. Presensi Siswa :</div>
           <table className="w-full border-collapse border border-slate-900 text-[9.5pt]">
             <thead>
               <tr className="bg-slate-100">
@@ -471,9 +487,12 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             </div>
           </div>
         </div>
-
-        {/* 4. Aktivitas Siswa */}
-        <div className="print-avoid-break">
+          </td>
+        </tr>
+        <tr>
+          <td className="pb-1.5">
+            {/* 4. Aktivitas Siswa */}
+            <div className="print-avoid-break">
           <div className="font-bold">4. Aktivitas Siswa</div>
           <div className="ml-3 mt-0.5 space-y-0.5 leading-snug">
             <div>Kompetensi yang didapat :</div>
@@ -483,9 +502,12 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             <div>4. ..................................................................................................................</div>
           </div>
         </div>
-
-        {/* 5. Keadaan Bengkel */}
-        <div className="print-avoid-break">
+          </td>
+        </tr>
+        <tr>
+          <td className="pb-1.5">
+            {/* 5. Keadaan Bengkel */}
+            <div className="print-avoid-break">
           <div className="font-bold mb-0.5">5. Keadaan Bengkel</div>
           <table className="w-full border-collapse border border-slate-900 text-[9.5pt]">
             <thead>
@@ -510,9 +532,12 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             </tbody>
           </table>
         </div>
-
-        {/* Catatan Lain & Tanda Tangan */}
-        <div className="grid grid-cols-12 gap-3 pt-1 print-avoid-break">
+          </td>
+        </tr>
+        <tr>
+          <td className="pb-1.5">
+            {/* Catatan Lain & Tanda Tangan */}
+            <div className="grid grid-cols-12 gap-3 pt-1 print-avoid-break">
           <div className="col-span-7 space-y-1.5">
             <div className="font-bold">Catatan Lain :</div>
             <div className="border-b border-dotted border-slate-700 h-4" />
@@ -522,18 +547,27 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             <div>Ponorogo, {tanggalSurat || '..... / ..... / 2026'}</div>
             <div className="font-semibold">Petugas Monitoring</div>
             <div className="h-10" />
-            <div className="font-bold underline">
-              {namaPetugas && namaPetugas !== '-' ? namaPetugas : '........................................'}
+              <div className="font-bold underline">
+                {namaPetugas && namaPetugas !== '-' ? namaPetugas : '........................................'}
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between text-[9pt] text-slate-600 border-t border-slate-400 pt-1 mt-2 print-avoid-break">
-        <div>Format : 07 . 01</div>
-        <div>Revisi : 01/1-11-2026</div>
-      </div>
-    </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>
+            <div className="pt-2">
+              <div className="flex items-center justify-between text-[9pt] font-sans text-slate-600 border-t border-slate-400 pt-1">
+                <div>Format : 07 . 01</div>
+                <div>Revisi : 11/11/2026</div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 };
 
@@ -551,8 +585,11 @@ export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = 
   namaDudi,
 }) => {
   return (
-    <div className="font-sans text-slate-950 text-[12pt] leading-[1.16] flex flex-col justify-between">
-      <div className="space-y-1.5">
+    <table className="hubin-doc-shell font-sans text-slate-950 text-[12pt] leading-[1.16]">
+      <tbody>
+        <tr>
+          <td>
+            <div className="space-y-1.5">
         <div className="text-center pb-1.5 border-b-2 border-slate-900 leading-tight">
           <div className="text-[13.5pt] font-extrabold uppercase tracking-wide">
             LEMBAR PENILAIAN
@@ -700,14 +737,28 @@ export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = 
                   <div>( Belum Berkembang )</div>
                 </td>
               </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-
-      <div className="text-right text-[12pt] text-slate-600 pt-1 border-t border-slate-300 mt-1.5 print-avoid-break">
-        Halaman 1 dari 1
-      </div>
-    </div>
+          </td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>
+            <div className="pt-1.5">
+              <div className="flex items-end justify-between text-[9.5pt] font-sans text-slate-600 border-t border-slate-400 pt-1">
+                <div>Format : 07 . 09</div>
+                <div className="text-right leading-tight">
+                  <div>Halaman 1 dari 1</div>
+                  <div>Revisi : 11/11/2026</div>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 };

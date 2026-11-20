@@ -23,8 +23,8 @@ export class GoogleDriveSheetService {
   }
 
   private static readonly FIELD_ALIASES: Record<string, string[]> = {
-    // Siswa
-    Nama_Lengkap: ['nama', 'namaLengkap', 'nama_lengkap', 'Nama_Lengkap'],
+    // Siswa / Guru Shared Nama & ID
+    Nama_Lengkap: ['nama', 'namaLengkap', 'nama_lengkap', 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama_guru'],
     Jenis_Kelamin: ['jenisKelamin', 'jenis_kelamin', 'Jenis_Kelamin'],
     ID_Jurusan: ['jurusan', 'idJurusan', 'id_jurusan', 'ID_Jurusan'],
     No_HP_Siswa: ['noHpSiswa', 'noHp', 'no_hp_siswa', 'No_HP_Siswa'],
@@ -36,14 +36,14 @@ export class GoogleDriveSheetService {
     NIK: ['nik', 'NIK'],
     NIS: ['nis', 'NIS'],
     Kelas: ['kelas', 'Kelas'],
-    ID: ['id', 'ID'],
+    ID: ['id', 'ID', 'ID_Guru', 'idGuru', 'id_guru'],
 
     // Jurusan
     Kode: ['kode', 'Kode'],
     Nama_Jurusan: ['nama', 'namaJurusan', 'nama_jurusan', 'Nama_Jurusan'],
     Nama_Kakomli: ['namaKakomli', 'nama_kakomli', 'Nama_Kakomli'],
     NIP_Kakomli: ['nipKakomli', 'nip_kakomli', 'NIP_Kakomli'],
-    Kontak_WA: ['kontakWA', 'kontakWa', 'kontak_wa', 'Kontak_WA'],
+    Kontak_WA: ['kontakWA', 'kontakWa', 'kontak_wa', 'Kontak_WA', 'noWa', 'No_WA', 'no_wa'],
     Kuota_Siswa: ['kuotaSiswa', 'kuota_siswa', 'Kuota_Siswa'],
     Total_Terdaftar: ['totalTerdaftar', 'total_terdaftar', 'Total_Terdaftar'],
 
@@ -72,7 +72,7 @@ export class GoogleDriveSheetService {
     // Guru
     NIP: ['nip', 'NIP'],
     Email_Google: ['email', 'emailGoogle', 'email_google', 'Email_Google'],
-    Peran_Utama: ['peranUtama', 'peran_utama', 'Peran_Utama'],
+    Peran_Utama: ['peranUtama', 'peran_utama', 'Peran_Utama', 'Peran', 'peran'],
     Jumlah_Bimbingan: ['jumlahBimbingan', 'jumlah_bimbingan', 'Jumlah_Bimbingan'],
     PIN: ['pin', 'PIN', 'Pin'],
 
@@ -111,6 +111,7 @@ export class GoogleDriveSheetService {
     Tanggal_Berangkat: ['tanggalBerangkat', 'tanggal_berangkat', 'Tanggal_Berangkat', 'tglBerangkat'],
     Tanggal_Rencana_Tarik: ['tanggalRencanaTarik', 'tanggal_rencana_tarik', 'Tanggal_Rencana_Tarik'],
     Status_Penempatan: ['statusPenempatan', 'status_penempatan', 'Status_Penempatan'],
+    Catatan_Penempatan: ['catatanPenempatan', 'catatan_penempatan', 'Catatan_Penempatan'],
 
     // Monitoring
     ID_Monitoring: ['idMonitoring', 'id_monitoring', 'ID_Monitoring', 'id'],

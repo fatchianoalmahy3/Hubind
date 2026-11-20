@@ -5,7 +5,7 @@ import {
   Lock,
   ArrowRight,
   CheckCircle2,
-  MessageCircle,
+  Mail,
   Sparkles,
   ChevronRight,
   Clock,
@@ -362,13 +362,11 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
 
           <div className="flex flex-col sm:flex-row md:flex-col gap-3 shrink-0 w-full md:w-auto">
             <a
-              href="https://wa.me/6281234567890?text=Halo%20Pokja%20Hubin%20SMK%20PGRI%202%20Ponorogo%2C%20saya%20ingin%20konsultasi%20pengajuan%20tempat%20PKL%20baru."
-              target="_blank"
-              rel="noopener noreferrer"
+              href="mailto:hubin@smkpgri2ponorogo.sch.id?subject=Konsultasi%20Pengajuan%20Tempat%20PKL%20Baru"
               className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 text-center"
             >
-              <MessageCircle className="w-4 h-4" />
-              <span>Hubungi Hubin via WhatsApp</span>
+              <Mail className="w-4 h-4" />
+              <span>Hubungi Sekretariat Hubin</span>
             </a>
             <button
               onClick={onOpenPengajuan}

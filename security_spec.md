@@ -3,10 +3,11 @@
 ## 1. Data Invariants
 1. **Singleton Workspace Config (`/config/workspace`)**:
    - Only `configId == 'workspace'` is valid under `/config/{configId}`.
-   - Contains ONLY non-PII infrastructure IDs and app settings (`activeYear`, `spreadsheetId`, `spreadsheetName`, `spreadsheetUrl`, `driveFolderUrl`, `gasDeployUrl`, `academicYears`, `templates`, `updatedBy`, `updatedAt`).
+   - Contains ONLY non-PII infrastructure IDs and app settings (`activeYear`, `spreadsheetId`, `spreadsheetName`, `spreadsheetUrl`, `driveFolderUrl`, `gasDeployUrl`, `academicYears`, `templates`, `monitoringStageControl`, `updatedBy`, `updatedAt`).
    - Operational PKL data (students, NIK, phones, grades) is NEVER stored in Firestore — Google Spreadsheet is the sole SSOT.
    - `academicYears` list is strictly bounded to `<= 20` entries.
-   - `templates` list is strictly bounded to `<= 10` entries.
+   - `templates` list is strictly bounded to `<= 15` entries.
+   - `monitoringStageControl` contains strictly `requireSequential` (bool), `unlockedStages` (int list `<= 8`, values in `1..8`), and optional `lockedReason` (string `<= 150`).
    - `updatedBy` must equal `request.auth.uid`, and `updatedAt` must equal `request.time`.
    - Only verified admins (`isAdmin()` + `email_verified == true`) can create, update, or delete `/config/workspace`.
    - `allow list` is explicitly disabled (`false`) to prevent collection scraping.

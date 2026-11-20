@@ -22,29 +22,12 @@ import {
   AdminSessionUser,
 } from './core/auth/LocalAccountAuthService';
 
-// Modules & Metadata
-import { SiswaMetadata } from './modules/siswa.meta.ts';
-import { JurusanMetadata } from './modules/jurusan.meta.ts';
-import { KelasMetadata } from './modules/kelas.meta.ts';
-import { DudiMetadata } from './modules/dudi.meta.ts';
-import { GuruMetadata } from './modules/guru.meta.ts';
-import { PengajuanMetadata } from './modules/pengajuan.meta.ts';
-import { PerizinanMetadata } from './modules/perizinan.meta.ts';
-import { SiswaPklMetadata } from './modules/siswaPkl.meta.ts';
-import { MonitoringMetadata } from './modules/monitoring.meta.ts';
-import { SertifikatMetadata } from './modules/sertifikat.meta.ts';
-
-// Services
-import { SiswaService } from './services/SiswaService';
-import { JurusanService } from './services/JurusanService';
-import { KelasService } from './services/KelasService';
-import { DudiService } from './services/DudiService';
-import { GuruService } from './services/GuruService';
-import { PengajuanService } from './services/PengajuanService';
-import { PerizinanService } from './services/PerizinanService';
-import { SiswaPklService } from './services/SiswaPklService';
-import { MonitoringService } from './services/MonitoringService';
-import { SertifikatService } from './services/SertifikatService';
+import {
+  CRUD_MODULE_NAMES,
+  getDocumentHubDependencies,
+  getModuleEntry,
+  getRepositoryForModule,
+} from './core/moduleRegistry';
 
 import { AppleToastContainer } from './ui/AppleToastContainer';
 import { PublicLandingPage } from './ui/PublicLandingPage';
@@ -313,32 +296,6 @@ export default function App() {
     );
   };
 
-  const getRepositoryForModule = (modId: string) => {
-    switch (modId) {
-      case 'siswa':
-        return SiswaService.getInstance();
-      case 'jurusan':
-        return JurusanService.getInstance();
-      case 'kelas':
-        return KelasService.getInstance();
-      case 'dudi':
-        return DudiService.getInstance();
-      case 'guru':
-        return GuruService.getInstance();
-      case 'perizinan':
-        return PerizinanService.getInstance();
-      case 'siswa_pkl':
-        return SiswaPklService.getInstance();
-      case 'monitoring':
-        return MonitoringService.getInstance();
-      case 'sertifikat':
-        return SertifikatService.getInstance();
-      case 'pengajuan':
-      default:
-        return PengajuanService.getInstance();
-    }
-  };
-
   const handleSyncAll = async () => {
     setGlobalSyncing(true);
     try {
@@ -347,13 +304,9 @@ export default function App() {
         googleClient.bootstrapAdminTables(true),
       ]);
       if (currentModule.startsWith('doc_')) {
-        await Promise.all([
-          DudiService.getInstance().reloadFromSpreadsheet().catch(() => null),
-          GuruService.getInstance().reloadFromSpreadsheet().catch(() => null),
-          PengajuanService.getInstance().reloadFromSpreadsheet().catch(() => null),
-          SiswaPklService.getInstance().reloadFromSpreadsheet().catch(() => null),
-          MonitoringService.getInstance().reloadFromSpreadsheet().catch(() => null),
-        ]);
+        await Promise.all(
+          getDocumentHubDependencies().map((repo) => repo.reloadFromSpreadsheet().catch(() => null))
+        );
       } else if (currentModule !== 'workspace') {
         const repo = getRepositoryForModule(currentModule);
         await repo.reloadFromSpreadsheet();
@@ -626,176 +579,53 @@ export default function App() {
       return renderConnectionGate();
     }
 
-    switch (currentModule) {
-      case 'siswa':
-        return (
-          <ModulePage
-            key={`siswa_${configSnapshot.spreadsheetId}`}
-            metadata={SiswaMetadata}
-            repository={SiswaService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'jurusan':
-        return (
-          <ModulePage
-            key={`jurusan_${configSnapshot.spreadsheetId}`}
-            metadata={JurusanMetadata}
-            repository={JurusanService.getInstance()}
-            userRole={userRole}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'kelas':
-        return (
-          <ModulePage
-            key={`kelas_${configSnapshot.spreadsheetId}`}
-            metadata={KelasMetadata}
-            repository={KelasService.getInstance()}
-            userRole={userRole}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'dudi':
-        return (
-          <ModulePage
-            key={`dudi_${configSnapshot.spreadsheetId}`}
-            metadata={DudiMetadata}
-            repository={DudiService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={() => setCurrentModule('doc_mou')}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'guru':
-        return (
-          <ModulePage
-            key={`guru_${configSnapshot.spreadsheetId}`}
-            metadata={GuruMetadata}
-            repository={GuruService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={() => setCurrentModule('doc_surat_tugas')}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'perizinan':
-        return (
-          <ModulePage
-            key={`perizinan_${configSnapshot.spreadsheetId}`}
-            metadata={PerizinanMetadata}
-            repository={PerizinanService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'siswa_pkl':
-        return (
-          <ModulePage
-            key={`siswa_pkl_${configSnapshot.spreadsheetId}`}
-            metadata={SiswaPklMetadata}
-            repository={SiswaPklService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'monitoring':
-        return (
-          <ModulePage
-            key={`monitoring_${configSnapshot.spreadsheetId}`}
-            metadata={MonitoringMetadata}
-            repository={MonitoringService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
-            onOpenMonitoringBundle={() => setCurrentModule('doc_paket_monitoring')}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'sertifikat':
-        return (
-          <ModulePage
-            key={`sertifikat_${configSnapshot.spreadsheetId}`}
-            metadata={SertifikatMetadata}
-            repository={SertifikatService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-          />
-        );
-      case 'doc_paket_monitoring':
-      case 'doc_mou':
-      case 'doc_surat_tugas':
-      case 'doc_pengajuan':
-      case 'doc_pengantaran':
-      case 'doc_monitoring':
-      case 'doc_penarikan':
-        return (
-          <Suspense
-            fallback={
-              <div className="py-12 flex items-center justify-center text-xs text-slate-500">
-                Memuat Pusat Dokumen...
-              </div>
+    if (currentModule.startsWith('doc_')) {
+      return (
+        <Suspense
+          fallback={
+            <div className="py-12 flex items-center justify-center text-xs text-slate-500">
+              Memuat Pusat Dokumen...
+            </div>
+          }
+        >
+          <DocumentHubPage
+            key={`${currentModule}_${configSnapshot.spreadsheetId}`}
+            activeDocKey={currentModule as DocumentHubKey}
+            onSelectDocKey={(k) => setCurrentModule(k)}
+            onOpenTemplateManager={
+              userRole === 'SuperAdmin' ? () => setIsTemplateManagerOpen(true) : undefined
             }
-          >
-            <DocumentHubPage
-              key={`${currentModule}_${configSnapshot.spreadsheetId}`}
-              activeDocKey={currentModule as DocumentHubKey}
-              onSelectDocKey={(k) => setCurrentModule(k)}
-              onOpenTemplateManager={
-                userRole === 'SuperAdmin' ? () => setIsTemplateManagerOpen(true) : undefined
-              }
-            />
-          </Suspense>
-        );
-      case 'pengajuan':
-      default:
-        return (
-          <ModulePage
-            key={`pengajuan_${configSnapshot.spreadsheetId}`}
-            metadata={PengajuanMetadata}
-            repository={PengajuanService.getInstance()}
-            userRole={userRole}
-            onOpenDocsForStudent={openDocsForStudent}
-            onOpenSimulator={() => setIsSimulatorOpen(true)}
-            onOpenGas={() => setIsGasOpen(true)}
-            onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
           />
-        );
+        </Suspense>
+      );
     }
+
+    const entry = getModuleEntry(currentModule);
+    return (
+      <ModulePage
+        key={`${entry.id}_${configSnapshot.spreadsheetId}`}
+        metadata={entry.metadata}
+        repository={entry.getRepository()}
+        userRole={userRole}
+        onOpenDocsForStudent={
+          entry.docShortcutModule
+            ? () => setCurrentModule(entry.docShortcutModule!)
+            : entry.supportsStudentDocs
+              ? openDocsForStudent
+              : undefined
+        }
+        onOpenMonitoringBundle={
+          entry.supportsMonitoringBundle ? () => setCurrentModule('doc_paket_monitoring') : undefined
+        }
+        onOpenSimulator={() => setIsSimulatorOpen(true)}
+        onOpenGas={() => setIsGasOpen(true)}
+        onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
+      />
+    );
   };
 
   const moduleNames: Record<string, string> = {
-    pengajuan: 'Verifikasi Pengajuan PKL',
-    perizinan: 'Perizinan PKL',
-    siswa_pkl: 'Data Siswa PKL',
-    siswa: 'Master Siswa',
-    dudi: 'Mitra DUDI & Kuota',
-    guru: 'Guru Pendamping',
-    monitoring: 'Supervisi 8 Tahap Guru',
-    sertifikat: 'Raport & Blangko Sertifikat',
-    jurusan: 'Kompetensi Keahlian',
-    kelas: 'Kelas & Wali Kelas',
+    ...CRUD_MODULE_NAMES,
     doc_paket_monitoring: 'Paket Cetak Monitoring (1-Langkah)',
     doc_mou: 'Dokumen MOU DUDI',
     doc_surat_tugas: 'Dokumen Surat Tugas',
@@ -807,7 +637,13 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-600 selection:text-white">
+    <div
+      className={`${
+        appMode === 'admin' && authReady && currentUser
+          ? 'h-screen overflow-hidden'
+          : 'min-h-screen'
+      } bg-slate-50/70 flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-600 selection:text-white`}
+    >
       <AppleToastContainer />
 
       {appMode === 'admin' && !authReady ? (
@@ -841,7 +677,7 @@ export default function App() {
             isConnected={verification.connected}
           />
 
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 min-h-0 flex overflow-hidden">
             <Sidebar
               currentModule={currentModule}
               onSelectModule={setCurrentModule}
@@ -860,7 +696,8 @@ export default function App() {
               onCloseMobile={() => setIsMobileSidebarOpen(false)}
             />
 
-            <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 lg:py-5 max-w-[1440px] mx-auto w-full">
+            <main className="flex-1 min-w-0 h-full overflow-y-auto px-4 sm:px-6 py-4 lg:py-5">
+              <div className="max-w-[1440px] mx-auto w-full">
               {/* Compact Single-Line Cloud Server Context Strip (SuperAdmin Only) */}
               {userRole === 'SuperAdmin' && (
                 <div className="mb-4 px-3.5 py-2 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
@@ -930,6 +767,7 @@ export default function App() {
               )}
 
               {renderActiveModule()}
+              </div>
             </main>
           </div>
         </>

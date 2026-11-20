@@ -17,11 +17,14 @@ import {
   LogOut,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
+import { PublicPortalClient } from '../core/PublicPortalClient';
 import { DudiService } from '../services/DudiService';
 import { PengajuanService } from '../services/PengajuanService';
-import { Dudi, Pengajuan } from '../core/types/schema';
+import { SiswaService } from '../services/SiswaService';
+import { Dudi, Pengajuan, Siswa } from '../core/types/schema';
 import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
 import { formatNisVisual } from '../core/utils/nisHelpers';
+import { getCanonicalNisDigits } from '../core/utils/relationHelpers';
 import { PrintPortal } from './PrintPortal';
 import { QrCodeSvg } from './QrCodeSvg';
 import { LembarPenilaianKurmerSheet, OfficialSchoolKop0708 } from './DocumentPrintTemplates';
@@ -167,19 +170,62 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
     formatIndonesianDate(getTodayWibIsoDate())
   );
   const [isOverprintOnly, setIsOverprintOnly] = useState(false);
+  const [kepalaSekolah, setKepalaSekolah] = useState(() => {
+    try {
+      return localStorage.getItem('hubin_kepala_sekolah') || '';
+    } catch {
+      return '';
+    }
+  });
   const [dudiList, setDudiList] = useState<Dudi[]>([]);
   const [pengajuanList, setPengajuanList] = useState<Pengajuan[]>([]);
+  const [siswaList, setSiswaList] = useState<Siswa[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let localVal = '';
+    try {
+      localVal = localStorage.getItem('hubin_kepala_sekolah') || '';
+      if (localVal) setKepalaSekolah(localVal);
+    } catch {
+      // ignore
+    }
+    if (!localVal.trim()) {
+      PublicPortalClient.getDocumentSigners()
+        .then((res) => {
+          if (!res?.kepalaSekolah) return;
+          setKepalaSekolah(res.kepalaSekolah);
+          try {
+            localStorage.setItem('hubin_kepala_sekolah', res.kepalaSekolah);
+          } catch {
+            // ignore
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
     Promise.all([
       DudiService.getInstance().getAll().catch(() => [] as Dudi[]),
       PengajuanService.getInstance().getAll().catch(() => [] as Pengajuan[]),
-    ]).then(([dRows, pRows]) => {
+      SiswaService.getInstance().getAll().catch(() => [] as Siswa[]),
+    ]).then(([dRows, pRows, sRows]) => {
       setDudiList(dRows);
       setPengajuanList(pRows);
+      setSiswaList(sRows);
     });
   }, [isOpen]);
+
+  const siswaByNis = useMemo(() => {
+    const map = new Map<string, Siswa>();
+    for (const s of siswaList) {
+      const key = getCanonicalNisDigits(s.nis);
+      if (key) map.set(key, s);
+    }
+    return map;
+  }, [siswaList]);
 
   if (!isOpen) return null;
 
@@ -491,7 +537,11 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
               </p>
             </div>
           ) : (
-            <div className="bg-white w-full max-w-[760px] px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm">
+            <div
+              className={`bg-white w-full max-w-[760px] px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm ${
+                docType === 'nilai' ? 'flex flex-col min-h-[1040px]' : ''
+              }`}
+            >
               {includeKop && !isOverprintOnly && (
                 <OfficialSchoolKop0708 variant="school" />
               )}
@@ -504,6 +554,8 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
                 isOverprintOnly,
                 dudiList,
                 pengajuanList,
+                siswaByNis,
+                kepalaSekolah,
               })}
             </div>
           )}
@@ -563,6 +615,8 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
                 isOverprintOnly,
                 dudiList,
                 pengajuanList,
+                siswaByNis,
+                kepalaSekolah,
               })}
             </div>
           ))}
@@ -623,6 +677,8 @@ function renderDocContent(
     isOverprintOnly: boolean;
     dudiList: Dudi[];
     pengajuanList: Pengajuan[];
+    siswaByNis: Map<string, Siswa>;
+    kepalaSekolah: string;
   }
 ) {
   const {
@@ -633,12 +689,17 @@ function renderDocContent(
     isOverprintOnly,
     dudiList,
     pengajuanList,
+    siswaByNis,
+    kepalaSekolah,
   } = options;
-  const studentName = student.nama || student.namaSiswa || student.nama_siswa || '-';
-  const studentNis = formatNisVisual(student.nis || student.NIS || '');
-  const studentNik = student.nik || student.NIK || '-';
-  const studentJurusan = student.jurusan || student.Jurusan || '-';
-  const studentKelas = student.kelas || student.Kelas || '-';
+  const rawNis = student.nis || student.NIS || '';
+  const canonicalNisKey = getCanonicalNisDigits(rawNis);
+  const matchedSiswa = canonicalNisKey ? siswaByNis.get(canonicalNisKey) : undefined;
+  const studentName = matchedSiswa?.nama || student.nama || student.namaSiswa || student.nama_siswa || '-';
+  const studentNis = formatNisVisual(matchedSiswa?.nis || rawNis);
+  const studentNik = matchedSiswa?.nik || student.nik || student.NIK || '-';
+  const studentJurusan = matchedSiswa?.jurusan || student.jurusan || student.Jurusan || '-';
+  const studentKelas = matchedSiswa?.kelas || student.kelas || student.Kelas || '-';
   const dudiName =
     student.dudiTujuan ||
     student.namaDudi ||
@@ -792,7 +853,7 @@ function renderDocContent(
           <div className="text-center">
             <div>Kepala SMK PGRI 2 Ponorogo,</div>
             <div className="h-16" />
-            <div className="font-bold underline">................................................</div>
+            <div className="font-bold underline">{kepalaSekolah || '................................................'}</div>
             <div className="text-[11px] text-slate-500">NIP. ..................................</div>
           </div>
         </div>
@@ -1196,7 +1257,7 @@ function renderDocContent(
         <div className="text-center">
           <div>Kepala SMK PGRI 2 Ponorogo,</div>
           <div className="h-14" />
-          <div className="font-bold underline">................................................</div>
+          <div className="font-bold underline">{kepalaSekolah || '................................................'}</div>
           <div className="text-[10px] text-slate-500">NIP. ..................................</div>
         </div>
       </div>

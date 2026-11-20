@@ -1,4 +1,8 @@
-import { MONITORING_STAGES } from '../types/schema';
+import {
+  DEFAULT_MONITORING_STAGE_CONTROL,
+  MONITORING_STAGES,
+  type MonitoringStageControl,
+} from '../types/schema';
 import { normalizeToIsoDate } from './dateHelpers';
 import { stripNisSymbols } from './nisHelpers';
 
@@ -374,4 +378,41 @@ export function buildStudentMonitoringSummary(
     submittedGradeSummary,
     stageLogs,
   };
+}
+
+export function pickRecommendedStageForControl(
+  completedStages: number[],
+  control?: MonitoringStageControl | null
+): number {
+  const unlocked = Array.isArray(control?.unlockedStages)
+    ? Array.from(
+        new Set(
+          control!.unlockedStages
+            .map((n) => Number(n))
+            .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+        )
+      ).sort((a, b) => a - b)
+    : [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages];
+  const requireSequential =
+    typeof control?.requireSequential === 'boolean'
+      ? control.requireSequential
+      : DEFAULT_MONITORING_STAGE_CONTROL.requireSequential;
+  const completed = Array.isArray(completedStages) ? completedStages : [];
+
+  if (unlocked.length > 0) {
+    if (requireSequential) {
+      const nextSequential = unlocked.find(
+        (num) => !completed.includes(num) && (num === 1 || completed.includes(num - 1))
+      );
+      if (nextSequential !== undefined) return nextSequential;
+    }
+    const firstUnlockedPending = unlocked.find((num) => !completed.includes(num));
+    if (firstUnlockedPending !== undefined) return firstUnlockedPending;
+    return unlocked[0];
+  }
+
+  if (completed.length > 0) {
+    return completed[completed.length - 1];
+  }
+  return 1;
 }

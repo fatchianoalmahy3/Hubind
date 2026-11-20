@@ -33,6 +33,7 @@ export const PrintPortal: React.FC<PrintPortalProps> = ({ paperSize = 'A4', chil
   if (!portalEl) return null;
 
   const pageCssSize = paperSize === 'F4' ? '215mm 330mm' : 'A4 portrait';
+  const pageMinHeight = paperSize === 'F4' ? '315mm' : '282mm';
 
   return createPortal(
     <>
@@ -40,6 +41,11 @@ export const PrintPortal: React.FC<PrintPortalProps> = ({ paperSize = 'A4', chil
         @page {
           size: ${pageCssSize};
           margin: 6mm 10mm 7mm 10mm;
+        }
+        @media print {
+          :root {
+            --hubin-print-page-height: ${pageMinHeight};
+          }
         }
       `}</style>
       {children}

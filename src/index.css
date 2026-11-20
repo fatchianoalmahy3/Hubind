@@ -90,6 +90,41 @@
   }
 }
 
+.hubin-doc-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hubin-doc-shell > tbody {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.hubin-doc-shell > tbody > tr,
+.hubin-doc-shell > tbody > tr > td {
+  display: block;
+  width: 100%;
+  padding: 0;
+}
+
+.hubin-doc-shell > tfoot {
+  display: block;
+  width: 100%;
+  margin-top: auto;
+}
+
+.hubin-doc-shell > tfoot > tr,
+.hubin-doc-shell > tfoot > tr > td {
+  display: block;
+  width: 100%;
+  padding: 0;
+}
+
 @media screen {
   #hubin-print-portal {
     display: none !important;
@@ -161,6 +196,47 @@
   #hubin-print-portal tr {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell {
+    display: table !important;
+    width: 100% !important;
+    height: var(--hubin-print-page-height, 282mm) !important;
+    border-collapse: collapse !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell > tbody {
+    display: table-row-group !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell > tbody > tr {
+    display: table-row !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell > tbody > tr > td {
+    display: table-cell !important;
+    vertical-align: top !important;
+    padding: 0 !important;
+    border: none !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell > tfoot {
+    display: table-footer-group !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell > tfoot > tr {
+    display: table-row !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  #hubin-print-portal .hubin-doc-shell > tfoot > tr > td {
+    display: table-cell !important;
+    vertical-align: bottom !important;
+    padding: 0 !important;
+    border: none !important;
   }
 
   .no-print {

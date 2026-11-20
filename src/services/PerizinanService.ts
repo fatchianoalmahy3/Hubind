@@ -13,6 +13,11 @@ import {
   getTodayIsoDate,
 } from '../core/utils/autoIdHelpers';
 import { stripNisSymbols } from '../core/utils/nisHelpers';
+import {
+  getCanonicalNisDigits,
+  isActivePlacementStatus,
+  normalizeRelationText,
+} from '../core/utils/relationHelpers';
 
 export class PerizinanService extends BaseRepository<PerizinanPKL> {
   private static instance: PerizinanService;
@@ -56,15 +61,16 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     const noPerizinan = generateNextSequentialId('Data_Perizinan_PKL', existingList as any);
     const noSuratPermohonan = generateNextSuratPermohonan(existingList as any);
 
+    const canonicalNis = siswa ? stripNisSymbols(siswa.nis) || siswa.nis : pengajuanNis;
     const created = await this.create(
       {
         id: noPerizinan,
         noPerizinan,
         noPengajuan: pengajuan.noPengajuan || pengajuan.id,
-        nis: pengajuanNis,
-        namaSiswa: pengajuan.namaSiswa,
-        jurusan: pengajuan.jurusan,
-        kelas: pengajuan.kelas,
+        nis: canonicalNis,
+        namaSiswa: siswa?.nama || pengajuan.namaSiswa,
+        jurusan: siswa?.jurusan || pengajuan.jurusan,
+        kelas: siswa?.kelas || pengajuan.kelas,
         namaOrtuWali: siswa?.namaOrtuWali || pengajuan.namaOrtuWali || '',
         statusIzinOrtu: '',
         tanggalMulaiIzin: '',
@@ -121,38 +127,64 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
       throw new Error('Data perizinan tidak ditemukan.');
     }
 
-    const [dudiList, guru] = await Promise.all([
+    const [dudiList, guru, existingPlottings, siswaMaster] = await Promise.all([
       DudiService.getInstance().getAll().catch(() => []),
       GuruService.getInstance().getByNama(guruPendamping).catch(() => null),
+      SiswaPklService.getInstance().getAll(),
+      item.nis ? SiswaService.getInstance().getByNis(item.nis).catch(() => null) : Promise.resolve(null),
     ]);
 
+    const itemNis = getCanonicalNisDigits(siswaMaster?.nis || item.nis);
+    const canonicalNama = siswaMaster?.nama || item.namaSiswa;
+    const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
     const matchedDudi = dudiList.find(
-      (d) => d.namaDudi.trim().toLowerCase() === item.dudiTujuan.trim().toLowerCase()
+      (d) => normalizeRelationText(d.namaDudi) === targetDudiNorm
+    );
+    const effectiveDudiName = matchedDudi?.namaDudi || item.dudiTujuan;
+    const effectiveGuruName = guru?.nama || guruPendamping || matchedDudi?.guruPendamping || '';
+    const effectiveGuruId = guru?.id || matchedDudi?.idGuruPendamping || '';
+
+    const activeForNis = itemNis
+      ? existingPlottings.filter(
+          (p) =>
+            getCanonicalNisDigits(p.nis) === itemNis &&
+            isActivePlacementStatus(p.statusPenempatan)
+        )
+      : [];
+
+    const existingSameDudi = activeForNis.find(
+      (p) =>
+        (matchedDudi?.id && p.idDudi === matchedDudi.id) ||
+        normalizeRelationText(p.namaDudi) === targetDudiNorm
+    );
+    const existingOtherDudi = activeForNis.find(
+      (p) => !existingSameDudi || p.id !== existingSameDudi.id
     );
 
-    const existingPlottings = await SiswaPklService.getInstance().getAll();
-    const itemNis = stripNisSymbols(item.nis) || String(item.nis || '').trim();
-    const existingActive = existingPlottings.find(
-      (p) =>
-        (stripNisSymbols(p.nis) || p.nis) === itemNis &&
-        p.namaDudi.trim().toLowerCase() === item.dudiTujuan.trim().toLowerCase() &&
-        p.statusPenempatan !== 'Dibatalkan'
-    );
+    if (existingOtherDudi) {
+      throw new Error(
+        `Siswa ${canonicalNama} (${itemNis}) masih memiliki penempatan PKL aktif (${existingOtherDudi.statusPenempatan}) di ${existingOtherDudi.namaDudi}. Ubah status lama ke "Selesai PKL" / "Pindah DUDI" terlebih dahulu.`
+      );
+    }
 
     let penempatan: PenempatanPKL;
-    if (existingActive) {
+    if (existingSameDudi) {
       const updated = await SiswaPklService.getInstance().update(
-        existingActive.id,
+        existingSameDudi.id,
         {
-          idGuruPendamping: guru?.id || existingActive.idGuruPendamping,
-          guruPendamping,
+          nis: itemNis || existingSameDudi.nis,
+          namaSiswa: canonicalNama,
+          idDudi: matchedDudi?.id || existingSameDudi.idDudi,
+          namaDudi: effectiveDudiName,
+          idGuruPendamping: effectiveGuruId || existingSameDudi.idGuruPendamping,
+          guruPendamping: effectiveGuruName,
           tanggalBerangkat,
           tanggalRencanaTarik,
           statusPenempatan: 'Terjadwal',
         },
         options
       );
-      penempatan = updated || existingActive;
+      penempatan = updated || existingSameDudi;
     } else {
       const idPenempatan = generateNextSequentialId(
         'Plotting_Pemberangkatan',
@@ -162,12 +194,12 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
         {
           id: idPenempatan,
           idPenempatan,
-          nis: itemNis,
-          namaSiswa: item.namaSiswa,
+          nis: itemNis || String(item.nis || '').trim(),
+          namaSiswa: canonicalNama,
           idDudi: matchedDudi?.id || '',
-          namaDudi: item.dudiTujuan,
-          idGuruPendamping: guru?.id || '',
-          guruPendamping,
+          namaDudi: effectiveDudiName,
+          idGuruPendamping: effectiveGuruId,
+          guruPendamping: effectiveGuruName,
           tanggalBerangkat,
           tanggalRencanaTarik,
           statusPenempatan: 'Terjadwal',

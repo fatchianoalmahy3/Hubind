@@ -46,6 +46,10 @@
           "type": "array",
           "description": "Bounded list (max 15) of Google Docs template configurations"
         },
+        "monitoringStageControl": {
+          "type": "object",
+          "description": "Global monitoring stage lock settings controlled by SuperAdmin (requireSequential, unlockedStages 1..8, lockedReason)"
+        },
         "updatedBy": {
           "type": "string",
           "description": "UID of the admin who last updated the workspace configuration",

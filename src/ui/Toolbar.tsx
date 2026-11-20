@@ -17,6 +17,7 @@ import {
   X,
   BarChart3,
   Printer,
+  Lock,
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -36,6 +37,7 @@ interface ToolbarProps {
   onSyncRelations?: () => void;
   onOpenMonitoringRecap?: () => void;
   onOpenMonitoringBundle?: () => void;
+  onOpenStageControl?: () => void;
   syncingRelations?: boolean;
   canAdd?: boolean;
   viewMode?: 'table' | 'card';
@@ -59,9 +61,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSyncRelations,
   onOpenMonitoringRecap,
   onOpenMonitoringBundle,
+  onOpenStageControl,
   syncingRelations = false,
   canAdd = true,
-  viewMode = 'table',
+  viewMode = 'card',
   onViewModeChange,
 }) => {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
@@ -86,7 +89,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   }, [toolsMenuOpen]);
 
   const hasLeftWorkflowActions =
-    selectedCount > 0 || Boolean(onOpenMonitoringBundle) || Boolean(onOpenMonitoringRecap);
+    selectedCount > 0 ||
+    Boolean(onOpenMonitoringBundle) ||
+    Boolean(onOpenMonitoringRecap) ||
+    Boolean(onOpenStageControl);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col gap-2.5">
@@ -206,6 +212,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               >
                 <BarChart3 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 <span>Rekap &amp; Info Kakomli</span>
+              </button>
+            )}
+
+            {onOpenStageControl && (
+              <button
+                type="button"
+                onClick={onOpenStageControl}
+                className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                title="Kunci atau Buka Tahapan Monitoring (Khusus SuperAdmin)"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>Kunci Tahapan</span>
               </button>
             )}
           </div>

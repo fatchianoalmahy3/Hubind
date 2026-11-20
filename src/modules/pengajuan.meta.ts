@@ -69,8 +69,10 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       isSortable: true,
       relationSource: 'siswa',
       autocomplete: true,
-      allowCustomValue: true,
+      allowCustomValue: false,
       validation: { required: true },
+      placeholder: 'Pilih Nama Siswa / NIS dari Master Siswa...',
+      helperText: 'Sumber: Master Siswa',
     },
     {
       key: 'nis',
@@ -81,7 +83,9 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       isSearchable: true,
       relationSource: 'siswa',
       autocomplete: true,
-      allowCustomValue: true,
+      allowCustomValue: false,
+      validation: { required: true },
+      placeholder: 'Pilih NIS dari Master Siswa...',
     },
     {
       key: 'jurusan',
@@ -113,6 +117,15 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       isFormInput: true,
       isFilterable: true,
       relationSource: 'kelas',
+    },
+    {
+      key: 'idDudi',
+      label: 'ID DUDI',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis saat memilih Mitra DUDI',
     },
     {
       key: 'dudiTujuan',
@@ -238,6 +251,15 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       ],
     },
     {
+      key: 'idGuruPendamping',
+      label: 'ID Guru Pendamping',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis dari Mitra DUDI / Master Guru',
+    },
+    {
       key: 'guruPendamping',
       label: 'Guru Pendamping',
       type: 'text',
@@ -245,6 +267,7 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       isFormInput: true,
       isSearchable: true,
       relationSource: 'guru',
+      helperText: 'Terisi otomatis jika Mitra DUDI sudah memiliki Guru Pendamping default',
     },
     {
       key: 'tanggalBerangkat',

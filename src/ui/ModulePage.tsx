@@ -28,16 +28,19 @@ import {
   ExternalLink,
   FileDown,
   Loader2,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { DudiService } from '../services/DudiService';
 import { PengajuanService } from '../services/PengajuanService';
 import { PerizinanService } from '../services/PerizinanService';
 import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
+import { SiswaPklService } from '../services/SiswaPklService';
 import { RelationSyncService } from '../services/RelationSyncService';
 import { PublicPortalClient } from '../core/PublicPortalClient';
 import { MonitoringRecapModal } from './MonitoringRecapModal';
-import { Guru, Jurusan } from '../core/types/schema';
+import { MonitoringStageControlModal } from './MonitoringStageControlModal';
+import { Dudi, Guru, Jurusan } from '../core/types/schema';
 import { ToastManager } from '../core/ToastManager';
 import { getTodayIsoDate, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import {
@@ -48,6 +51,11 @@ import {
   normalizeToIsoDate,
 } from '../core/utils/dateHelpers';
 import { formatNisVisual } from '../core/utils/nisHelpers';
+import {
+  getCanonicalNisDigits,
+  isActivePlacementStatus,
+  normalizeRelationText,
+} from '../core/utils/relationHelpers';
 import {
   calculateEqualWeightedAverage,
   getPredikatFromScore,
@@ -113,13 +121,8 @@ export function ModulePage<T extends { id: string }>({
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
-  // Responsive viewMode: Default to 'card' on smartphone and tablet (< 1024px), 'table' on desktop
-  const [viewMode, setViewMode] = useState<'table' | 'card'>(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth < 1024 ? 'card' : 'table';
-    }
-    return 'card';
-  });
+  // Default viewMode: 'card' (user can switch to 'table' anytime from Toolbar)
+  const [viewMode, setViewMode] = useState<'table' | 'card'>('card');
 
   // Confirmation modal state (Apple Style)
   const [confirmModal, setConfirmModal] = useState<{
@@ -152,9 +155,10 @@ export function ModulePage<T extends { id: string }>({
   // Action prompt modal state (Apple Style replacement for window.prompt)
   const [actionModal, setActionModal] = useState<{
     isOpen: boolean;
-    type: 'reject_kakomli' | 'schedule_hubin' | 'promote_to_pkl' | null;
+    type: 'reject_kakomli' | 'schedule_hubin' | 'promote_to_pkl' | 'transfer_dudi' | null;
     row: any | null;
     reason: string;
+    newDudi: string;
     guruPendamping: string;
     tanggalBerangkat: string;
     tanggalRencanaTarik: string;
@@ -164,15 +168,18 @@ export function ModulePage<T extends { id: string }>({
     type: null,
     row: null,
     reason: 'Kompetensi tidak linier',
+    newDudi: '',
     guruPendamping: '',
     tanggalBerangkat: getTodayWibIsoDate(),
     tanggalRencanaTarik: getOffsetWibIsoDate(120),
     submitting: false,
   });
   const [guruList, setGuruList] = useState<Guru[]>([]);
+  const [dudiList, setDudiList] = useState<Dudi[]>([]);
   const [syncingRelations, setSyncingRelations] = useState(false);
   const [allExistingRows, setAllExistingRows] = useState<T[]>([]);
   const [isMonitoringRecapOpen, setIsMonitoringRecapOpen] = useState(false);
+  const [isStageControlOpen, setIsStageControlOpen] = useState(false);
 
   // Kirim WA & PDF Surat Izin modal state (DUDI / Kakomli)
   const [waModal, setWaModal] = useState<{
@@ -219,6 +226,16 @@ export function ModulePage<T extends { id: string }>({
     setIsAddModalOpen(true);
   };
 
+  const handleOpenEditModal = async (row: T) => {
+    try {
+      const fullList = await repository.getAll();
+      setAllExistingRows(fullList);
+    } catch {
+      setAllExistingRows(data);
+    }
+    setEditingRow(row);
+  };
+
   const handleSyncRelations = async () => {
     setSyncingRelations(true);
     const toastId = ToastManager.getInstance().show(
@@ -258,13 +275,24 @@ export function ModulePage<T extends { id: string }>({
     }
   };
 
-  const loadGuruOptions = async () => {
-    try {
-      const list = await GuruService.getInstance().getAll();
-      setGuruList(list);
-    } catch {
-      setGuruList([]);
-    }
+  const loadGuruOptions = async (): Promise<{ gurus: Guru[]; dudis: Dudi[] }> => {
+    const guruSvc = GuruService.getInstance();
+    const dudiSvc = DudiService.getInstance();
+    const [gurus, dudis] = await Promise.all([
+      guruSvc
+        .reloadFromSpreadsheet()
+        .then(() => guruSvc.getAll())
+        .catch(() => guruSvc.getAll())
+        .catch(() => [] as Guru[]),
+      dudiSvc
+        .reloadFromSpreadsheet()
+        .then(() => dudiSvc.getAll())
+        .catch(() => dudiSvc.getAll())
+        .catch(() => [] as Dudi[]),
+    ]);
+    setGuruList(gurus);
+    setDudiList(dudis);
+    return { gurus, dudis };
   };
 
   const activeFilterCount = Object.keys(filter).length;
@@ -332,6 +360,14 @@ export function ModulePage<T extends { id: string }>({
   }
 
   if (metadata.id === 'siswa_pkl' || metadata.id === 'sertifikat') {
+    if (metadata.id === 'siswa_pkl' && isHubinOrSuper) {
+      customRowActions.push({
+        name: 'transfer_dudi',
+        label: 'Pindah DUDI',
+        icon: ArrowRightLeft,
+        color: 'hover:text-orange-600 hover:bg-orange-50 text-orange-600',
+      });
+    }
     customRowActions.push({
       name: 'print_docs',
       label: 'Cetak Dokumen',
@@ -381,19 +417,25 @@ export function ModulePage<T extends { id: string }>({
         type: 'reject_kakomli',
         row: item,
         reason: 'Kompetensi tidak linier dengan bidang pekerjaan DUDI',
+        newDudi: '',
         guruPendamping: '',
         tanggalBerangkat: getTodayWibIsoDate(),
         tanggalRencanaTarik: '',
         submitting: false,
       });
     } else if (actionName === 'schedule_hubin') {
-      await loadGuruOptions();
+      const { dudis } = await loadGuruOptions();
+      const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
+      const matchedDudi =
+        (item.idDudi ? dudis.find((d) => d.id === item.idDudi) : undefined) ||
+        dudis.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
       setActionModal({
         isOpen: true,
         type: 'schedule_hubin',
         row: item,
         reason: '',
-        guruPendamping: item.guruPendamping || '',
+        newDudi: '',
+        guruPendamping: item.guruPendamping || matchedDudi?.guruPendamping || '',
         tanggalBerangkat: normalizeToIsoDate(item.tanggalBerangkat) || getTodayWibIsoDate(),
         tanggalRencanaTarik: '',
         submitting: false,
@@ -470,7 +512,9 @@ export function ModulePage<T extends { id: string }>({
         message: composedMsg,
       });
     } else if (actionName === 'promote_to_pkl') {
-      await loadGuruOptions();
+      const { dudis } = await loadGuruOptions();
+      const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
+      const matchedDudi = dudis.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
       const todayWib = getTodayWibIsoDate();
       const fourMonthsLater = getOffsetWibIsoDate(120, todayWib);
       setActionModal({
@@ -478,9 +522,32 @@ export function ModulePage<T extends { id: string }>({
         type: 'promote_to_pkl',
         row: item,
         reason: '',
-        guruPendamping: '',
+        newDudi: '',
+        guruPendamping: matchedDudi?.guruPendamping || '',
         tanggalBerangkat: todayWib,
         tanggalRencanaTarik: fourMonthsLater,
+        submitting: false,
+      });
+    } else if (actionName === 'transfer_dudi') {
+      if (!isActivePlacementStatus(item.statusPenempatan)) {
+        ToastManager.getInstance().show(
+          'Penempatan Sudah Non-Aktif',
+          'info',
+          `Pindah DUDI hanya berlaku untuk status Terjadwal / Sedang Berjalan (saat ini: ${item.statusPenempatan}).`
+        );
+        return;
+      }
+      await loadGuruOptions();
+      const todayWib = getTodayWibIsoDate();
+      setActionModal({
+        isOpen: true,
+        type: 'transfer_dudi',
+        row: item,
+        reason: '',
+        newDudi: '',
+        guruPendamping: item.guruPendamping || '',
+        tanggalBerangkat: todayWib,
+        tanggalRencanaTarik: normalizeToIsoDate(item.tanggalRencanaTarik) || getOffsetWibIsoDate(120, todayWib),
         submitting: false,
       });
     } else if (actionName === 'print_docs') {
@@ -500,11 +567,12 @@ export function ModulePage<T extends { id: string }>({
       reject_kakomli: 'Menyimpan Penolakan Pengajuan...',
       schedule_hubin: 'Menjadwalkan Pemberangkatan...',
       promote_to_pkl: 'Menerbitkan ke Data Siswa PKL...',
+      transfer_dudi: 'Memproses Pindah DUDI Siswa...',
     };
     const toastId = ToastManager.getInstance().show(
       toastTitleMap[actionModal.type],
       'pending',
-      `${actionModal.row.namaSiswa} · ${actionModal.row.dudiTujuan}`
+      `${actionModal.row.namaSiswa} · ${actionModal.row.dudiTujuan || actionModal.row.namaDudi || ''}`
     );
 
     try {
@@ -552,6 +620,24 @@ export function ModulePage<T extends { id: string }>({
           'Resmi Diterbitkan ke Data Siswa PKL',
           'success',
           `${actionModal.row.namaSiswa} kini tercatat aktif di Data Siswa PKL.`
+        );
+      } else if (actionModal.type === 'transfer_dudi') {
+        if (!actionModal.newDudi.trim() || !actionModal.guruPendamping.trim() || !actionModal.tanggalBerangkat) {
+          throw new Error('DUDI tujuan baru, Guru Pendamping, dan Tanggal Berangkat wajib diisi.');
+        }
+        const res = await SiswaPklService.getInstance().transferDudi({
+          sourcePlacementId: actionModal.row.id,
+          newDudiName: actionModal.newDudi.trim(),
+          newGuruPendamping: actionModal.guruPendamping.trim(),
+          tanggalBerangkat: actionModal.tanggalBerangkat,
+          tanggalRencanaTarik: actionModal.tanggalRencanaTarik,
+          reason: actionModal.reason.trim(),
+        });
+        ToastManager.getInstance().update(
+          toastId,
+          'Pindah DUDI Berhasil Dicatat',
+          'success',
+          `${actionModal.row.namaSiswa} dipindahkan ke ${res.newPlacement.namaDudi}. Riwayat lama tersimpan sebagai Pindah DUDI.`
         );
       }
 
@@ -635,8 +721,9 @@ export function ModulePage<T extends { id: string }>({
       confirmText: 'Simpan ke Server',
       onConfirm: async () => {
         await repository.create(nextValues);
+        setPage(1);
         await RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id)
+          .syncAfterMutation(metadata.id, 'create')
           .catch(() => {});
         await refresh();
       },
@@ -648,6 +735,18 @@ export function ModulePage<T extends { id: string }>({
     if (!editingRow) return;
 
     const nextValues = normalizeGradePayload(values);
+    if (metadata.id === 'siswa_pkl') {
+      const prevRow = editingRow as any;
+      const oldGuru = String(prevRow.guruPendamping || '').trim();
+      const newGuru = String(nextValues.guruPendamping || '').trim();
+      if (oldGuru && newGuru && normalizeRelationText(oldGuru) !== normalizeRelationText(newGuru)) {
+        const handoverLine = `[${getTodayWibIsoDate()}] Alih pendamping: ${oldGuru} -> ${newGuru}`;
+        const prevNote = String(nextValues.catatanPenempatan || '').trim();
+        if (!prevNote.includes(handoverLine)) {
+          nextValues.catatanPenempatan = prevNote ? `${prevNote}\n${handoverLine}` : handoverLine;
+        }
+      }
+    }
 
     setConfirmModal({
       isOpen: true,
@@ -658,7 +757,7 @@ export function ModulePage<T extends { id: string }>({
       onConfirm: async () => {
         await repository.update(editingRow.id, nextValues);
         await RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id)
+          .syncAfterMutation(metadata.id, 'update')
           .catch(() => {});
         setEditingRow(null);
         await refresh();
@@ -677,7 +776,7 @@ export function ModulePage<T extends { id: string }>({
       onConfirm: async () => {
         await deleteRow(row.id);
         await RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id)
+          .syncAfterMutation(metadata.id, 'delete')
           .catch(() => {});
       },
     });
@@ -811,6 +910,11 @@ export function ModulePage<T extends { id: string }>({
         onOpenMonitoringBundle={
           metadata.id === 'monitoring' ? onOpenMonitoringBundle : undefined
         }
+        onOpenStageControl={
+          metadata.id === 'monitoring' && isSuperAdmin
+            ? () => setIsStageControlOpen(true)
+            : undefined
+        }
         syncingRelations={syncingRelations}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -832,7 +936,7 @@ export function ModulePage<T extends { id: string }>({
         selectedIds={selectedIds}
         onToggleSelectRow={toggleSelectRow}
         onToggleSelectAll={toggleSelectAll}
-        onEdit={(row) => setEditingRow(row)}
+        onEdit={handleOpenEditModal}
         onDelete={handleDeleteRow}
         onCustomAction={handleCustomAction}
         customRowActions={customRowActions}
@@ -887,7 +991,7 @@ export function ModulePage<T extends { id: string }>({
           title={`Edit Data ${metadata.title}`}
           fields={metadata.fields}
           initialData={editingRow}
-          existingRows={data}
+          existingRows={allExistingRows.length > 0 ? allExistingRows : data}
           moduleId={metadata.id}
           tableName={metadata.tableName}
           onSubmit={handleEditSubmit}
@@ -986,7 +1090,42 @@ export function ModulePage<T extends { id: string }>({
         fields={metadata.fields}
         moduleTitle={metadata.title}
         onImport={async (newRows) => {
-          const count = await repository.importRows(newRows);
+          let rowsToImport = newRows;
+          if (metadata.id === 'siswa') {
+            const existingAll = await repository.getAll().catch(() => data);
+            const seenNis = new Set<string>(
+              existingAll
+                .map((r: any) => getCanonicalNisDigits(r?.nis))
+                .filter(Boolean)
+            );
+            const deduped: any[] = [];
+            let skipped = 0;
+            for (const row of newRows as any[]) {
+              const nisDigits = getCanonicalNisDigits(row?.nis);
+              if (nisDigits && seenNis.has(nisDigits)) {
+                skipped++;
+                continue;
+              }
+              if (nisDigits) {
+                seenNis.add(nisDigits);
+                row.nis = nisDigits;
+              }
+              deduped.push(row);
+            }
+            rowsToImport = deduped;
+            if (skipped > 0) {
+              ToastManager.getInstance().show(
+                `${skipped} Baris NIS Duplikat Dilewati`,
+                'info',
+                '1 siswa hanya boleh memiliki 1 NIS unik di Master Siswa.'
+              );
+            }
+          }
+          const count = await repository.importRows(rowsToImport);
+          setPage(1);
+          await RelationSyncService.getInstance()
+            .syncAfterMutation(metadata.id, 'import')
+            .catch(() => {});
           await refresh();
           return count;
         }}
@@ -1018,9 +1157,11 @@ export function ModulePage<T extends { id: string }>({
                   {actionModal.type === 'reject_kakomli' && 'Tolak Pengajuan PKL'}
                   {actionModal.type === 'schedule_hubin' && 'Jadwalkan Pemberangkatan PKL'}
                   {actionModal.type === 'promote_to_pkl' && 'Terbitkan ke Data Siswa PKL'}
+                  {actionModal.type === 'transfer_dudi' && 'Pindah DUDI Siswa PKL'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5 truncate">
-                  {actionModal.row.namaSiswa} ({formatNisVisual(actionModal.row.nis)}) · {actionModal.row.dudiTujuan}
+                  {actionModal.row.namaSiswa} ({formatNisVisual(actionModal.row.nis)}) ·{' '}
+                  {actionModal.row.dudiTujuan || actionModal.row.namaDudi}
                 </p>
               </div>
               <button
@@ -1053,6 +1194,57 @@ export function ModulePage<T extends { id: string }>({
                 </div>
               ) : (
                 <>
+                  {actionModal.type === 'transfer_dudi' && (
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Mitra DUDI Tujuan Baru <span className="text-rose-500">*</span>
+                      </label>
+                      {dudiList.length > 0 ? (
+                        <select
+                          required
+                          value={actionModal.newDudi}
+                          onChange={(e) => {
+                            const selectedName = e.target.value;
+                            const matched = dudiList.find(
+                              (d) => normalizeRelationText(d.namaDudi) === normalizeRelationText(selectedName)
+                            );
+                            setActionModal((prev) => ({
+                              ...prev,
+                              newDudi: selectedName,
+                              guruPendamping: matched?.guruPendamping || prev.guruPendamping,
+                            }));
+                          }}
+                          className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                        >
+                          <option value="">-- Pilih Mitra DUDI Baru --</option>
+                          {dudiList
+                            .filter(
+                              (d) =>
+                                normalizeRelationText(d.namaDudi) !==
+                                normalizeRelationText(actionModal.row.namaDudi)
+                            )
+                            .map((d, idx) => (
+                              <option key={`${d.id || 'dudi'}_${idx}`} value={d.namaDudi}>
+                                {d.namaDudi} ({d.terisi ?? 0}/{d.kuotaMaksimal ?? 0})
+                                {d.guruPendamping ? ` · ${d.guruPendamping}` : ''}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          required
+                          value={actionModal.newDudi}
+                          onChange={(e) =>
+                            setActionModal((prev) => ({ ...prev, newDudi: e.target.value }))
+                          }
+                          placeholder="Ketik nama DUDI tujuan baru..."
+                          className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                        />
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1.5">
                       Guru Pendamping Lapangan <span className="text-rose-500">*</span>
@@ -1116,7 +1308,8 @@ export function ModulePage<T extends { id: string }>({
                         className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 tabular-nums"
                       />
                     </div>
-                    {actionModal.type === 'promote_to_pkl' && (
+                    {(actionModal.type === 'promote_to_pkl' ||
+                      actionModal.type === 'transfer_dudi') && (
                       <div>
                         <label className="block font-semibold text-slate-700 mb-1.5">
                           Rencana Tanggal Tarik
@@ -1135,6 +1328,23 @@ export function ModulePage<T extends { id: string }>({
                       </div>
                     )}
                   </div>
+
+                  {actionModal.type === 'transfer_dudi' && (
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Alasan Pindah / Catatan Mutasi
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={actionModal.reason}
+                        onChange={(e) =>
+                          setActionModal((prev) => ({ ...prev, reason: e.target.value }))
+                        }
+                        placeholder="Contoh: Ketidakcocokan shift/lingkungan atau relokasi mitra DUDI"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500"
+                      />
+                    </div>
+                  )}
                 </>
               )}
 
@@ -1153,6 +1363,8 @@ export function ModulePage<T extends { id: string }>({
                   className={`h-9 px-4 rounded-lg text-white font-semibold cursor-pointer disabled:opacity-50 ${
                     actionModal.type === 'reject_kakomli'
                       ? 'bg-rose-600 hover:bg-rose-700'
+                      : actionModal.type === 'transfer_dudi'
+                      ? 'bg-orange-600 hover:bg-orange-700'
                       : 'bg-blue-600 hover:bg-blue-700'
                   }`}
                 >
@@ -1162,6 +1374,8 @@ export function ModulePage<T extends { id: string }>({
                     ? 'Tolak Pengajuan'
                     : actionModal.type === 'promote_to_pkl'
                     ? 'Terbitkan ke Data Siswa PKL'
+                    : actionModal.type === 'transfer_dudi'
+                    ? 'Proses Pindah DUDI'
                     : 'Simpan Jadwal'}
                 </button>
               </div>
@@ -1497,6 +1711,13 @@ export function ModulePage<T extends { id: string }>({
         <MonitoringRecapModal
           isOpen={isMonitoringRecapOpen}
           onClose={() => setIsMonitoringRecapOpen(false)}
+        />
+      )}
+
+      {isSuperAdmin && isStageControlOpen && (
+        <MonitoringStageControlModal
+          isOpen={isStageControlOpen}
+          onClose={() => setIsStageControlOpen(false)}
         />
       )}
     </div>

@@ -359,7 +359,7 @@ export function DynamicDataGrid<T extends { id: string }>({
   onDelete,
   onCustomAction,
   customRowActions = [],
-  viewMode = 'table',
+  viewMode = 'card',
 }: DynamicDataGridProps<T>) {
   const tableColumns = fields.filter((f) => f.isTableColumn);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));

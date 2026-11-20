@@ -209,7 +209,7 @@ export const ResizablePaperPreview: React.FC<ResizablePaperPreviewProps> = ({
               className={
                 unstyledCanvas
                   ? 'relative'
-                  : `relative bg-white rounded-xl shadow-md border border-slate-300 text-slate-950 ${sheetClassName}`
+                  : `relative flex flex-col bg-white rounded-xl shadow-md border border-slate-300 text-slate-950 ${sheetClassName}`
               }
             >
               {children}

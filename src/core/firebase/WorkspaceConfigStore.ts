@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, OperationType, handleFirestoreError } from './firebaseApp';
 import type { AcademicYearConfig, WorkspaceTemplateConfig } from '../GoogleSheetClient';
+import { DEFAULT_MONITORING_STAGE_CONTROL, type MonitoringStageControl } from '../types/schema';
 import { normalizeGasUrl } from '../utils/safeFetchJson';
 
 export const BOOTSTRAP_ADMIN_EMAIL = 'fatchiano1@gmail.com';
@@ -23,6 +24,7 @@ export interface PersistedWorkspaceConfig {
   gasDeployUrl: string;
   academicYears: AcademicYearConfig[];
   templates: WorkspaceTemplateConfig[];
+  monitoringStageControl?: MonitoringStageControl;
 }
 
 export const EMPTY_DEFAULT_TEMPLATES: WorkspaceTemplateConfig[] = [
@@ -100,6 +102,7 @@ export const EMPTY_WORKSPACE_CONFIG: PersistedWorkspaceConfig = {
   gasDeployUrl: '',
   academicYears: [],
   templates: EMPTY_DEFAULT_TEMPLATES,
+  monitoringStageControl: { ...DEFAULT_MONITORING_STAGE_CONTROL, unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages] },
 };
 
 function sanitizeString(val: unknown, maxLen: number): string {
@@ -118,8 +121,42 @@ function sanitizeSpreadsheetId(val: unknown): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
 }
 
+export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageControl {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      requireSequential: DEFAULT_MONITORING_STAGE_CONTROL.requireSequential,
+      unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
+      lockedReason: '',
+    };
+  }
+  const obj = raw as Record<string, unknown>;
+  const requireSequential = typeof obj.requireSequential === 'boolean' ? obj.requireSequential : true;
+  const rawList = Array.isArray(obj.unlockedStages)
+    ? obj.unlockedStages
+    : DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages;
+  const deduped = Array.from(
+    new Set(
+      rawList
+        .map((n) => Number(n))
+        .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+    )
+  ).sort((a, b) => a - b);
+  return {
+    requireSequential,
+    unlockedStages: deduped.slice(0, 8),
+    lockedReason: sanitizeString(obj.lockedReason ?? '', 150),
+  };
+}
+
 function normalizeConfigData(raw: Record<string, any> | undefined): PersistedWorkspaceConfig {
-  if (!raw) return { ...EMPTY_WORKSPACE_CONFIG, academicYears: [], templates: [...EMPTY_DEFAULT_TEMPLATES] };
+  if (!raw) {
+    return {
+      ...EMPTY_WORKSPACE_CONFIG,
+      academicYears: [],
+      templates: [...EMPTY_DEFAULT_TEMPLATES],
+      monitoringStageControl: normalizeMonitoringStageControl(undefined),
+    };
+  }
 
   const activeYear = sanitizeYearString(raw.activeYear);
   const academicYears: AcademicYearConfig[] = Array.isArray(raw.academicYears)
@@ -189,6 +226,7 @@ function normalizeConfigData(raw: Record<string, any> | undefined): PersistedWor
     gasDeployUrl: normalizeGasUrl(sanitizeString(raw.gasDeployUrl || '', 500)).slice(0, 500),
     academicYears,
     templates,
+    monitoringStageControl: normalizeMonitoringStageControl(raw.monitoringStageControl),
   };
 }
 
@@ -286,6 +324,7 @@ export class WorkspaceConfigStore {
       gasDeployUrl: sanitized.gasDeployUrl,
       academicYears: sanitized.academicYears,
       templates: sanitized.templates,
+      monitoringStageControl: normalizeMonitoringStageControl(sanitized.monitoringStageControl),
       updatedBy: user.uid.slice(0, 128),
       updatedAt: serverTimestamp(),
     };

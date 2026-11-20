@@ -25,6 +25,10 @@ import {
   stripNisSymbols,
 } from '../core/utils/nisHelpers';
 import {
+  getCanonicalNisDigits,
+  isActivePlacementStatus,
+} from '../core/utils/relationHelpers';
+import {
   formatPhoneDisplay,
   generateJurusanCode,
   generateNextSequentialId,
@@ -32,6 +36,7 @@ import {
   getWhatsAppHref,
   isPhoneFieldKey,
 } from '../core/utils/autoIdHelpers';
+import { resolveSheetNameByModuleId } from '../core/constants/sheetResourceMap';
 import {
   X,
   Save,
@@ -88,72 +93,8 @@ export function DynamicFormModal<T extends Record<string, any>>({
   );
 
   const resolvedTableName = useMemo(() => {
-    if (tableName) return tableName;
-    switch (moduleId) {
-      case 'siswa':
-        return 'Master_Siswa_XI';
-      case 'jurusan':
-        return 'Master_Jurusan';
-      case 'kelas':
-        return 'Master_Kelas_Walas';
-      case 'dudi':
-        return 'Master_DUDI';
-      case 'guru':
-        return 'Master_Guru_Pendamping';
-      case 'pengajuan':
-        return 'Data_Pengajuan_PKL';
-      case 'perizinan':
-        return 'Data_Perizinan_PKL';
-      case 'siswa_pkl':
-        return 'Plotting_Pemberangkatan';
-      case 'monitoring':
-        return 'Monitoring_5_Tahap';
-      case 'sertifikat':
-        return 'Nilai_Dan_Sertifikat';
-      default:
-        return '';
-    }
+    return tableName || resolveSheetNameByModuleId(moduleId);
   }, [moduleId, tableName]);
-
-  const {
-    values,
-    setValue,
-    setMultipleValues,
-    errors,
-    submitting,
-    handleSubmit,
-    resetForm,
-  } = useDynamicForm<T>(
-    formFields,
-    initialData,
-    async (formValues) => {
-      const payload: Record<string, any> = { ...(formValues as Record<string, any>) };
-      if (moduleId === 'perizinan') {
-        const startIso = normalizeToIsoDate(payload.tanggalMulaiIzin);
-        const endIso = normalizeToIsoDate(payload.tanggalSelesaiIzin);
-        payload.tanggalMulaiIzin = startIso || '';
-        payload.tanggalSelesaiIzin = endIso || '';
-        payload.rentangTanggal = formatPerizinanDateRange(startIso, endIso, '');
-        if (payload.rentangTanggal === '-') {
-          payload.rentangTanggal = '';
-        }
-      }
-      await onSubmit(payload as T);
-      onClose();
-    },
-    (formValues): Record<string, string> => {
-      if (moduleId !== 'perizinan') return {};
-      const startIso = normalizeToIsoDate(formValues.tanggalMulaiIzin);
-      const endIso = normalizeToIsoDate(formValues.tanggalSelesaiIzin);
-      if (startIso && endIso && endIso < startIso) {
-        return {
-          tanggalSelesaiIzin:
-            'Tanggal Selesai Izin tidak boleh lebih awal dari Tanggal Mulai Izin',
-        };
-      }
-      return {};
-    }
-  );
 
   const [masterJurusan, setMasterJurusan] = useState<Jurusan[]>([]);
   const [masterKelas, setMasterKelas] = useState<Kelas[]>([]);
@@ -171,6 +112,171 @@ export function DynamicFormModal<T extends Record<string, any>>({
   const autoFilledDudiRef = useRef('');
 
   const isCreateMode = !initialData?.id;
+
+  const {
+    values,
+    setValue,
+    setMultipleValues,
+    errors,
+    submitting,
+    handleSubmit,
+    resetForm,
+  } = useDynamicForm<T>(
+    formFields,
+    initialData,
+    async (formValues) => {
+      const payload: Record<string, any> = { ...(formValues as Record<string, any>) };
+
+      if (moduleId === 'siswa' && payload.nis !== undefined) {
+        const cleanDigits = getCanonicalNisDigits(payload.nis);
+        if (cleanDigits) payload.nis = cleanDigits;
+      }
+
+      if (
+        ['pengajuan', 'perizinan', 'siswa_pkl', 'monitoring', 'sertifikat'].includes(
+          moduleId || ''
+        ) &&
+        masterSiswa.length > 0
+      ) {
+        const nisDigits = getCanonicalNisDigits(payload.nis);
+        const matchedMaster = nisDigits
+          ? masterSiswa.find((s) => getCanonicalNisDigits(s.nis) === nisDigits)
+          : undefined;
+        if (matchedMaster) {
+          payload.nis = stripNisSymbols(matchedMaster.nis) || matchedMaster.nis;
+          if (formFieldKeys.has('namaSiswa')) {
+            payload.namaSiswa = matchedMaster.nama;
+          }
+        }
+      }
+
+      if (formFieldKeys.has('idDudi') && !String(payload.idDudi || '').trim()) {
+        const dudiName = payload.dudiTujuan || payload.namaDudi;
+        const matchedDudi = dudiName
+          ? masterDudi.find((d) => norm(d.namaDudi) === norm(dudiName))
+          : undefined;
+        if (matchedDudi) {
+          payload.idDudi = matchedDudi.id;
+        }
+      }
+
+      if (formFieldKeys.has('guruPendamping')) {
+        const guruName = String(payload.guruPendamping || '').trim();
+        if (guruName) {
+          const matchedGuru =
+            masterGuru.find((g) => norm(g.nama) === norm(guruName)) ||
+            (payload.idGuruPendamping
+              ? masterGuru.find((g) => g.id === payload.idGuruPendamping)
+              : undefined);
+          if (matchedGuru) {
+            payload.guruPendamping = matchedGuru.nama;
+            if (formFieldKeys.has('idGuruPendamping')) {
+              payload.idGuruPendamping = matchedGuru.id;
+            }
+          }
+        } else if (formFieldKeys.has('idGuruPendamping')) {
+          payload.idGuruPendamping = '';
+        }
+      }
+
+      if (moduleId === 'perizinan') {
+        const startIso = normalizeToIsoDate(payload.tanggalMulaiIzin);
+        const isSd = payload.statusIzinOrtu === 'Surat Dokter (SD)';
+        const endIso = isSd ? normalizeToIsoDate(payload.tanggalSelesaiIzin) : '';
+        payload.tanggalMulaiIzin = startIso || '';
+        payload.tanggalSelesaiIzin = endIso || '';
+        payload.rentangTanggal = formatPerizinanDateRange(startIso, endIso, '');
+        if (payload.rentangTanggal === '-') {
+          payload.rentangTanggal = '';
+        }
+      }
+
+      await onSubmit(payload as T);
+      onClose();
+    },
+    (formValues): Record<string, string> => {
+      const extraErrors: Record<string, string> = {};
+
+      if (moduleId === 'siswa') {
+        const nisDigits = getCanonicalNisDigits(formValues.nis);
+        if (nisDigits) {
+          const duplicate = (existingRows || []).find(
+            (r) => r?.id !== initialData?.id && getCanonicalNisDigits(r?.nis) === nisDigits
+          );
+          if (duplicate) {
+            extraErrors.nis = `NIS ${formatNisVisual(nisDigits)} sudah terdaftar atas nama ${duplicate.nama || 'siswa lain'}. 1 siswa hanya boleh memiliki 1 NIS.`;
+          }
+        }
+      }
+
+      const isDependentStudentModule = [
+        'pengajuan',
+        'perizinan',
+        'siswa_pkl',
+        'sertifikat',
+      ].includes(moduleId || '');
+
+      if (isDependentStudentModule) {
+        if (loadingRelations && masterSiswa.length === 0) {
+          extraErrors.nis = 'Sedang memuat Master Siswa, silakan tunggu sebentar.';
+        } else if (masterSiswa.length > 0) {
+          const nisDigits = getCanonicalNisDigits(formValues.nis);
+          const matchedMaster = nisDigits
+            ? masterSiswa.find((s) => getCanonicalNisDigits(s.nis) === nisDigits)
+            : undefined;
+          if (!matchedMaster) {
+            const errKey = formFieldKeys.has('nis') ? 'nis' : 'namaSiswa';
+            extraErrors[errKey] =
+              'NIS wajib terdaftar di Master Siswa. Tambahkan siswa terlebih dahulu di menu Master Siswa.';
+          } else if (
+            formFieldKeys.has('namaSiswa') &&
+            norm(formValues.namaSiswa) !== norm(matchedMaster.nama)
+          ) {
+            extraErrors.namaSiswa = `Nama untuk NIS ${formatNisVisual(matchedMaster.nis)} di Master Siswa adalah "${matchedMaster.nama}". Pilih siswa dari daftar Master Siswa.`;
+          }
+        }
+      } else if (moduleId === 'monitoring' && masterSiswa.length > 0) {
+        const nisDigits = getCanonicalNisDigits(formValues.nis);
+        if (nisDigits) {
+          const matchedMaster = masterSiswa.find(
+            (s) => getCanonicalNisDigits(s.nis) === nisDigits
+          );
+          if (!matchedMaster) {
+            extraErrors.nis = 'NIS siswa tidak ditemukan di Master Siswa.';
+          }
+        }
+      }
+
+      if (
+        moduleId === 'siswa_pkl' &&
+        isActivePlacementStatus(formValues.statusPenempatan)
+      ) {
+        const nisDigits = getCanonicalNisDigits(formValues.nis);
+        if (nisDigits) {
+          const activeConflict = (existingRows || []).find(
+            (r) =>
+              r?.id !== initialData?.id &&
+              getCanonicalNisDigits(r?.nis) === nisDigits &&
+              isActivePlacementStatus(r?.statusPenempatan)
+          );
+          if (activeConflict) {
+            extraErrors.nis = `Siswa ini masih memiliki penempatan aktif (${activeConflict.statusPenempatan || 'Aktif'}) di ${activeConflict.namaDudi || 'DUDI lain'}. Ubah status lama menjadi "Selesai PKL" / "Pindah DUDI" atau gunakan aksi "Pindah DUDI".`;
+          }
+        }
+      }
+
+      if (moduleId === 'perizinan' && formValues.statusIzinOrtu === 'Surat Dokter (SD)') {
+        const startIso = normalizeToIsoDate(formValues.tanggalMulaiIzin);
+        const endIso = normalizeToIsoDate(formValues.tanggalSelesaiIzin);
+        if (startIso && endIso && endIso < startIso) {
+          extraErrors.tanggalSelesaiIzin =
+            'Tanggal Selesai Izin tidak boleh lebih awal dari Tanggal Mulai Izin';
+        }
+      }
+
+      return extraErrors;
+    }
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -246,54 +352,102 @@ export function DynamicFormModal<T extends Record<string, any>>({
     setLoadingRelations(true);
 
     const tasks: Promise<void>[] = [];
+    const unsubs: Array<() => void> = [];
+
     if (sources.has('jurusan')) {
+      const svc = JurusanService.getInstance();
       tasks.push(
-        JurusanService.getInstance()
+        svc
           .getAll()
           .then((list) => {
             if (!cancelled) setMasterJurusan(list);
           })
           .catch(() => {})
       );
+      unsubs.push(
+        svc.onDataUpdated(() => {
+          svc.getAll().then((list) => {
+            if (!cancelled) setMasterJurusan(list);
+          }).catch(() => {});
+        })
+      );
     }
     if (sources.has('kelas')) {
+      const svc = KelasService.getInstance();
       tasks.push(
-        KelasService.getInstance()
+        svc
           .getAll()
           .then((list) => {
             if (!cancelled) setMasterKelas(list);
           })
           .catch(() => {})
       );
+      unsubs.push(
+        svc.onDataUpdated(() => {
+          svc.getAll().then((list) => {
+            if (!cancelled) setMasterKelas(list);
+          }).catch(() => {});
+        })
+      );
     }
     if (sources.has('dudi') || needsPengajuanLookup) {
+      const svc = DudiService.getInstance();
       tasks.push(
-        DudiService.getInstance()
+        svc
           .getAll()
           .then((list) => {
             if (!cancelled) setMasterDudi(list);
           })
           .catch(() => {})
       );
+      unsubs.push(
+        svc.onDataUpdated(() => {
+          svc.getAll().then((list) => {
+            if (!cancelled) setMasterDudi(list);
+          }).catch(() => {});
+        })
+      );
+      if (sources.has('dudi')) {
+        void svc.reloadFromSpreadsheet().catch(() => {});
+      }
     }
-    if (sources.has('guru')) {
+    if (sources.has('guru') || sources.has('dudi') || sources.has('siswa')) {
+      const svc = GuruService.getInstance();
       tasks.push(
-        GuruService.getInstance()
+        svc
           .getAll()
           .then((list) => {
             if (!cancelled) setMasterGuru(list);
           })
           .catch(() => {})
       );
+      unsubs.push(
+        svc.onDataUpdated(() => {
+          svc.getAll().then((list) => {
+            if (!cancelled) setMasterGuru(list);
+          }).catch(() => {});
+        })
+      );
+      if (sources.has('guru') || sources.has('dudi')) {
+        void svc.reloadFromSpreadsheet().catch(() => {});
+      }
     }
     if (sources.has('siswa')) {
+      const svc = SiswaService.getInstance();
       tasks.push(
-        SiswaService.getInstance()
+        svc
           .getAll()
           .then((list) => {
             if (!cancelled) setMasterSiswa(list);
           })
           .catch(() => {})
+      );
+      unsubs.push(
+        svc.onDataUpdated(() => {
+          svc.getAll().then((list) => {
+            if (!cancelled) setMasterSiswa(list);
+          }).catch(() => {});
+        })
       );
     }
     if (needsPengajuanLookup) {
@@ -327,10 +481,11 @@ export function DynamicFormModal<T extends Record<string, any>>({
 
     return () => {
       cancelled = true;
+      unsubs.forEach((fn) => fn());
     };
   }, [isOpen]);
 
-  // Build combined student directory from Master_Siswa_XI + Data_Pengajuan_PKL + Plotting_Pemberangkatan
+  // Single Source of Truth student directory strictly anchored on Master_Siswa_XI (keyed by NIS)
   const studentDirectory = useMemo(() => {
     type DirectoryEntry = {
       nis: string;
@@ -355,29 +510,33 @@ export function DynamicFormModal<T extends Record<string, any>>({
     };
 
     const normalizeNisKey = (raw: unknown): string => {
-      const digits = stripNisSymbols(raw);
-      if (digits) return `nis:${digits}`;
-      const s = norm(raw);
-      return s && s !== '-' ? `nis:${s}` : '';
+      const digits = getCanonicalNisDigits(raw);
+      return digits ? `nis:${digits}` : '';
     };
 
-    const pengajuanByKey = new Map<string, Pengajuan>();
+    const nameCount = new Map<string, number>();
+    for (const s of masterSiswa) {
+      const n = norm(s.nama);
+      if (n) nameCount.set(n, (nameCount.get(n) || 0) + 1);
+    }
+
+    const pengajuanByNis = new Map<string, Pengajuan>();
+    const pengajuanByUniqueName = new Map<string, Pengajuan>();
     for (const req of masterPengajuan) {
       if (norm(req.statusKakomli) === 'ditolak') continue;
       const candidateScore = scorePengajuan(req);
       const nisKey = normalizeNisKey(req.nis);
-      const nameKey = req.namaSiswa ? `nama:${norm(req.namaSiswa)}` : '';
+      const nameKey = req.namaSiswa ? norm(req.namaSiswa) : '';
 
       if (nisKey) {
-        const existing = pengajuanByKey.get(nisKey);
+        const existing = pengajuanByNis.get(nisKey);
         if (!existing || candidateScore > scorePengajuan(existing)) {
-          pengajuanByKey.set(nisKey, req);
+          pengajuanByNis.set(nisKey, req);
         }
-      }
-      if (nameKey) {
-        const existing = pengajuanByKey.get(nameKey);
+      } else if (nameKey && (nameCount.get(nameKey) || 0) === 1) {
+        const existing = pengajuanByUniqueName.get(nameKey);
         if (!existing || candidateScore > scorePengajuan(existing)) {
-          pengajuanByKey.set(nameKey, req);
+          pengajuanByUniqueName.set(nameKey, req);
         }
       }
     }
@@ -385,62 +544,74 @@ export function DynamicFormModal<T extends Record<string, any>>({
     const scorePenempatan = (p: PenempatanPKL): number => {
       let score = cleanPlaceholderDash(p.namaDudi) ? 10 : 0;
       const st = norm(p.statusPenempatan);
-      if (st === 'sedang berjalan') score += 5;
-      else if (st === 'terjadwal') score += 4;
+      if (st === 'sedang berjalan') score += 6;
+      else if (st === 'terjadwal') score += 5;
       else if (st === 'selesai pkl') score += 2;
       return score;
     };
 
-    const penempatanByKey = new Map<string, PenempatanPKL>();
+    const penempatanByNis = new Map<string, PenempatanPKL>();
+    const penempatanByUniqueName = new Map<string, PenempatanPKL>();
     for (const p of masterPenempatan) {
-      if (norm(p.statusPenempatan) === 'dibatalkan') continue;
+      const st = norm(p.statusPenempatan);
+      if (st === 'dibatalkan' || st === 'batal' || st === 'pindah dudi') continue;
       const candidateScore = scorePenempatan(p);
       const nisKey = normalizeNisKey(p.nis);
-      const nameKey = p.namaSiswa ? `nama:${norm(p.namaSiswa)}` : '';
+      const nameKey = p.namaSiswa ? norm(p.namaSiswa) : '';
 
       if (nisKey) {
-        const existing = penempatanByKey.get(nisKey);
+        const existing = penempatanByNis.get(nisKey);
         if (!existing || candidateScore > scorePenempatan(existing)) {
-          penempatanByKey.set(nisKey, p);
+          penempatanByNis.set(nisKey, p);
         }
-      }
-      if (nameKey) {
-        const existing = penempatanByKey.get(nameKey);
+      } else if (nameKey && (nameCount.get(nameKey) || 0) === 1) {
+        const existing = penempatanByUniqueName.get(nameKey);
         if (!existing || candidateScore > scorePenempatan(existing)) {
-          penempatanByKey.set(nameKey, p);
+          penempatanByUniqueName.set(nameKey, p);
         }
       }
     }
 
-    const perizinanByKey = new Map<string, Record<string, any>>();
+    const perizinanByNis = new Map<string, Record<string, any>>();
+    const perizinanByUniqueName = new Map<string, Record<string, any>>();
     if (moduleId === 'perizinan' && Array.isArray(existingRows)) {
       for (const row of existingRows) {
         if (initialData?.id && row?.id === initialData.id) continue;
         if (!cleanPlaceholderDash(row?.dudiTujuan)) continue;
         const nisKey = normalizeNisKey(row?.nis);
-        const nameKey = row?.namaSiswa ? `nama:${norm(row.namaSiswa)}` : '';
-        if (nisKey && !perizinanByKey.has(nisKey)) perizinanByKey.set(nisKey, row);
-        if (nameKey && !perizinanByKey.has(nameKey)) perizinanByKey.set(nameKey, row);
+        const nameKey = row?.namaSiswa ? norm(row.namaSiswa) : '';
+        if (nisKey && !perizinanByNis.has(nisKey)) {
+          perizinanByNis.set(nisKey, row);
+        } else if (!nisKey && nameKey && (nameCount.get(nameKey) || 0) === 1 && !perizinanByUniqueName.has(nameKey)) {
+          perizinanByUniqueName.set(nameKey, row);
+        }
       }
     }
 
     const map = new Map<string, DirectoryEntry>();
-
-    for (const s of masterSiswa) {
+    masterSiswa.forEach((s, idx) => {
       const nisKey = normalizeNisKey(s.nis);
       const namaNorm = norm(s.nama);
-      const key = nisKey || `nama:${namaNorm}`;
-      const matchedReq =
-        (nisKey && pengajuanByKey.get(nisKey)) ||
-        (namaNorm ? pengajuanByKey.get(`nama:${namaNorm}`) : undefined);
-      const matchedPlt =
-        (nisKey && penempatanByKey.get(nisKey)) ||
-        (namaNorm ? penempatanByKey.get(`nama:${namaNorm}`) : undefined);
-      const matchedIzn =
-        (nisKey && perizinanByKey.get(nisKey)) ||
-        (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined);
+      const uniqueKey = nisKey || `id:${s.id || idx}`;
+      if (map.has(uniqueKey)) return;
 
-      map.set(key, {
+      const matchedReq =
+        (nisKey ? pengajuanByNis.get(nisKey) : undefined) ||
+        (namaNorm && (nameCount.get(namaNorm) || 0) === 1
+          ? pengajuanByUniqueName.get(namaNorm)
+          : undefined);
+      const matchedPlt =
+        (nisKey ? penempatanByNis.get(nisKey) : undefined) ||
+        (namaNorm && (nameCount.get(namaNorm) || 0) === 1
+          ? penempatanByUniqueName.get(namaNorm)
+          : undefined);
+      const matchedIzn =
+        (nisKey ? perizinanByNis.get(nisKey) : undefined) ||
+        (namaNorm && (nameCount.get(namaNorm) || 0) === 1
+          ? perizinanByUniqueName.get(namaNorm)
+          : undefined);
+
+      map.set(uniqueKey, {
         nis: stripNisSymbols(s.nis) || String(s.nis || '').trim(),
         nama: String(s.nama || '').trim(),
         jurusan: String(s.jurusan || matchedReq?.jurusan || '').trim(),
@@ -456,75 +627,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
         penempatan: matchedPlt,
         existingPerizinan: matchedIzn,
       });
-    }
-
-    for (const req of masterPengajuan) {
-      if (norm(req.statusKakomli) === 'ditolak') continue;
-      const nisKey = normalizeNisKey(req.nis);
-      const namaNorm = norm(req.namaSiswa);
-      const key = nisKey || `nama:${namaNorm}`;
-      const existing =
-        map.get(key) ||
-        (namaNorm
-          ? Array.from(map.values()).find((e) => norm(e.nama) === namaNorm)
-          : undefined);
-      if (existing) {
-        if (!existing.pengajuan) existing.pengajuan = req;
-        continue;
-      }
-      if (req.namaSiswa || req.nis) {
-        const matchedPlt =
-          (nisKey && penempatanByKey.get(nisKey)) ||
-          (namaNorm ? penempatanByKey.get(`nama:${namaNorm}`) : undefined);
-        const matchedIzn =
-          (nisKey && perizinanByKey.get(nisKey)) ||
-          (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined);
-        map.set(key, {
-          nis: stripNisSymbols(req.nis) || String(req.nis || '').trim(),
-          nama: String(req.namaSiswa || '').trim(),
-          jurusan: String(req.jurusan || '').trim(),
-          kelas: String(req.kelas || '').trim(),
-          namaOrtuWali:
-            cleanPlaceholderDash(req.namaOrtuWali) || cleanPlaceholderDash(matchedIzn?.namaOrtuWali),
-          noOrtuWali: cleanPlaceholderDash(req.noOrtuWali),
-          noWa: cleanPlaceholderDash(req.noWa),
-          pengajuan: pengajuanByKey.get(key) || req,
-          penempatan: matchedPlt,
-          existingPerizinan: matchedIzn,
-        });
-      }
-    }
-
-    for (const plt of masterPenempatan) {
-      if (norm(plt.statusPenempatan) === 'dibatalkan') continue;
-      const nisKey = normalizeNisKey(plt.nis);
-      const namaNorm = norm(plt.namaSiswa);
-      const key = nisKey || `nama:${namaNorm}`;
-      const existing =
-        map.get(key) ||
-        (namaNorm
-          ? Array.from(map.values()).find((e) => norm(e.nama) === namaNorm)
-          : undefined);
-      if (existing) {
-        if (!existing.penempatan) existing.penempatan = plt;
-        continue;
-      }
-      if (plt.namaSiswa || plt.nis) {
-        map.set(key, {
-          nis: stripNisSymbols(plt.nis) || String(plt.nis || '').trim(),
-          nama: String(plt.namaSiswa || '').trim(),
-          jurusan: '',
-          kelas: '',
-          namaOrtuWali: '',
-          noOrtuWali: '',
-          noWa: '',
-          penempatan: penempatanByKey.get(key) || plt,
-          existingPerizinan:
-            (nisKey && perizinanByKey.get(nisKey)) ||
-            (namaNorm ? perizinanByKey.get(`nama:${namaNorm}`) : undefined),
-        });
-      }
-    }
+    });
 
     return Array.from(map.values());
   }, [masterSiswa, masterPengajuan, masterPenempatan, existingRows, moduleId, initialData?.id]);
@@ -567,23 +670,21 @@ export function DynamicFormModal<T extends Record<string, any>>({
     return { dudiTujuan: '', alamatDudi: '' };
   };
 
-  // Reactive sync: eliminates race conditions when masterPengajuan/masterPenempatan/masterDudi load after student selection
+  // Reactive sync: enforces Master_Siswa_XI identity & resolves DUDI -> Guru Pendamping automatically
   useEffect(() => {
     if (!isOpen) return;
 
     const currentNis = String(values.nis || '').trim();
-    const currentNisDigits = stripNisSymbols(currentNis);
+    const currentNisDigits = getCanonicalNisDigits(currentNis);
     const currentNama = norm(values.namaSiswa);
 
-    const matched =
-      (currentNis && currentNis !== '-'
-        ? studentDirectory.find(
-            (s) =>
-              (currentNisDigits && stripNisSymbols(s.nis) === currentNisDigits) ||
-              norm(s.nis) === norm(currentNis)
-          )
-        : undefined) ||
-      (currentNama ? studentDirectory.find((s) => norm(s.nama) === currentNama) : undefined);
+    let matched: (typeof studentDirectory)[number] | undefined;
+    if (currentNisDigits) {
+      matched = studentDirectory.find((s) => getCanonicalNisDigits(s.nis) === currentNisDigits);
+    } else if (currentNama) {
+      const sameNameMatches = studentDirectory.filter((s) => norm(s.nama) === currentNama);
+      if (sameNameMatches.length === 1) matched = sameNameMatches[0];
+    }
 
     const patch: Record<string, any> = {};
 
@@ -591,7 +692,12 @@ export function DynamicFormModal<T extends Record<string, any>>({
       if (formFieldKeys.has('nis') && !currentNis && matched.nis) {
         patch.nis = stripNisSymbols(matched.nis) || matched.nis;
       }
-      if (formFieldKeys.has('namaSiswa') && !currentNama && matched.nama) {
+      if (
+        formFieldKeys.has('namaSiswa') &&
+        matched.nama &&
+        openAutocompleteKey !== 'namaSiswa' &&
+        (!currentNama || (currentNisDigits && norm(matched.nama) !== currentNama))
+      ) {
         patch.namaSiswa = matched.nama;
       }
       if (formFieldKeys.has('jurusan') && !cleanPlaceholderDash(values.jurusan) && matched.jurusan) {
@@ -638,7 +744,13 @@ export function DynamicFormModal<T extends Record<string, any>>({
       }
     }
 
-    const activeDudi = cleanPlaceholderDash(patch.dudiTujuan ?? values.dudiTujuan);
+    const activeDudi = cleanPlaceholderDash(
+      patch.dudiTujuan ?? values.dudiTujuan ?? values.namaDudi
+    );
+    const matchedDudiObj = activeDudi
+      ? masterDudi.find((d) => norm(d.namaDudi) === norm(activeDudi))
+      : undefined;
+
     if (
       activeDudi &&
       formFieldKeys.has('alamatDudi') &&
@@ -653,6 +765,47 @@ export function DynamicFormModal<T extends Record<string, any>>({
       }
     }
 
+    if (matchedDudiObj && formFieldKeys.has('idDudi') && !cleanPlaceholderDash(values.idDudi)) {
+      patch.idDudi = matchedDudiObj.id;
+    }
+
+    if (
+      matchedDudiObj?.guruPendamping &&
+      formFieldKeys.has('guruPendamping') &&
+      !cleanPlaceholderDash(values.guruPendamping)
+    ) {
+      const guruObj =
+        (matchedDudiObj.idGuruPendamping &&
+          masterGuru.find((g) => g.id === matchedDudiObj.idGuruPendamping)) ||
+        masterGuru.find((g) => norm(g.nama) === norm(matchedDudiObj.guruPendamping));
+      patch.guruPendamping = guruObj?.nama || matchedDudiObj.guruPendamping;
+      if (formFieldKeys.has('idGuruPendamping') && !cleanPlaceholderDash(values.idGuruPendamping)) {
+        patch.idGuruPendamping = guruObj?.id || matchedDudiObj.idGuruPendamping || '';
+      }
+    }
+
+    if (formFieldKeys.has('guruPendamping') && masterGuru.length > 0) {
+      const effectiveGuruName = cleanPlaceholderDash(patch.guruPendamping ?? values.guruPendamping);
+      const effectiveGuruId = cleanPlaceholderDash(patch.idGuruPendamping ?? values.idGuruPendamping);
+      const matchedById = effectiveGuruId
+        ? masterGuru.find((g) => g.id === effectiveGuruId)
+        : undefined;
+      const matchedByName = effectiveGuruName
+        ? masterGuru.find((g) => norm(g.nama) === norm(effectiveGuruName))
+        : undefined;
+
+      if (matchedByName) {
+        if (effectiveGuruName !== matchedByName.nama) {
+          patch.guruPendamping = matchedByName.nama;
+        }
+        if (formFieldKeys.has('idGuruPendamping') && effectiveGuruId !== matchedByName.id) {
+          patch.idGuruPendamping = matchedByName.id;
+        }
+      } else if (matchedById && effectiveGuruName !== matchedById.nama) {
+        patch.guruPendamping = matchedById.nama;
+      }
+    }
+
     if (Object.keys(patch).length > 0) {
       setMultipleValues(patch);
     }
@@ -661,6 +814,8 @@ export function DynamicFormModal<T extends Record<string, any>>({
     moduleId,
     studentDirectory,
     masterDudi,
+    masterGuru,
+    openAutocompleteKey,
     values.nis,
     values.namaSiswa,
     values.jurusan,
@@ -668,7 +823,11 @@ export function DynamicFormModal<T extends Record<string, any>>({
     values.namaOrtuWali,
     values.noPengajuan,
     values.dudiTujuan,
+    values.namaDudi,
+    values.idDudi,
     values.alamatDudi,
+    values.guruPendamping,
+    values.idGuruPendamping,
   ]);
 
   if (!isOpen) return null;
@@ -729,13 +888,28 @@ export function DynamicFormModal<T extends Record<string, any>>({
     if (formFieldKeys.has('daftarSiswa') && !cleanPlaceholderDash(values.daftarSiswa) && matched.nama) {
       patch.daftarSiswa = matched.nis ? `${matched.nama} (${matched.nis})` : matched.nama;
     }
-    if (
-      formFieldKeys.has('guruPendamping') &&
-      !cleanPlaceholderDash(values.guruPendamping) &&
-      (matched.penempatan?.guruPendamping || matched.pengajuan?.guruPendamping)
-    ) {
-      patch.guruPendamping =
-        matched.penempatan?.guruPendamping || matched.pengajuan?.guruPendamping;
+    if (formFieldKeys.has('guruPendamping') && !cleanPlaceholderDash(values.guruPendamping)) {
+      const resolvedDudiName = patch.dudiTujuan || values.dudiTujuan || resolvedDudi.dudiTujuan;
+      const dudiFromMaster = resolvedDudiName
+        ? masterDudi.find((d) => norm(d.namaDudi) === norm(resolvedDudiName))
+        : undefined;
+      const resolvedGuruName =
+        matched.penempatan?.guruPendamping ||
+        matched.pengajuan?.guruPendamping ||
+        dudiFromMaster?.guruPendamping ||
+        '';
+      if (resolvedGuruName) {
+        const guruObj = masterGuru.find((g) => norm(g.nama) === norm(resolvedGuruName));
+        patch.guruPendamping = guruObj?.nama || resolvedGuruName;
+        if (formFieldKeys.has('idGuruPendamping')) {
+          patch.idGuruPendamping =
+            matched.penempatan?.idGuruPendamping ||
+            matched.pengajuan?.idGuruPendamping ||
+            dudiFromMaster?.idGuruPendamping ||
+            guruObj?.id ||
+            '';
+        }
+      }
     }
     if (
       moduleId === 'sertifikat' &&
@@ -769,8 +943,26 @@ export function DynamicFormModal<T extends Record<string, any>>({
     if (formFieldKeys.has('bidangPekerjaan') && matched.bidangKeahlian) {
       patch.bidangPekerjaan = matched.bidangKeahlian;
     }
-    if (formFieldKeys.has('noTelpDudi') && (matched.kontakPic || matched.noTelpDudi)) {
-      patch.noTelpDudi = matched.kontakPic || matched.noTelpDudi;
+    if (formFieldKeys.has('namaPemimpin') && matched.namaPemimpin) {
+      patch.namaPemimpin = matched.namaPemimpin;
+    }
+    if (formFieldKeys.has('namaPic') && matched.namaPic) {
+      patch.namaPic = matched.namaPic;
+    }
+    if (formFieldKeys.has('noTelpDudi') && (matched.noTelpDudi || matched.kontakPic)) {
+      patch.noTelpDudi = matched.noTelpDudi || matched.kontakPic;
+    }
+    if (formFieldKeys.has('linkMaps') && matched.linkMaps) {
+      patch.linkMaps = matched.linkMaps;
+    }
+    if (formFieldKeys.has('guruPendamping') && matched.guruPendamping) {
+      const guruObj =
+        (matched.idGuruPendamping && masterGuru.find((g) => g.id === matched.idGuruPendamping)) ||
+        masterGuru.find((g) => norm(g.nama) === norm(matched.guruPendamping));
+      patch.guruPendamping = guruObj?.nama || matched.guruPendamping;
+      if (formFieldKeys.has('idGuruPendamping')) {
+        patch.idGuruPendamping = guruObj?.id || matched.idGuruPendamping || '';
+      }
     }
     setMultipleValues(patch);
   };
@@ -780,18 +972,27 @@ export function DynamicFormModal<T extends Record<string, any>>({
     const patch: Record<string, any> = { [key]: selectedValue };
 
     if (!selectedValue) {
+      if (field.relationSource === 'guru' && formFieldKeys.has('idGuruPendamping')) {
+        patch.idGuruPendamping = '';
+      }
+      if (field.relationSource === 'dudi' && formFieldKeys.has('idDudi')) {
+        patch.idDudi = '';
+      }
       setMultipleValues(patch);
       return;
     }
 
     if (field.relationSource === 'siswa') {
-      const selectedDigits = stripNisSymbols(selectedValue);
-      const matched = studentDirectory.find((s) =>
+      const selectedDigits = getCanonicalNisDigits(selectedValue);
+      const matched =
         key === 'nis'
-          ? (selectedDigits && stripNisSymbols(s.nis) === selectedDigits) ||
-            String(s.nis).trim() === selectedValue.trim()
-          : norm(s.nama) === norm(selectedValue)
-      );
+          ? studentDirectory.find((s) => getCanonicalNisDigits(s.nis) === selectedDigits)
+          : (() => {
+              const nameMatches = studentDirectory.filter(
+                (s) => norm(s.nama) === norm(selectedValue)
+              );
+              return nameMatches.length === 1 ? nameMatches[0] : undefined;
+            })();
       if (matched) {
         applyStudentSelection(matched, patch);
         return;
@@ -980,9 +1181,16 @@ export function DynamicFormModal<T extends Record<string, any>>({
                 setOpenAutocompleteKey(key);
                 const qTrim = next.trim();
                 if (qTrim.length >= 4) {
-                  const exactMatch = studentDirectory.find(
-                    (s) => s.nis === qTrim || norm(s.nama) === norm(qTrim)
+                  const nisExact = studentDirectory.filter(
+                    (s) => getCanonicalNisDigits(s.nis) === getCanonicalNisDigits(qTrim) && getCanonicalNisDigits(qTrim) !== ''
                   );
+                  const nameExact = studentDirectory.filter((s) => norm(s.nama) === norm(qTrim));
+                  const exactMatch =
+                    nisExact.length === 1
+                      ? nisExact[0]
+                      : nameExact.length === 1
+                      ? nameExact[0]
+                      : undefined;
                   if (exactMatch) {
                     applyStudentSelection(exactMatch, { [key]: next });
                   }
@@ -1023,7 +1231,9 @@ export function DynamicFormModal<T extends Record<string, any>>({
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="px-3 py-2.5 text-xs text-slate-500">
-                  Tidak ada siswa cocok dengan &quot;{displayVal}&quot;. Anda tetap dapat menyimpan input manual ini.
+                  {field.allowCustomValue === false
+                    ? `Tidak ada siswa cocok dengan "${displayVal}". Data siswa wajib terdaftar terlebih dahulu di Master Siswa.`
+                    : `Tidak ada siswa cocok dengan "${displayVal}". Anda tetap dapat menyimpan input manual ini.`}
                 </div>
               ) : (
                 filtered.map((stu, idx) => {
@@ -1189,6 +1399,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
                         <div className="text-[11px] text-slate-500 truncate">
                           {d.wilayahKota ? `${d.wilayahKota} · ` : ''}
                           {d.alamat || '-'}
+                          {d.guruPendamping ? ` · Pendamping: ${d.guruPendamping}` : ''}
                         </div>
                       </div>
                       {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
@@ -1244,12 +1455,15 @@ export function DynamicFormModal<T extends Record<string, any>>({
 
       if (!isManual && dynamicOpts.length > 0) {
         const currentStr = String(val ?? '').trim();
-        const hasCurrentInList =
-          !currentStr || dynamicOpts.some((opt) => opt.value === currentStr);
+        const matchedOpt = currentStr
+          ? dynamicOpts.find((opt) => norm(opt.value) === norm(currentStr))
+          : undefined;
+        const resolvedSelectVal = matchedOpt ? matchedOpt.value : currentStr;
+        const hasCurrentInList = !currentStr || Boolean(matchedOpt);
 
         return (
           <select
-            value={val ?? ''}
+            value={currentStr ? resolvedSelectVal : ''}
             onChange={(e) => handleRelationSelect(field, e.target.value)}
             className={`w-full h-10 px-3 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
               err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
@@ -1274,6 +1488,19 @@ export function DynamicFormModal<T extends Record<string, any>>({
     }
 
     const handleFieldChange = (fieldKey: string, nextVal: any) => {
+      if (
+        moduleId === 'perizinan' &&
+        fieldKey === 'statusIzinOrtu' &&
+        nextVal !== 'Surat Dokter (SD)' &&
+        values.tanggalSelesaiIzin
+      ) {
+        setMultipleValues({
+          statusIzinOrtu: nextVal,
+          tanggalSelesaiIzin: '',
+        });
+        return;
+      }
+
       // Auto-fill Kode Jurusan when typing Nama Program Keahlian
       if (moduleId === 'jurusan' && fieldKey === 'nama' && formFieldKeys.has('kode')) {
         const autoKode = generateJurusanCode(String(nextVal || ''));
@@ -1550,6 +1777,30 @@ export function DynamicFormModal<T extends Record<string, any>>({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {formFields.map((field) => {
                 const key = String(field.key);
+                const isSuratDokter =
+                  moduleId === 'perizinan' && values.statusIzinOrtu === 'Surat Dokter (SD)';
+                if (moduleId === 'perizinan' && key === 'tanggalSelesaiIzin' && !isSuratDokter) {
+                  return null;
+                }
+
+                const displayLabel =
+                  moduleId === 'perizinan' && key === 'tanggalMulaiIzin'
+                    ? isSuratDokter
+                      ? 'Mulai Tanggal (Surat Dokter)'
+                      : 'Tanggal Izin'
+                    : moduleId === 'perizinan' && key === 'tanggalSelesaiIzin'
+                    ? 'Sampai Tanggal (Surat Dokter)'
+                    : field.label;
+
+                const displayHelperText =
+                  moduleId === 'perizinan' && key === 'tanggalMulaiIzin'
+                    ? isSuratDokter
+                      ? 'Pilih tanggal mulai izin sesuai surat dokter'
+                      : 'Pilih tanggal izin siswa (1 hari; rentang tanggal otomatis muncul jika memilih Surat Dokter)'
+                    : moduleId === 'perizinan' && key === 'tanggalSelesaiIzin'
+                    ? 'Pilih tanggal berakhir izin sesuai surat dokter'
+                    : field.helperText;
+
                 const isFullWidth = field.type === 'textarea' || field.type === 'image';
                 const err = errors[key];
                 const canToggleManual =
@@ -1564,7 +1815,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
                   <div key={key} className={isFullWidth ? 'sm:col-span-2' : ''}>
                     <div className="flex items-center justify-between gap-2 mb-1.5">
                       <label className="block text-xs font-semibold text-slate-700">
-                        {field.label}
+                        {displayLabel}
                         {field.validation?.required && !field.disabled && (
                           <span className="text-rose-500 ml-1">*</span>
                         )}
@@ -1594,8 +1845,8 @@ export function DynamicFormModal<T extends Record<string, any>>({
                         <span>{err}</span>
                       </div>
                     )}
-                    {field.helperText && !err && (
-                      <p className="text-[11px] text-slate-400 mt-1">{field.helperText}</p>
+                    {displayHelperText && !err && (
+                      <p className="text-[11px] text-slate-400 mt-1">{displayHelperText}</p>
                     )}
                   </div>
                 );

@@ -22,6 +22,7 @@ export abstract class BaseRepository<T extends { id: string }> {
   protected isInitialized: boolean = false;
   protected lastError: string | null = null;
   protected lastFetchedAt: number = 0;
+  protected lastLocalMutationAt: number = 0;
   private isCommittingSelf: boolean = false;
   private isRevalidating: boolean = false;
   private revalidatingPromise: Promise<void> | null = null;
@@ -63,9 +64,13 @@ export abstract class BaseRepository<T extends { id: string }> {
       const activeId = client.getSpreadsheetId();
       const snapshot = client.getCachedSnapshotSync(this.tableName);
       if (activeId && snapshot && Array.isArray(snapshot.data)) {
+        const snapshotTs = snapshot.updatedAt || 0;
+        if (this.lastLocalMutationAt > 0 && snapshotTs <= this.lastLocalMutationAt) {
+          return;
+        }
         this.memoryData = snapshot.data as T[];
         this.loadedSpreadsheetId = activeId;
-        this.lastFetchedAt = snapshot.updatedAt || Date.now();
+        this.lastFetchedAt = snapshotTs || Date.now();
         this.isInitialized = true;
         this.lastError = null;
         this.notifyDataUpdated();
@@ -195,11 +200,12 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     this.isRevalidating = true;
     let hasNewData = false;
+    const revalidationStartedAt = Date.now();
 
     this.revalidatingPromise = (async () => {
       try {
         const res = await client.fetchSheetData(this.tableName, false);
-        if (this.isCommittingSelf) return;
+        if (this.isCommittingSelf || this.lastLocalMutationAt >= revalidationStartedAt) return;
         if (res.fromSpreadsheet && Array.isArray(res.data)) {
           this.loadedSpreadsheetId = activeId;
           this.lastFetchedAt = Date.now();
@@ -331,10 +337,13 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
+    const now = Date.now();
 
     // Optimistic UI update (<16ms)
     this.memoryData = [prepared, ...this.memoryData];
-    this.lastFetchedAt = Date.now();
+    this.lastFetchedAt = now;
+    this.lastLocalMutationAt = now;
+    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     this.notifyDataUpdated();
 
@@ -349,6 +358,9 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal menyimpan data baru ke Cloud Server.');
       }
+      const committedAt = Date.now();
+      this.lastFetchedAt = committedAt;
+      this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     } catch (err) {
       // Rollback optimistic change on failure
@@ -381,12 +393,15 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
+    const now = Date.now();
 
     // Optimistic UI update (<16ms)
     const nextMemory = [...this.memoryData];
     nextMemory[index] = candidate;
     this.memoryData = nextMemory;
-    this.lastFetchedAt = Date.now();
+    this.lastFetchedAt = now;
+    this.lastLocalMutationAt = now;
+    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     this.notifyDataUpdated();
 
@@ -401,6 +416,9 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal memperbarui data di Cloud Server.');
       }
+      const committedAt = Date.now();
+      this.lastFetchedAt = committedAt;
+      this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     } catch (err) {
       // Rollback optimistic change on failure
@@ -423,10 +441,13 @@ export abstract class BaseRepository<T extends { id: string }> {
     const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(id);
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
+    const now = Date.now();
 
     // Optimistic UI update (<16ms)
     this.memoryData = this.memoryData.filter((row) => row.id !== id);
-    this.lastFetchedAt = Date.now();
+    this.lastFetchedAt = now;
+    this.lastLocalMutationAt = now;
+    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     this.notifyDataUpdated();
 
@@ -441,6 +462,9 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal menghapus data dari Cloud Server.');
       }
+      const committedAt = Date.now();
+      this.lastFetchedAt = committedAt;
+      this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     } catch (err) {
       // Rollback optimistic change on failure
@@ -463,10 +487,13 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
+    const now = Date.now();
 
     // Optimistic UI update (<16ms)
     this.memoryData = this.memoryData.filter((row) => !idSet.has(row.id));
-    this.lastFetchedAt = Date.now();
+    this.lastFetchedAt = now;
+    this.lastLocalMutationAt = now;
+    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     this.notifyDataUpdated();
 
@@ -484,6 +511,9 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal menghapus baris terpilih dari Cloud Server.');
       }
+      const committedAt = Date.now();
+      this.lastFetchedAt = committedAt;
+      this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     } catch (err) {
       this.memoryData = previousMemory;
@@ -523,10 +553,13 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
+    const now = Date.now();
 
     // Optimistic UI update (<16ms)
     this.memoryData = nextMemory;
-    this.lastFetchedAt = Date.now();
+    this.lastFetchedAt = now;
+    this.lastLocalMutationAt = now;
+    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     this.notifyDataUpdated();
 
@@ -541,6 +574,9 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal memperbarui baris terpilih di Cloud Server.');
       }
+      const committedAt = Date.now();
+      this.lastFetchedAt = committedAt;
+      this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     } catch (err) {
       this.memoryData = previousMemory;
@@ -570,9 +606,12 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     if (createdRows.length === 0) return 0;
 
+    const client = GoogleSheetClient.getInstance();
+    this.lastLocalMutationAt = Date.now();
+    client.markSheetMutated(this.tableName);
     this.isCommittingSelf = true;
     try {
-      const commitRes = await GoogleSheetClient.getInstance().commitToSpreadsheet(
+      const commitRes = await client.commitToSpreadsheet(
         this.tableName,
         'IMPORT',
         createdRows,
@@ -585,11 +624,11 @@ export abstract class BaseRepository<T extends { id: string }> {
       this.isCommittingSelf = false;
     }
 
+    const committedAt = Date.now();
     this.memoryData = [...createdRows, ...this.memoryData];
-    this.lastFetchedAt = Date.now();
-    await GoogleSheetClient.getInstance()
-      .saveCachedSnapshot(this.tableName, this.memoryData)
-      .catch(() => {});
+    this.lastFetchedAt = committedAt;
+    this.lastLocalMutationAt = committedAt;
+    await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
     this.notifyDataUpdated();
     return createdRows.length;
   }

@@ -18,6 +18,18 @@ export type MonitoringTahapValue =
   | '5. Penarikan'
   | '6. Penarikan';
 
+export interface MonitoringStageControl {
+  requireSequential: boolean;
+  unlockedStages: number[];
+  lockedReason?: string;
+}
+
+export const DEFAULT_MONITORING_STAGE_CONTROL: MonitoringStageControl = {
+  requireSequential: true,
+  unlockedStages: [1, 2, 3, 4, 5, 6, 7, 8],
+  lockedReason: '',
+};
+
 export interface Siswa {
   id: string;
   nis: string;
@@ -66,6 +78,8 @@ export interface Dudi {
   kontakPic: string;
   noTelpDudi?: string;
   linkMaps?: string;
+  idGuruPendamping?: string;
+  guruPendamping?: string;
   kuotaMaksimal: number;
   terisi: number;
   statusKerjasama: 'MoU Aktif' | 'Proses Perpanjangan' | 'Mitra Baru';
@@ -90,6 +104,7 @@ export interface Pengajuan {
   namaSiswa: string;
   jurusan: string;
   kelas: string;
+  idDudi?: string;
   dudiTujuan: string;
   alamatDudi: string;
   bidangPekerjaan: string;
@@ -104,6 +119,7 @@ export interface Pengajuan {
   statusKakomli: 'Pending' | 'Disetujui' | 'Ditolak';
   catatanKakomli?: string;
   statusHubin: 'Menunggu ACC Kakomli' | 'Siap Diberangkatkan' | 'Terjadwal' | 'Batal';
+  idGuruPendamping?: string;
   guruPendamping?: string;
   tanggalBerangkat?: string;
 }
@@ -150,7 +166,8 @@ export interface PenempatanPKL {
   guruPendamping: string;
   tanggalBerangkat: string;
   tanggalRencanaTarik: string;
-  statusPenempatan: 'Terjadwal' | 'Sedang Berjalan' | 'Selesai PKL' | 'Dibatalkan';
+  statusPenempatan: 'Terjadwal' | 'Sedang Berjalan' | 'Selesai PKL' | 'Pindah DUDI' | 'Dibatalkan';
+  catatanPenempatan?: string;
 }
 
 export interface Monitoring {

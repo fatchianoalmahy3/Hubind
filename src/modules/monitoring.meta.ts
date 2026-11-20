@@ -94,8 +94,8 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isSearchable: true,
       relationSource: 'siswa',
       autocomplete: true,
-      allowCustomValue: true,
-      placeholder: 'Ketik NIS atau Nama Siswa...',
+      allowCustomValue: false,
+      placeholder: 'Ketik NIS atau Nama Siswa dari Master Siswa...',
     },
     {
       key: 'namaSiswa',
@@ -106,8 +106,9 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isSearchable: true,
       relationSource: 'siswa',
       autocomplete: true,
-      allowCustomValue: true,
-      placeholder: 'Ketik Nama Siswa untuk isi otomatis...',
+      allowCustomValue: false,
+      placeholder: 'Pilih Nama Siswa dari Master Siswa...',
+      helperText: 'Sumber: Master Siswa',
     },
     {
       key: 'daftarSiswa',

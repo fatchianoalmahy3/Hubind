@@ -40,6 +40,18 @@ service cloud.firestore {
     }
 
     // 3. Entity Validation Helpers (Synchronized with firebase-blueprint.json)
+    function isValidMonitoringStageControl(msc) {
+      return msc is map
+        && msc.keys().hasAll(['requireSequential', 'unlockedStages'])
+        && msc.keys().hasOnly(['requireSequential', 'unlockedStages', 'lockedReason'])
+        && msc.requireSequential is bool
+        && msc.unlockedStages is list
+        && msc.unlockedStages.size() <= 8
+        && (msc.unlockedStages.size() == 0 || msc.unlockedStages[0] is int)
+        && msc.unlockedStages.hasOnly([1, 2, 3, 4, 5, 6, 7, 8])
+        && (!('lockedReason' in msc) || (msc.lockedReason is string && msc.lockedReason.size() <= 150));
+    }
+
     function isValidWorkspaceConfig(data) {
       return data.keys().hasAll([
           'activeYear', 'spreadsheetId', 'spreadsheetName', 'spreadsheetUrl',
@@ -49,7 +61,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'activeYear', 'spreadsheetId', 'spreadsheetName', 'spreadsheetUrl',
           'driveFolderUrl', 'gasDeployUrl', 'academicYears', 'templates',
-          'updatedBy', 'updatedAt'
+          'monitoringStageControl', 'updatedBy', 'updatedAt'
         ])
         && data.activeYear is string
         && data.activeYear.size() >= 4
@@ -72,6 +84,7 @@ service cloud.firestore {
         && data.templates is list
         && data.templates.size() <= 15
         && (data.templates.size() == 0 || data.templates[0] is map)
+        && (!('monitoringStageControl' in data) || isValidMonitoringStageControl(data.monitoringStageControl))
         && data.updatedBy is string
         && data.updatedBy.size() >= 1
         && data.updatedBy.size() <= 128
@@ -121,7 +134,7 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'activeYear', 'spreadsheetId', 'spreadsheetName', 'spreadsheetUrl',
           'driveFolderUrl', 'gasDeployUrl', 'academicYears', 'templates',
-          'updatedBy', 'updatedAt'
+          'monitoringStageControl', 'updatedBy', 'updatedAt'
         ]);
       allow delete: if isValidId(configId)
         && configId == 'workspace'

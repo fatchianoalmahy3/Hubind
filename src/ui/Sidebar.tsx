@@ -1,15 +1,9 @@
 import React, { useState } from 'react';
 import {
-  Users,
-  BookOpen,
   Layers,
-  Building2,
   FileText,
-  FileCheck,
-  Briefcase,
   UserCheck,
   Compass,
-  Award,
   FileCode2,
   Printer,
   ChevronRight,
@@ -24,6 +18,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { UserRole } from '../core/types/schema';
+import { getSidebarModuleItems } from '../core/moduleRegistry';
 
 interface SidebarProps {
   currentModule: string;
@@ -55,39 +50,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isDocsGroupOpen, setIsDocsGroupOpen] = useState(true);
 
-  // Group 1: Operasional PKL (Core Workflows)
-  const operasionalItems = [
-    {
-      id: 'pengajuan',
-      label: 'Pengajuan PKL',
-      icon: FileText,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping', 'Siswa'],
-    },
-    {
-      id: 'perizinan',
-      label: 'Perizinan PKL',
-      icon: FileCheck,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
-    },
-    {
-      id: 'siswa_pkl',
-      label: 'Data Siswa PKL',
-      icon: Briefcase,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
-    },
-    {
-      id: 'monitoring',
-      label: 'Supervisi 8 Tahap',
-      icon: Compass,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
-    },
-    {
-      id: 'sertifikat',
-      label: 'Raport & Blangko',
-      icon: Award,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
-    },
-  ];
+  // Group 1: Operasional PKL (Derived from central moduleRegistry)
+  const operasionalItems = getSidebarModuleItems('operasional').map((item) => ({
+    id: item.id,
+    label: item.sidebarLabel,
+    icon: item.icon,
+    allowed: item.allowedRoles,
+  }));
 
   // Group 2: Dokumen (Grouped & Collapsible)
   const dokumenItems = [
@@ -135,39 +104,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  // Group 3: Master Data
-  const masterDataItems = [
-    {
-      id: 'siswa',
-      label: 'Master Siswa',
-      icon: Users,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
-    },
-    {
-      id: 'dudi',
-      label: 'Mitra DUDI & Kuota',
-      icon: Building2,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli', 'GuruPendamping'],
-    },
-    {
-      id: 'guru',
-      label: 'Guru Pendamping',
-      icon: UserCheck,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
-    },
-    {
-      id: 'jurusan',
-      label: 'Kompetensi Keahlian',
-      icon: BookOpen,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
-    },
-    {
-      id: 'kelas',
-      label: 'Kelas & Wali Kelas',
-      icon: Layers,
-      allowed: ['SuperAdmin', 'Hubin', 'Kakomli'],
-    },
-  ];
+  // Group 3: Master Data (Derived from central moduleRegistry)
+  const masterDataItems = getSidebarModuleItems('master').map((item) => ({
+    id: item.id,
+    label: item.sidebarLabel,
+    icon: item.icon,
+    allowed: item.allowedRoles,
+  }));
 
   const isDocModuleActive = currentModule.startsWith('doc_');
 
@@ -182,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-40 w-64 bg-slate-900 text-slate-300 flex flex-col justify-between transition-transform duration-200 border-r border-slate-800 shrink-0 ${
+        className={`fixed lg:static top-0 bottom-0 left-0 z-50 lg:z-20 w-64 h-full bg-slate-900 text-slate-300 flex flex-col justify-between transition-transform duration-200 border-r border-slate-800 shrink-0 ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >

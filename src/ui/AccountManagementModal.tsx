@@ -175,6 +175,18 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
         setNewPassword('');
       }
 
+      const savedKepsek = res.accounts.find((a) => a.role === 'Kepsek' && a.status === 'Aktif');
+      if (
+        savedKepsek?.namaLengkap &&
+        savedKepsek.namaLengkap.trim().toLowerCase() !== 'kepala sekolah'
+      ) {
+        try {
+          localStorage.setItem('hubin_kepala_sekolah', savedKepsek.namaLengkap.trim());
+        } catch {
+          // ignore
+        }
+      }
+
       const refreshedSession = getStoredAdminSession();
       if (refreshedSession?.user && onCurrentUserUpdated) {
         onCurrentUserUpdated(refreshedSession.user);
