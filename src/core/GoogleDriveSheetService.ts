@@ -529,6 +529,27 @@ export class GoogleDriveSheetService {
         `row_${sheetRowNum}`;
     }
 
+    if (
+      (sheetName === 'Monitoring_5_Tahap' || sheetName.startsWith('Monitoring_')) &&
+      (!record.nis || !record.namaSiswa)
+    ) {
+      const rawDaftar = String(record.daftarSiswa || record.Daftar_Siswa || '').trim();
+      if (rawDaftar) {
+        const match = rawDaftar.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+        if (match) {
+          if (!record.namaSiswa && match[1].trim()) {
+            record.namaSiswa = match[1].trim();
+          }
+          if (!record.nis) {
+            const digits = stripNisSymbols(match[2]);
+            if (digits) record.nis = digits;
+          }
+        } else if (!record.namaSiswa) {
+          record.namaSiswa = rawDaftar;
+        }
+      }
+    }
+
     return record;
   }
 

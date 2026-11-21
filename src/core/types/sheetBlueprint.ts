@@ -219,7 +219,6 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
       'Nama_Siswa',
       'DUDI_Tujuan',
       'Alamat_DUDI',
-      'Daftar_Siswa',
       'Jurusan',
       'Guru_Pendamping',
       'Tahap',

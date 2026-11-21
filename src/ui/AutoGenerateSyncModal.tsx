@@ -140,7 +140,7 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Monitoring_5_Tahap",
-      headers: ["ID_Monitoring", "ID_Penempatan", "NIS", "Nama_Siswa", "DUDI_Tujuan", "Alamat_DUDI", "Daftar_Siswa", "Jurusan", "Guru_Pendamping", "Tahap", "Tanggal_Kunjungan", "Sakit", "Izin", "Alpha", "Nilai_PKL_Muncul", "Nilai_K3LH", "Nilai_Softskills", "Nilai_Hardskills", "Nilai_Alur_Bisnis_Dunia_Kerja", "Nilai_rata_rata", "Catatan_Kunjungan", "Foto_Bukti_Drive", "Nilai_DUDI_Terkumpul", "Blangko_Sertifikat_Bawa", "Status_Tahap"]
+      headers: ["ID_Monitoring", "ID_Penempatan", "NIS", "Nama_Siswa", "DUDI_Tujuan", "Alamat_DUDI", "Jurusan", "Guru_Pendamping", "Tahap", "Tanggal_Kunjungan", "Sakit", "Izin", "Alpha", "Nilai_PKL_Muncul", "Nilai_K3LH", "Nilai_Softskills", "Nilai_Hardskills", "Nilai_Alur_Bisnis_Dunia_Kerja", "Nilai_rata_rata", "Catatan_Kunjungan", "Foto_Bukti_Drive", "Nilai_DUDI_Terkumpul", "Blangko_Sertifikat_Bawa", "Status_Tahap"]
     },
     {
       name: "Nilai_Dan_Sertifikat",

@@ -140,11 +140,6 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
       const list = Array.isArray(json.data) ? json.data : [];
       setPetugasList(list);
-      if (list.length > 0 && !selectedPetugasId) {
-        setSelectedPetugasId(list[0].id);
-        setSelectedPetugasNama(list[0].nama);
-        setSelectedPetugasNip(list[0].nip || '-');
-      }
     } catch (e: any) {
       const errMsg = e?.message || 'Tidak dapat terhubung ke Cloud Server.';
       setPetugasList([]);
@@ -850,6 +845,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
       // ignore
     }
     setIsPinVerified(false);
+    setSelectedPetugasId('');
+    setSelectedPetugasNama('');
+    setSelectedPetugasNip('');
     setDudiPopupOpen(false);
     setSelectedDudi(null);
     setDudiStudents([]);
@@ -999,6 +997,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               loadingPetugas={loadingPetugas}
               petugasLoadError={petugasLoadError}
               selectedPetugasId={selectedPetugasId}
+              selectedPetugasNama={selectedPetugasNama}
               pinInput={pinInput}
               verifyingPin={verifyingPin}
               pinError={pinError}

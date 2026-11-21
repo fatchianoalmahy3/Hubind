@@ -95,6 +95,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       relationSource: 'siswa',
       autocomplete: true,
       allowCustomValue: false,
+      validation: { required: true },
       placeholder: 'Ketik NIS atau Nama Siswa dari Master Siswa...',
     },
     {
@@ -107,18 +108,9 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       relationSource: 'siswa',
       autocomplete: true,
       allowCustomValue: false,
+      validation: { required: true },
       placeholder: 'Pilih Nama Siswa dari Master Siswa...',
       helperText: 'Sumber: Master Siswa',
-    },
-    {
-      key: 'daftarSiswa',
-      label: 'Siswa / Kelompok',
-      type: 'text',
-      isTableColumn: true,
-      isFormInput: true,
-      isSearchable: true,
-      validation: { required: true },
-      placeholder: 'Nama siswa di DUDI ini',
     },
     {
       key: 'jurusan',

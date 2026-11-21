@@ -173,11 +173,11 @@ export interface PenempatanPKL {
 export interface Monitoring {
   id: string;
   idPenempatan: string;
-  nis?: string;
-  namaSiswa?: string;
+  nis: string;
+  namaSiswa: string;
   dudiTujuan: string;
   alamatDudi: string;
-  daftarSiswa: string;
+  daftarSiswa?: string;
   jurusan: string;
   guruPendamping: string;
   tahap: MonitoringTahapValue | string;

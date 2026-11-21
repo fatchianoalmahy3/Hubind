@@ -125,6 +125,16 @@
   padding: 0;
 }
 
+.hubin-doc-flow {
+  display: block;
+  width: 100%;
+}
+
+.hubin-monitoring-sheet {
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+
 @media screen {
   #hubin-print-portal {
     display: none !important;
@@ -237,6 +247,11 @@
     vertical-align: bottom !important;
     padding: 0 !important;
     border: none !important;
+  }
+
+  #hubin-print-portal .hubin-monitoring-sheet {
+    padding: 5mm 5mm !important;
+    box-sizing: border-box !important;
   }
 
   .no-print {

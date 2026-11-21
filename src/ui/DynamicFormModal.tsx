@@ -885,9 +885,6 @@ export function DynamicFormModal<T extends Record<string, any>>({
       }
     }
 
-    if (formFieldKeys.has('daftarSiswa') && !cleanPlaceholderDash(values.daftarSiswa) && matched.nama) {
-      patch.daftarSiswa = matched.nis ? `${matched.nama} (${matched.nis})` : matched.nama;
-    }
     if (formFieldKeys.has('guruPendamping') && !cleanPlaceholderDash(values.guruPendamping)) {
       const resolvedDudiName = patch.dudiTujuan || values.dudiTujuan || resolvedDudi.dudiTujuan;
       const dudiFromMaster = resolvedDudiName

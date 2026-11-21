@@ -36,11 +36,11 @@ export const OfficialSchoolKop0708: React.FC<OfficialSchoolKop0708Props> = ({
   return (
     <div className="border-b-[3px] border-double border-blue-900 pb-1.5 mb-2.5 flex items-center gap-3">
       {isSuratTugas ? (
-        <div className="w-24 h-24 ml-1 shrink-0 flex items-center justify-center">
+        <div className="w-28 h-28 ml-1 shrink-0 flex items-center justify-center">
           <img
             src="/assets/logo-pgri.png"
             alt="Logo PGRI"
-            className="w-24 h-24 object-contain"
+            className="w-28 h-28 object-contain"
             referrerPolicy="no-referrer"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
@@ -48,11 +48,11 @@ export const OfficialSchoolKop0708: React.FC<OfficialSchoolKop0708Props> = ({
           />
         </div>
       ) : (
-        <div className="w-16 h-16 ml-2 shrink-0 flex items-center justify-center">
+        <div className="w-24 h-24 ml-1 shrink-0 flex items-center justify-center">
           <img
             src="/assets/logo-smk-pgri2.png"
             alt="Logo SMK PGRI 2 Ponorogo"
-            className="w-16 h-16 object-contain"
+            className="w-24 h-24 object-contain"
             referrerPolicy="no-referrer"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
@@ -328,101 +328,93 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
       : [{ nis: '', namaSiswa: '....................................................', kelas: '', jurusan: '' }];
 
   return (
-    <table className="hubin-doc-shell font-sans text-slate-950 text-[10.5pt] leading-[1.2]">
-      <tbody>
-        <tr>
-          <td className="pb-1.5">
-            <div className="space-y-1.5">
-              <div className="border-b-2 border-slate-900 pb-1.5 flex items-center gap-2.5">
-          <div className="w-14 h-14 shrink-0 flex items-center justify-center">
-            <img
-              src="/assets/logo-smk-pgri2.png"
-              alt="Logo SMK PGRI 2 Ponorogo"
-              className="w-14 h-14 object-contain"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
+    <div className="hubin-doc-flow hubin-monitoring-sheet font-sans text-slate-950 text-[10.5pt] leading-[1.22] space-y-2.5">
+      <div className="border-b-2 border-slate-900 pb-2 flex items-center gap-3">
+        <div className="w-20 h-20 shrink-0 flex items-center justify-center">
+          <img
+            src="/assets/logo-smk-pgri2.png"
+            alt="Logo SMK PGRI 2 Ponorogo"
+            className="w-20 h-20 object-contain"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </div>
+        <div className="flex-1 text-center min-w-0 leading-[1.2]">
+          <div className="text-[12.5pt] font-extrabold uppercase tracking-wide">LEMBAR MONITORING</div>
+          <div className="text-[10.5pt] font-bold uppercase mt-0.5">
+            TAHAP {tahapNum} ({stageLabel})
           </div>
-          <div className="flex-1 text-center min-w-0 leading-[1.18]">
-            <div className="text-[12.5pt] font-extrabold uppercase tracking-wide">LEMBAR MONITORING</div>
-            <div className="text-[10.5pt] font-bold uppercase mt-0.5">
-              TAHAP {tahapNum} ({stageLabel})
-            </div>
-            <div className="text-[10.5pt] font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
-            <div className="text-[10.5pt] font-bold uppercase">SMK PGRI 2 PONOROGO</div>
-          </div>
-          <div className="w-14 shrink-0" aria-hidden="true" />
+          <div className="text-[10.5pt] font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
+          <div className="text-[10.5pt] font-bold uppercase">SMK PGRI 2 PONOROGO</div>
         </div>
+        <div className="w-20 shrink-0" aria-hidden="true" />
+      </div>
 
-        {/* 1. Identitas Bengkel */}
-        <div>
-          <div className="font-bold">1. Identitas Bengkel (Dudi)</div>
-          <table className="w-full ml-3 mt-0.5 text-[10.5pt] border-collapse">
-            <tbody>
-              <tr>
-                <td className="w-36 py-[1px]">1. Nama Bengkel</td>
-                <td className="w-3 py-[1px]">:</td>
-                <td className="py-[1px] font-bold">{namaBengkel || '-'}</td>
-              </tr>
-              <tr>
-                <td className="py-[1px]">2. Alamat</td>
-                <td className="py-[1px]">:</td>
-                <td className="py-[1px]">{alamatBengkel && alamatBengkel !== '-' ? alamatBengkel : '-'}</td>
-              </tr>
-              <tr>
-                <td className="py-[1px]">3. Pemimpin</td>
-                <td className="py-[1px]">:</td>
-                <td className="py-[1px]">
-                  {pemimpinBengkel && pemimpinBengkel !== '-'
-                    ? pemimpinBengkel
-                    : '....................................................'}
-                </td>
-              </tr>
-              <tr>
-                <td className="py-[1px]">4. No. Telp.</td>
-                <td className="py-[1px]">:</td>
-                <td className="py-[1px] font-mono">
-                  {noTelpBengkel && noTelpBengkel !== '-'
-                    ? noTelpBengkel
-                    : '....................................................'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      {/* 1. Identitas Bengkel */}
+      <div>
+        <div className="font-bold">1. Identitas Bengkel (Dudi)</div>
+        <table className="w-full ml-3 mt-0.5 text-[10.5pt] border-collapse">
+          <tbody>
+            <tr>
+              <td className="w-36 py-[1px]">1. Nama Bengkel</td>
+              <td className="w-3 py-[1px]">:</td>
+              <td className="py-[1px] font-bold">{namaBengkel || '-'}</td>
+            </tr>
+            <tr>
+              <td className="py-[1px]">2. Alamat</td>
+              <td className="py-[1px]">:</td>
+              <td className="py-[1px]">{alamatBengkel && alamatBengkel !== '-' ? alamatBengkel : '-'}</td>
+            </tr>
+            <tr>
+              <td className="py-[1px]">3. Pemimpin</td>
+              <td className="py-[1px]">:</td>
+              <td className="py-[1px]">
+                {pemimpinBengkel && pemimpinBengkel !== '-'
+                  ? pemimpinBengkel
+                  : '....................................................'}
+              </td>
+            </tr>
+            <tr>
+              <td className="py-[1px]">4. No. Telp.</td>
+              <td className="py-[1px]">:</td>
+              <td className="py-[1px] font-mono">
+                {noTelpBengkel && noTelpBengkel !== '-'
+                  ? noTelpBengkel
+                  : '....................................................'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-        {/* 2. Hari / Jam Masuk Kerja */}
-        <div>
-          <div className="font-bold">2. Hari / Jam Masuk Kerja</div>
-          <table className="w-full ml-3 mt-0.5 text-[10.5pt] border-collapse">
-            <tbody>
-              <tr>
-                <td className="w-36 py-[1px]">1. Hari Kerja</td>
-                <td className="w-3 py-[1px]">:</td>
-                <td className="py-[1px]">
-                  ............................ s/d ............................
-                </td>
-              </tr>
-              <tr>
-                <td className="py-[1px]">2. Jam Kerja</td>
-                <td className="py-[1px]">:</td>
-                <td className="py-[1px]">
-                  ............................ s/d ............................
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-            </div>
-          </td>
-        </tr>
-        <tr>
-          <td className="pb-1.5">
-            {/* 3. Presensi Siswa */}
-            <div>
-              <div className="font-bold mb-0.5">3. Presensi Siswa :</div>
+      {/* 2. Hari / Jam Masuk Kerja */}
+      <div>
+        <div className="font-bold">2. Hari / Jam Masuk Kerja</div>
+        <table className="w-full ml-3 mt-0.5 text-[10.5pt] border-collapse">
+          <tbody>
+            <tr>
+              <td className="w-36 py-[1px]">1. Hari Kerja</td>
+              <td className="w-3 py-[1px]">:</td>
+              <td className="py-[1px]">
+                ............................ s/d ............................
+              </td>
+            </tr>
+            <tr>
+              <td className="py-[1px]">2. Jam Kerja</td>
+              <td className="py-[1px]">:</td>
+              <td className="py-[1px]">
+                ............................ s/d ............................
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* 3. Presensi Siswa */}
+      <div>
+        <div className="font-bold mb-0.5">3. Presensi Siswa :</div>
           <table className="w-full border-collapse border border-slate-900 text-[9.5pt]">
             <thead>
               <tr className="bg-slate-100">
@@ -478,96 +470,80 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
               ))}
             </tbody>
           </table>
-          <div className="text-[8.5pt] text-slate-700 mt-0.5 leading-tight space-y-0.5">
-            <div>
-              <b>KET:</b> BLM : Belum Selesai Mengerjakan &nbsp;|&nbsp; SDH : Sudah Dikerjakan &nbsp;|&nbsp; TDK : Tidak Mengerjakan atau Tertinggal
-            </div>
-            <div>
-              DP : Kedisiplinan (Kurang, Cukup, Baik) &nbsp;|&nbsp; MT : Motivasi (Kurang, Cukup, Baik) &nbsp;|&nbsp; KRT : Kreativitas (Kurang, Cukup, Baik)
-            </div>
+        <div className="text-[8.5pt] text-slate-700 mt-1 leading-tight space-y-0.5">
+          <div>
+            <b>KET:</b> BLM : Belum Selesai Mengerjakan &nbsp;|&nbsp; SDH : Sudah Dikerjakan &nbsp;|&nbsp; TDK : Tidak Mengerjakan atau Tertinggal
+          </div>
+          <div>
+            DP : Kedisiplinan (Kurang, Cukup, Baik) &nbsp;|&nbsp; MT : Motivasi (Kurang, Cukup, Baik) &nbsp;|&nbsp; KRT : Kreativitas (Kurang, Cukup, Baik)
           </div>
         </div>
-          </td>
-        </tr>
-        <tr>
-          <td className="pb-1.5">
-            {/* 4. Aktivitas Siswa */}
-            <div className="print-avoid-break">
-          <div className="font-bold">4. Aktivitas Siswa</div>
-          <div className="ml-3 mt-0.5 space-y-0.5 leading-snug">
-            <div>Kompetensi yang didapat :</div>
-            <div>1. ..................................................................................................................</div>
-            <div>2. ..................................................................................................................</div>
-            <div>3. ..................................................................................................................</div>
-            <div>4. ..................................................................................................................</div>
-          </div>
+      </div>
+
+      {/* 4. Aktivitas Siswa */}
+      <div className="print-avoid-break">
+        <div className="font-bold">4. Aktivitas Siswa</div>
+        <div className="ml-3 mt-0.5 space-y-0.5 leading-snug">
+          <div>Kompetensi yang didapat :</div>
+          <div>1. ..................................................................................................................</div>
+          <div>2. ..................................................................................................................</div>
+          <div>3. ..................................................................................................................</div>
+          <div>4. ..................................................................................................................</div>
         </div>
-          </td>
-        </tr>
-        <tr>
-          <td className="pb-1.5">
-            {/* 5. Keadaan Bengkel */}
-            <div className="print-avoid-break">
-          <div className="font-bold mb-0.5">5. Keadaan Bengkel</div>
-          <table className="w-full border-collapse border border-slate-900 text-[9.5pt]">
-            <thead>
-              <tr className="bg-slate-100">
-                <th className="border border-slate-900 px-1 py-0.5 w-7 text-center">No</th>
-                <th className="border border-slate-900 px-1.5 py-0.5 text-left">Aspek Penilaian</th>
-                <th className="border border-slate-900 px-1 py-0.5 text-center w-36">Baik / Sesuai / Layak</th>
-                <th className="border border-slate-900 px-1 py-0.5 text-center w-20">Cukup</th>
-                <th className="border border-slate-900 px-1 py-0.5 text-center w-36">Kurang / Tidak Sesuai</th>
+      </div>
+
+      {/* 5. Keadaan Bengkel */}
+      <div className="print-avoid-break">
+        <div className="font-bold mb-0.5">5. Keadaan Bengkel</div>
+        <table className="w-full border-collapse border border-slate-900 text-[9.5pt]">
+          <thead>
+            <tr className="bg-slate-100">
+              <th className="border border-slate-900 px-1 py-0.5 w-7 text-center">No</th>
+              <th className="border border-slate-900 px-1.5 py-0.5 text-left">Aspek Penilaian</th>
+              <th className="border border-slate-900 px-1 py-0.5 text-center w-36">Baik / Sesuai / Layak</th>
+              <th className="border border-slate-900 px-1 py-0.5 text-center w-20">Cukup</th>
+              <th className="border border-slate-900 px-1 py-0.5 text-center w-36">Kurang / Tidak Sesuai</th>
+            </tr>
+          </thead>
+          <tbody>
+            {['Volume Pekerjaan', 'Relevansi Pekerjaan', 'Kenyamanan', 'Kelayakan'].map((aspek, i) => (
+              <tr key={aspek}>
+                <td className="border border-slate-900 px-1 py-0.5 text-center">{i + 1}</td>
+                <td className="border border-slate-900 px-1.5 py-0.5">{aspek}</td>
+                <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
+                <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
+                <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
               </tr>
-            </thead>
-            <tbody>
-              {['Volume Pekerjaan', 'Relevansi Pekerjaan', 'Kenyamanan', 'Kelayakan'].map((aspek, i) => (
-                <tr key={aspek}>
-                  <td className="border border-slate-900 px-1 py-0.5 text-center">{i + 1}</td>
-                  <td className="border border-slate-900 px-1.5 py-0.5">{aspek}</td>
-                  <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
-                  <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
-                  <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Catatan Lain & Tanda Tangan */}
+      <div className="grid grid-cols-12 gap-3 pt-1 print-avoid-break">
+        <div className="col-span-7 space-y-1.5">
+          <div className="font-bold">Catatan Lain :</div>
+          <div className="border-b border-dotted border-slate-700 h-4" />
+          <div className="border-b border-dotted border-slate-700 h-4" />
         </div>
-          </td>
-        </tr>
-        <tr>
-          <td className="pb-1.5">
-            {/* Catatan Lain & Tanda Tangan */}
-            <div className="grid grid-cols-12 gap-3 pt-1 print-avoid-break">
-          <div className="col-span-7 space-y-1.5">
-            <div className="font-bold">Catatan Lain :</div>
-            <div className="border-b border-dotted border-slate-700 h-4" />
-            <div className="border-b border-dotted border-slate-700 h-4" />
+        <div className="col-span-5 text-center">
+          <div>Ponorogo, {tanggalSurat || '..... / ..... / 2026'}</div>
+          <div className="font-semibold">Petugas Monitoring</div>
+          <div className="h-10" />
+          <div className="font-bold underline">
+            {namaPetugas && namaPetugas !== '-' ? namaPetugas : '........................................'}
           </div>
-          <div className="col-span-5 text-center">
-            <div>Ponorogo, {tanggalSurat || '..... / ..... / 2026'}</div>
-            <div className="font-semibold">Petugas Monitoring</div>
-            <div className="h-10" />
-              <div className="font-bold underline">
-                {namaPetugas && namaPetugas !== '-' ? namaPetugas : '........................................'}
-              </div>
-            </div>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr>
-          <td>
-            <div className="pt-2">
-              <div className="flex items-center justify-between text-[9pt] font-sans text-slate-600 border-t border-slate-400 pt-1">
-                <div>Format : 07 . 01</div>
-                <div>Revisi : 11/11/2026</div>
-              </div>
-            </div>
-          </td>
-        </tr>
-      </tfoot>
-    </table>
+        </div>
+      </div>
+
+      {/* Format Footer — mengikuti urutan langsung di bawah Catatan & TTD */}
+      <div className="pt-2 print-avoid-break">
+        <div className="flex items-center justify-between text-[9pt] font-sans text-slate-600 border-t border-slate-400 pt-1">
+          <div>Format : 07 . 01</div>
+          <div>Revisi : 11/11/2026</div>
+        </div>
+      </div>
+    </div>
   );
 };
 
