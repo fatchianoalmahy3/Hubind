@@ -3,6 +3,7 @@ export interface CachedSheetSnapshot<T = any> {
   data: T[];
   etag?: string;
   updatedAt: number;
+  extra?: Record<string, any>;
 }
 
 const DB_NAME = 'hubin_cloud_swr_v1';
@@ -201,12 +202,18 @@ export class IndexedDbSheetCache {
     return this.readHotLocalStorage<T>(key);
   }
 
-  public async set<T = any>(key: string, data: T[], etag?: string): Promise<void> {
+  public async set<T = any>(
+    key: string,
+    data: T[],
+    etag?: string,
+    extra?: Record<string, any>
+  ): Promise<void> {
     const snapshot: CachedSheetSnapshot<T> = {
       key,
       data: Array.isArray(data) ? data : [],
       etag,
       updatedAt: Date.now(),
+      ...(extra && Object.keys(extra).length > 0 ? { extra } : {}),
     };
     this.memoryMirror.set(key, snapshot);
     this.writeHotLocalStorage(key, snapshot);

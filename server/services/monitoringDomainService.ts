@@ -1,6 +1,17 @@
+import { getTodayWibIsoDate } from '../../src/core/utils/dateHelpers';
+import {
+  extractIssuedStageNumber,
+  getStageValueByNumber,
+  isIssuedLetterStatusActive,
+} from '../../src/core/utils/monitoringHelpers';
 import { stripNisSymbols } from '../../src/core/utils/nisHelpers';
 import { normalizeStr, pickField } from '../../src/core/utils/rowFieldHelpers';
-import { fetchLiveSheetViaGas, writeLiveSheetViaGas } from './sheetsTransport';
+import { getFirestoreWorkspaceConfig } from '../config/runtimeConfig';
+import {
+  fetchLiveSheetViaGas,
+  invalidateSheetCacheEntry,
+  writeLiveSheetViaGas,
+} from './sheetsTransport';
 
 export interface SyncDudiContactInput {
   dudiId?: string;
@@ -114,7 +125,9 @@ export async function syncDudiContactToMasterAndPengajuan(
     const hasBlankContact =
       !pickField(r, 'Nama_Pemimpin', 'namaPemimpin') ||
       !pickField(r, 'Nama_PIC', 'namaPic') ||
-      !pickField(r, 'No_Telp_DUDI', 'noTelpDudi');
+      !pickField(r, 'No_Telp_DUDI', 'noTelpDudi') ||
+      (inputHariKerja && !pickField(r, 'Hari_Kerja', 'hariKerja')) ||
+      (inputJamKerja && !pickField(r, 'Jam_Kerja', 'jamKerja'));
     return isTarget && hasBlankContact;
   });
 
@@ -130,6 +143,8 @@ export async function syncDudiContactToMasterAndPengajuan(
       Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || inputPic,
       No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || inputTelpDudi,
       Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || inputTelpDudi,
+      Hari_Kerja: pickField(mr, 'Hari_Kerja', 'hariKerja') || inputHariKerja,
+      Jam_Kerja: pickField(mr, 'Jam_Kerja', 'jamKerja') || inputJamKerja,
     });
   }
 
@@ -231,3 +246,273 @@ export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput
     tanggalTerbit: input.tglTerbit,
   });
 }
+
+export interface IssuedLetterTargetInput {
+  dudiId?: string;
+  namaDudi: string;
+  tahap: number;
+  jenisDokumen?: string;
+  nomorSurat?: string;
+  tanggalTerbit?: string;
+  diterbitkanOleh?: string;
+  guruPendamping?: string;
+  linkPdf?: string;
+}
+
+export interface IssuedLetterRecordDto {
+  id: string;
+  idTerbit: string;
+  idDudi: string;
+  namaDudi: string;
+  tahap: number;
+  namaTahap: string;
+  statusTerbit: string;
+  jenisDokumen: string;
+  nomorSurat: string;
+  tanggalTerbit: string;
+  diterbitkanOleh: string;
+  guruPendamping: string;
+  linkPdf: string;
+  updatedAt: string;
+  _sheetRowNumber?: number;
+}
+
+function mapRawIssuedLetterRow(row: any, idx: number): IssuedLetterRecordDto {
+  const idTerbit =
+    pickField(row, 'ID_Terbit', 'idTerbit', 'id') ||
+    `TRB-ROW-${Number(row?._sheetRowNumber || idx + 2)}`;
+  const tahap =
+    extractIssuedStageNumber(row?.Tahap ?? row?.tahap) ||
+    extractIssuedStageNumber(row?.Nama_Tahap ?? row?.namaTahap) ||
+    1;
+  return {
+    id: idTerbit,
+    idTerbit,
+    idDudi: pickField(row, 'ID_DUDI', 'idDudi'),
+    namaDudi: pickField(row, 'Nama_DUDI', 'namaDudi'),
+    tahap,
+    namaTahap: pickField(row, 'Nama_Tahap', 'namaTahap') || getStageValueByNumber(tahap),
+    statusTerbit: pickField(row, 'Status_Terbit', 'statusTerbit') || 'Sudah Terbit',
+    jenisDokumen: pickField(row, 'Jenis_Dokumen', 'jenisDokumen'),
+    nomorSurat: pickField(row, 'Nomor_Surat', 'nomorSurat'),
+    tanggalTerbit: pickField(row, 'Tanggal_Terbit', 'tanggalTerbit'),
+    diterbitkanOleh: pickField(row, 'Diterbitkan_Oleh', 'diterbitkanOleh'),
+    guruPendamping: pickField(row, 'Guru_Pendamping', 'guruPendamping'),
+    linkPdf: pickField(row, 'Link_PDF', 'linkPdf'),
+    updatedAt: pickField(row, 'Updated_At', 'updatedAt'),
+    _sheetRowNumber: typeof row?._sheetRowNumber === 'number' ? row._sheetRowNumber : undefined,
+  };
+}
+
+export async function fetchIssuedLettersList(
+  forceRefresh = false
+): Promise<IssuedLetterRecordDto[]> {
+  const res = await fetchLiveSheetViaGas('Log_Penerbitan_Surat', forceRefresh).catch(() => ({
+    rows: [] as any[],
+  }));
+  return (Array.isArray(res.rows) ? res.rows : []).map((row, idx) =>
+    mapRawIssuedLetterRow(row, idx)
+  );
+}
+
+export async function recordIssuedLetters(
+  items: IssuedLetterTargetInput[],
+  actorName: string
+): Promise<IssuedLetterRecordDto[]> {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const [existingRes, dudiRes] = await Promise.all([
+    fetchLiveSheetViaGas('Log_Penerbitan_Surat', true).catch(() => ({ rows: [] as any[] })),
+    fetchLiveSheetViaGas('Master_DUDI', false).catch(() => ({ rows: [] as any[] })),
+  ]);
+
+  const existingRows = Array.isArray(existingRes.rows) ? [...existingRes.rows] : [];
+  const dudiRows = Array.isArray(dudiRes.rows) ? dudiRes.rows : [];
+  const todayIso = getTodayWibIsoDate();
+  const nowIso = new Date().toISOString();
+  const results: IssuedLetterRecordDto[] = [];
+
+  for (let i = 0; i < items.length; i += 1) {
+    const rawItem = items[i];
+    const tahap = Number(rawItem?.tahap);
+    const rawName = String(rawItem?.namaDudi || '').trim().slice(0, 180);
+    let resolvedDudiId = String(rawItem?.dudiId || '').trim().slice(0, 80);
+
+    if (!Number.isInteger(tahap) || tahap < 1 || tahap > 8 || (!rawName && !resolvedDudiId)) {
+      continue;
+    }
+
+    const targetNorm = normalizeStr(rawName);
+    const matchedDudi = dudiRows.find((d: any) => {
+      const mId = pickField(d, 'ID', 'id');
+      const mNama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi'));
+      return (resolvedDudiId && mId === resolvedDudiId) || (targetNorm && mNama === targetNorm);
+    });
+    if (matchedDudi) {
+      resolvedDudiId = pickField(matchedDudi, 'ID', 'id') || resolvedDudiId;
+    }
+    const resolvedDudiNama =
+      rawName || pickField(matchedDudi || {}, 'Nama_DUDI', 'namaDudi') || resolvedDudiId;
+
+    const existingIdx = existingRows.findIndex((r: any) => {
+      const rowStage =
+        extractIssuedStageNumber(r.Tahap ?? r.tahap) ||
+        extractIssuedStageNumber(r.Nama_Tahap ?? r.namaTahap);
+      if (rowStage !== tahap) return false;
+      const rId = pickField(r, 'ID_DUDI', 'idDudi');
+      const rNama = normalizeStr(pickField(r, 'Nama_DUDI', 'namaDudi'));
+      return (
+        (resolvedDudiId && rId && rId === resolvedDudiId) ||
+        (targetNorm && rNama && rNama === targetNorm)
+      );
+    });
+
+    const namaTahap = getStageValueByNumber(tahap);
+    const existingRow = existingIdx >= 0 ? existingRows[existingIdx] : null;
+    const existingIdTerbit = existingRow
+      ? pickField(existingRow, 'ID_Terbit', 'idTerbit', 'id')
+      : '';
+    const idTerbit =
+      existingIdTerbit ||
+      `TRB-${(resolvedDudiId || 'DUDI').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)}-T${tahap}-${Date.now().toString(36).slice(-4)}${i}`;
+
+    const recordPayload = {
+      id: idTerbit,
+      ID_Terbit: idTerbit,
+      idTerbit,
+      ID_DUDI: resolvedDudiId,
+      idDudi: resolvedDudiId,
+      Nama_DUDI: resolvedDudiNama,
+      namaDudi: resolvedDudiNama,
+      Tahap: tahap,
+      tahap,
+      Nama_Tahap: namaTahap,
+      namaTahap,
+      Status_Terbit: 'Sudah Terbit',
+      statusTerbit: 'Sudah Terbit',
+      Jenis_Dokumen:
+        String(rawItem.jenisDokumen || '').trim().slice(0, 120) ||
+        pickField(existingRow || {}, 'Jenis_Dokumen', 'jenisDokumen') ||
+        'Paket / Surat Supervisi',
+      jenisDokumen:
+        String(rawItem.jenisDokumen || '').trim().slice(0, 120) ||
+        pickField(existingRow || {}, 'Jenis_Dokumen', 'jenisDokumen') ||
+        'Paket / Surat Supervisi',
+      Nomor_Surat:
+        String(rawItem.nomorSurat || '').trim().slice(0, 120) ||
+        pickField(existingRow || {}, 'Nomor_Surat', 'nomorSurat'),
+      nomorSurat:
+        String(rawItem.nomorSurat || '').trim().slice(0, 120) ||
+        pickField(existingRow || {}, 'Nomor_Surat', 'nomorSurat'),
+      Tanggal_Terbit: String(rawItem.tanggalTerbit || '').trim().slice(0, 40) || todayIso,
+      tanggalTerbit: String(rawItem.tanggalTerbit || '').trim().slice(0, 40) || todayIso,
+      Diterbitkan_Oleh:
+        String(rawItem.diterbitkanOleh || actorName || 'Admin Hubin').trim().slice(0, 120),
+      diterbitkanOleh:
+        String(rawItem.diterbitkanOleh || actorName || 'Admin Hubin').trim().slice(0, 120),
+      Guru_Pendamping:
+        String(rawItem.guruPendamping || '').trim().slice(0, 120) ||
+        pickField(existingRow || {}, 'Guru_Pendamping', 'guruPendamping'),
+      guruPendamping:
+        String(rawItem.guruPendamping || '').trim().slice(0, 120) ||
+        pickField(existingRow || {}, 'Guru_Pendamping', 'guruPendamping'),
+      Link_PDF:
+        String(rawItem.linkPdf || '').trim().slice(0, 500) ||
+        pickField(existingRow || {}, 'Link_PDF', 'linkPdf'),
+      linkPdf:
+        String(rawItem.linkPdf || '').trim().slice(0, 500) ||
+        pickField(existingRow || {}, 'Link_PDF', 'linkPdf'),
+      Updated_At: nowIso,
+      updatedAt: nowIso,
+    };
+
+    if (existingRow) {
+      await writeLiveSheetViaGas('Log_Penerbitan_Surat', 'UPDATE', {
+        ...recordPayload,
+        _sheetRowNumber: existingRow._sheetRowNumber,
+      });
+      existingRows[existingIdx] = { ...existingRow, ...recordPayload };
+    } else {
+      await writeLiveSheetViaGas('Log_Penerbitan_Surat', 'CREATE', recordPayload);
+      existingRows.push(recordPayload);
+    }
+
+    results.push(mapRawIssuedLetterRow(recordPayload, existingIdx >= 0 ? existingIdx : existingRows.length - 1));
+  }
+
+  const cfg = await getFirestoreWorkspaceConfig().catch(() => null);
+  if (cfg?.spreadsheetId) {
+    invalidateSheetCacheEntry(cfg.spreadsheetId, 'Log_Penerbitan_Surat');
+  }
+
+  return results;
+}
+
+export async function revokeIssuedLetter(params: {
+  idTerbit?: string;
+  dudiId?: string;
+  namaDudi?: string;
+  tahap: number;
+  actorName: string;
+}): Promise<{ revoked: boolean; idTerbit?: string }> {
+  const tahap = Number(params.tahap);
+  if (!Number.isInteger(tahap) || tahap < 1 || tahap > 8) {
+    return { revoked: false };
+  }
+
+  const existingRes = await fetchLiveSheetViaGas('Log_Penerbitan_Surat', true).catch(() => ({
+    rows: [] as any[],
+  }));
+  const rows = Array.isArray(existingRes.rows) ? existingRes.rows : [];
+  const targetIdTerbit = String(params.idTerbit || '').trim();
+  const targetDudiId = String(params.dudiId || '').trim();
+  const targetDudiNorm = normalizeStr(params.namaDudi || '');
+  const nowIso = new Date().toISOString();
+
+  const matchingRows = rows.filter((r: any) => {
+    const rIdTerbit = pickField(r, 'ID_Terbit', 'idTerbit', 'id');
+    if (targetIdTerbit && rIdTerbit === targetIdTerbit) return true;
+    const rowStage =
+      extractIssuedStageNumber(r.Tahap ?? r.tahap) ||
+      extractIssuedStageNumber(r.Nama_Tahap ?? r.namaTahap);
+    if (rowStage !== tahap) return false;
+    const rDudiId = pickField(r, 'ID_DUDI', 'idDudi');
+    const rDudiNama = normalizeStr(pickField(r, 'Nama_DUDI', 'namaDudi'));
+    return (
+      (targetDudiId && rDudiId && rDudiId === targetDudiId) ||
+      (targetDudiNorm && rDudiNama && rDudiNama === targetDudiNorm)
+    );
+  });
+
+  if (matchingRows.length === 0) {
+    return { revoked: false };
+  }
+
+  let lastIdTerbit = '';
+  for (const row of matchingRows) {
+    if (!isIssuedLetterStatusActive(row.Status_Terbit ?? row.statusTerbit)) continue;
+    const rowIdTerbit = pickField(row, 'ID_Terbit', 'idTerbit', 'id');
+    lastIdTerbit = rowIdTerbit || lastIdTerbit;
+    await writeLiveSheetViaGas('Log_Penerbitan_Surat', 'UPDATE', {
+      ...row,
+      id: rowIdTerbit,
+      ID_Terbit: rowIdTerbit,
+      idTerbit: rowIdTerbit,
+      _sheetRowNumber: row._sheetRowNumber,
+      Status_Terbit: 'Dibatalkan',
+      statusTerbit: 'Dibatalkan',
+      Diterbitkan_Oleh: `${String(params.actorName || 'Admin Hubin').trim().slice(0, 80)} (Dibatalkan)`,
+      diterbitkanOleh: `${String(params.actorName || 'Admin Hubin').trim().slice(0, 80)} (Dibatalkan)`,
+      Updated_At: nowIso,
+      updatedAt: nowIso,
+    });
+  }
+
+  const cfg = await getFirestoreWorkspaceConfig().catch(() => null);
+  if (cfg?.spreadsheetId) {
+    invalidateSheetCacheEntry(cfg.spreadsheetId, 'Log_Penerbitan_Surat');
+  }
+
+  return { revoked: true, idTerbit: lastIdTerbit || undefined };
+}
+

@@ -7,7 +7,7 @@ export const SiswaMetadata: ModuleMetadata<Siswa> = {
   subtitle: 'Data resmi induk siswa peserta PKL Pokja Hubin SMK PGRI 2 Ponorogo',
   tableName: 'Master_Siswa_XI',
   icon: 'Users',
-  allowedRoles: ['Hubin', 'Kakomli', 'GuruPendamping'],
+  allowedRoles: ['Hubin', 'Pokja'],
   statCards: [
     {
       title: 'Total Master Siswa',

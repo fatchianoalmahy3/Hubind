@@ -73,6 +73,17 @@ export const WizardSuccessView: React.FC<WizardSuccessViewProps> = ({
           <span className="text-slate-500">DUDI Pilihan</span>
           <span className="font-bold text-indigo-700 text-right">{submissionResult.nama_dudi}</span>
         </div>
+        {(submissionResult.Hari_Kerja || submissionResult.hari_kerja || submissionResult.Jam_Kerja || submissionResult.jam_kerja) && (
+          <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
+            <span className="text-slate-500">Jadwal Kerja DUDI</span>
+            <span className="font-semibold text-slate-800 text-right">
+              {submissionResult.Hari_Kerja || submissionResult.hari_kerja || '-'}
+              {submissionResult.Jam_Kerja || submissionResult.jam_kerja
+                ? ` · ${submissionResult.Jam_Kerja || submissionResult.jam_kerja}`
+                : ''}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
           <span className="text-slate-500 shrink-0">Link Google Maps</span>
           {mapsUrl ? (

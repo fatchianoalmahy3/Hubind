@@ -96,10 +96,10 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
   };
 
   return (
-    <div className="max-w-md mx-auto space-y-5 py-4 animate-in fade-in duration-150">
+    <div className="max-w-md mx-auto space-y-3.5 sm:space-y-5 py-1.5 sm:py-4 animate-in fade-in duration-150">
       <div className="text-center space-y-1">
-        <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto border border-blue-200/80 shadow-2xs">
-          <KeyRound className="w-6 h-6" />
+        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto border border-blue-200/80 shadow-2xs">
+          <KeyRound className="w-5 h-5 sm:w-6 sm:h-6" />
         </div>
         <h3 className="text-base font-bold text-slate-900">
           Cari Nama &amp; Masukkan PIN

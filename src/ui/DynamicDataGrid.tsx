@@ -56,6 +56,7 @@ interface DynamicDataGridProps<T = any> {
   onDelete: (row: T) => void;
   onCustomAction?: (actionName: string, row: T) => void;
   customRowActions?: CustomRowAction[];
+  readOnly?: boolean;
   viewMode?: 'table' | 'card';
   onViewModeChange?: (mode: 'table' | 'card') => void;
 }
@@ -66,6 +67,7 @@ interface RowActionsProps<T> {
   onCustomAction?: (actionName: string, row: T) => void;
   onEdit: (row: T) => void;
   onDelete: (row: T) => void;
+  readOnly?: boolean;
   openUpward?: boolean;
   variant?: 'table' | 'card';
 }
@@ -76,6 +78,7 @@ function RowActions<T>({
   onCustomAction,
   onEdit,
   onDelete,
+  readOnly = false,
   openUpward = false,
   variant = 'table',
 }: RowActionsProps<T>) {
@@ -134,45 +137,65 @@ function RowActions<T>({
           )}
         </div>
 
-        <div className="inline-flex items-center gap-1.5 shrink-0">
+        {!readOnly && (
+          <div className="inline-flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onEdit(row)}
+              className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              title="Edit Data"
+              aria-label="Edit Data"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+
+            {customRowActions.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => onDelete(row)}
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-700 hover:bg-rose-50 hover:border-rose-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+                title="Hapus Data"
+                aria-label="Hapus Data"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMenuOpen((prev) => !prev)}
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                  menuOpen
+                    ? 'bg-slate-200 border-slate-300 text-slate-900'
+                    : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Aksi Lainnya"
+                aria-label="Aksi Lainnya"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
+        {readOnly && secondaryActions.length > 0 && (
           <button
             type="button"
-            onClick={() => onEdit(row)}
-            className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Edit Data"
-            aria-label="Edit Data"
+            onClick={() => setMenuOpen((prev) => !prev)}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+              menuOpen
+                ? 'bg-slate-200 border-slate-300 text-slate-900'
+                : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+            title="Aksi Lainnya"
+            aria-label="Aksi Lainnya"
           >
-            <Edit2 className="w-3.5 h-3.5" />
+            <MoreVertical className="w-3.5 h-3.5" />
           </button>
-
-          {customRowActions.length === 0 ? (
-            <button
-              type="button"
-              onClick={() => onDelete(row)}
-              className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-700 hover:bg-rose-50 hover:border-rose-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
-              title="Hapus Data"
-              aria-label="Hapus Data"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setMenuOpen((prev) => !prev)}
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
-                menuOpen
-                  ? 'bg-slate-200 border-slate-300 text-slate-900'
-                  : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-              title="Aksi Lainnya"
-              aria-label="Aksi Lainnya"
-            >
-              <MoreVertical className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        )}
 
         {menuOpen && (
           <div
@@ -200,28 +223,33 @@ function RowActions<T>({
               );
             })}
 
-            {secondaryActions.length > 0 && <div className="my-1 border-t border-slate-100" />}
+            {!readOnly && secondaryActions.length > 0 && <div className="my-1 border-t border-slate-100" />}
 
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete(row);
-              }}
-              className="w-full min-h-9 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>Hapus Data</span>
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete(row);
+                }}
+                className="w-full min-h-9 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Hapus Data</span>
+              </button>
+            )}
           </div>
         )}
       </div>
     );
   }
 
-  // Table Mode: If no custom workflow actions, render clean proportional 32x32px Edit | Delete
+  // Table Mode: If no custom workflow actions, render clean proportional 32x32px Edit | Delete (or Read-Only label)
   if (customRowActions.length === 0) {
+    if (readOnly) {
+      return <span className="text-[11px] font-medium text-slate-400">Lihat saja</span>;
+    }
     return (
       <div className="inline-flex items-center justify-end gap-1">
         <button
@@ -268,31 +296,35 @@ function RowActions<T>({
         );
       })}
 
-      <button
-        type="button"
-        onClick={() => onEdit(row)}
-        className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-        title="Edit Data"
-        aria-label="Edit Data"
-      >
-        <Edit2 className="w-3.5 h-3.5" />
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={() => onEdit(row)}
+          className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-200 inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          title="Edit Data"
+          aria-label="Edit Data"
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+        </button>
+      )}
 
-      <button
-        type="button"
-        onClick={() => setMenuOpen((prev) => !prev)}
-        aria-expanded={menuOpen}
-        aria-haspopup="menu"
-        className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
-          menuOpen
-            ? 'bg-slate-200 border-slate-300 text-slate-900'
-            : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-        }`}
-        title="Aksi Lainnya"
-        aria-label="Aksi Lainnya"
-      >
-        <MoreVertical className="w-3.5 h-3.5" />
-      </button>
+      {(!readOnly || secondaryActions.length > 0) && (
+        <button
+          type="button"
+          onClick={() => setMenuOpen((prev) => !prev)}
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          className={`w-8 h-8 rounded-lg border inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+            menuOpen
+              ? 'bg-slate-200 border-slate-300 text-slate-900'
+              : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+          title="Aksi Lainnya"
+          aria-label="Aksi Lainnya"
+        >
+          <MoreVertical className="w-3.5 h-3.5" />
+        </button>
+      )}
 
       {menuOpen && (
         <div
@@ -320,20 +352,22 @@ function RowActions<T>({
             );
           })}
 
-          {secondaryActions.length > 0 && <div className="my-1 border-t border-slate-100" />}
+          {!readOnly && secondaryActions.length > 0 && <div className="my-1 border-t border-slate-100" />}
 
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              onDelete(row);
-            }}
-            className="w-full min-h-9 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
-          >
-            <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>Hapus Data</span>
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete(row);
+              }}
+              className="w-full min-h-9 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Hapus Data</span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -359,6 +393,7 @@ export function DynamicDataGrid<T extends { id: string }>({
   onDelete,
   onCustomAction,
   customRowActions = [],
+  readOnly = false,
   viewMode = 'card',
 }: DynamicDataGridProps<T>) {
   const tableColumns = fields.filter((f) => f.isTableColumn);
@@ -659,6 +694,7 @@ export function DynamicDataGrid<T extends { id: string }>({
                         onCustomAction={onCustomAction}
                         onEdit={onEdit}
                         onDelete={onDelete}
+                        readOnly={readOnly}
                         openUpward={true}
                         variant="card"
                       />
@@ -797,6 +833,7 @@ export function DynamicDataGrid<T extends { id: string }>({
                           onCustomAction={onCustomAction}
                           onEdit={onEdit}
                           onDelete={onDelete}
+                          readOnly={readOnly}
                           openUpward={openUpward}
                         />
                       </td>

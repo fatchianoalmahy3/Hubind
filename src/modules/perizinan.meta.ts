@@ -9,7 +9,7 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
   subtitle: 'Kelola kategori izin siswa, rentang tanggal izin, surat permohonan ke DUDI, dan penerbitan ke Data Siswa PKL',
   tableName: 'Data_Perizinan_PKL',
   icon: 'FileCheck',
-  allowedRoles: ['Hubin', 'Kakomli'],
+  allowedRoles: ['Hubin', 'Pokja', 'Waka', 'Kepsek'],
   statCards: [
     {
       title: 'Total Berkas Perizinan',

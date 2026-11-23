@@ -234,6 +234,10 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                   customDudiName={wizard.customDudiName}
                   customDudiAddress={wizard.customDudiAddress}
                   customDudiField={wizard.customDudiField}
+                  hariMulai={wizard.hariMulai}
+                  hariSelesai={wizard.hariSelesai}
+                  jamMulai={wizard.jamMulai}
+                  jamSelesai={wizard.jamSelesai}
                   linkMaps={wizard.linkMaps}
                   mapsValidation={wizard.mapsValidation}
                   submitting={wizard.submitting}
@@ -242,6 +246,22 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                   onChangeCustomDudiName={wizard.setCustomDudiName}
                   onChangeCustomDudiAddress={wizard.setCustomDudiAddress}
                   onChangeCustomDudiField={wizard.setCustomDudiField}
+                  onChangeHariMulai={(val) => {
+                    wizard.setHariMulai(val);
+                    wizard.setSubmitError('');
+                  }}
+                  onChangeHariSelesai={(val) => {
+                    wizard.setHariSelesai(val);
+                    wizard.setSubmitError('');
+                  }}
+                  onChangeJamMulai={(val) => {
+                    wizard.setJamMulai(val);
+                    wizard.setSubmitError('');
+                  }}
+                  onChangeJamSelesai={(val) => {
+                    wizard.setJamSelesai(val);
+                    wizard.setSubmitError('');
+                  }}
                   onChangeLinkMaps={(val) => {
                     wizard.setLinkMaps(val);
                     wizard.setSubmitError('');

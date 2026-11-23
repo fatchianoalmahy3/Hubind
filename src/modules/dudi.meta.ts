@@ -7,7 +7,7 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
   subtitle: 'Daftar Dunia Usaha & Dunia Industri mitra resmi Prakerin SMK PGRI 2 Ponorogo',
   tableName: 'Master_DUDI',
   icon: 'Building2',
-  allowedRoles: ['Hubin', 'Kakomli', 'GuruPendamping'],
+  allowedRoles: ['Hubin', 'Pokja'],
   statCards: [
     {
       title: 'Total DUDI Mitra',

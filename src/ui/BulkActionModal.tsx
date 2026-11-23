@@ -7,7 +7,7 @@ interface BulkActionModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedCount: number;
-  onBulkDelete: () => Promise<void>;
+  onBulkDelete?: () => Promise<void>;
   onBulkApprove?: () => Promise<void>;
   onBulkAssignTeacher?: (teacherName: string) => Promise<void>;
   onBulkPrint?: () => void;
@@ -52,6 +52,7 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
   if (!isOpen) return null;
 
   const handleDelete = async () => {
+    if (!onBulkDelete) return;
     setLoading(true);
     try {
       await onBulkDelete();
@@ -223,54 +224,56 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
           </button>
 
           {/* Delete Danger Section */}
-          <div className="pt-2 border-t border-slate-100">
-            {!confirmDelete ? (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-rose-50 border border-rose-200 rounded-xl text-left transition-colors cursor-pointer"
-              >
-                <div className="w-9 h-9 bg-rose-50 text-rose-600 rounded-lg flex items-center justify-center shrink-0">
-                  <Trash2 className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-rose-800 tabular-nums">
-                    Hapus {selectedCount} Data Terpilih
+          {onBulkDelete && (
+            <div className="pt-2 border-t border-slate-100">
+              {!confirmDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-rose-50 border border-rose-200 rounded-xl text-left transition-colors cursor-pointer"
+                >
+                  <div className="w-9 h-9 bg-rose-50 text-rose-600 rounded-lg flex items-center justify-center shrink-0">
+                    <Trash2 className="w-4 h-4" />
                   </div>
-                  <div className="text-[11px] text-rose-600 mt-0.5">
-                    Memerlukan konfirmasi keamanan sebelum penghapusan
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-rose-800 tabular-nums">
+                      Hapus {selectedCount} Data Terpilih
+                    </div>
+                    <div className="text-[11px] text-rose-600 mt-0.5">
+                      Memerlukan konfirmasi keamanan sebelum penghapusan
+                    </div>
+                  </div>
+                </button>
+              ) : (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-center space-y-3">
+                  <div className="flex items-center justify-center gap-1.5 text-rose-900 font-bold text-xs tabular-nums">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Yakin ingin menghapus {selectedCount} baris?</span>
+                  </div>
+                  <p className="text-[11px] text-rose-700">
+                    Data yang dihapus akan disinkronkan ke Cloud Server.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="h-9 px-4 bg-white border border-rose-200 text-rose-800 text-xs font-semibold rounded-lg hover:bg-rose-100/60 cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={loading}
+                      className="h-9 px-4 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? 'Menghapus...' : 'Ya, Hapus Sekarang'}
+                    </button>
                   </div>
                 </div>
-              </button>
-            ) : (
-              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-center space-y-3">
-                <div className="flex items-center justify-center gap-1.5 text-rose-900 font-bold text-xs tabular-nums">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span>Yakin ingin menghapus {selectedCount} baris?</span>
-                </div>
-                <p className="text-[11px] text-rose-700">
-                  Data yang dihapus akan disinkronkan ke Cloud Server.
-                </p>
-                <div className="flex items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDelete(false)}
-                    className="h-9 px-4 bg-white border border-rose-200 text-rose-800 text-xs font-semibold rounded-lg hover:bg-rose-100/60 cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={loading}
-                    className="h-9 px-4 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 cursor-pointer disabled:opacity-50"
-                  >
-                    {loading ? 'Menghapus...' : 'Ya, Hapus Sekarang'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

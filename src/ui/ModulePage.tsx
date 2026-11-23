@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Database, AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { ModuleMetadata } from '../core/types/metadata';
 import { BaseRepository } from '../core/BaseRepository';
 import { useDataGrid } from '../hooks/useDataGrid';
 import { UserRole } from '../core/types/schema';
+import { isModuleReadOnlyForRole } from '../core/moduleRegistry';
 import { SertifikatService } from '../services/SertifikatService';
 import { RelationSyncService } from '../services/RelationSyncService';
 import { ToastManager } from '../core/ToastManager';
@@ -117,6 +118,7 @@ export function ModulePage<T extends { id: string }>({
   const [isStageControlOpen, setIsStageControlOpen] = useState(false);
 
   const isSuperAdmin = userRole === 'SuperAdmin';
+  const isReadOnlyModule = isModuleReadOnlyForRole(metadata.id, userRole);
 
   const {
     guruList,
@@ -257,35 +259,22 @@ export function ModulePage<T extends { id: string }>({
   return (
     <div className="space-y-4">
       {/* Clean Editorial Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-3 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 pb-3 border-b border-slate-200">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight truncate">
-            {metadata.title}
-          </h1>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1">
-            <span>{metadata.subtitle}</span>
-            {isSuperAdmin && (
-              <>
-                <span className="text-slate-300" aria-hidden="true">·</span>
-                <span className="font-mono text-slate-600 font-medium">
-                  Tabel Server: {metadata.tableName}
-                </span>
-              </>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-snug">
+              {metadata.title}
+            </h1>
+            {isReadOnlyModule && (
+              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-600">
+                Mode Pantau
+              </span>
             )}
           </div>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            {metadata.subtitle}
+          </p>
         </div>
-
-        {isSuperAdmin && onOpenSheetConfig && (
-          <button
-            type="button"
-            onClick={onOpenSheetConfig}
-            className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Lihat Konfigurasi Cloud Server"
-          >
-            <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>Konfigurasi Server</span>
-          </button>
-        )}
       </div>
 
       {/* Server Error Banner */}
@@ -362,6 +351,8 @@ export function ModulePage<T extends { id: string }>({
             : undefined
         }
         syncingRelations={syncingRelations}
+        canAdd={!isReadOnlyModule}
+        readOnly={isReadOnlyModule}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
@@ -386,6 +377,7 @@ export function ModulePage<T extends { id: string }>({
         onDelete={handleDeleteRow}
         onCustomAction={handleCustomAction}
         customRowActions={customRowActions}
+        readOnly={isReadOnlyModule}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
@@ -462,19 +454,23 @@ export function ModulePage<T extends { id: string }>({
         isOpen={isBulkModalOpen}
         onClose={() => setIsBulkModalOpen(false)}
         selectedCount={selectedIds.length}
-        onBulkDelete={async () => {
-          setConfirmModal({
-            isOpen: true,
-            title: `Hapus ${selectedIds.length} Baris Data Terpilih?`,
-            description:
-              'Tindakan ini akan menghapus data terpilih secara permanen dari Database Cloud Server.',
-            variant: 'danger',
-            confirmText: 'Ya, Hapus Terpilih',
-            onConfirm: async () => {
-              await bulkDeleteRows();
-            },
-          });
-        }}
+        onBulkDelete={
+          isReadOnlyModule
+            ? undefined
+            : async () => {
+                setConfirmModal({
+                  isOpen: true,
+                  title: `Hapus ${selectedIds.length} Baris Data Terpilih?`,
+                  description:
+                    'Tindakan ini akan menghapus data terpilih secara permanen dari Database Cloud Server.',
+                  variant: 'danger',
+                  confirmText: 'Ya, Hapus Terpilih',
+                  onConfirm: async () => {
+                    await bulkDeleteRows();
+                  },
+                });
+              }
+        }
         onBulkApprove={handleBulkApprove}
         onBulkPrint={
           onOpenDocsForStudent && selectedIds.length > 0

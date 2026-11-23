@@ -5,6 +5,16 @@ import type {
 } from '../../core/types/schema';
 import { EMPTY_KONDISI_BENGKEL } from '../../core/utils/monitoringHelpers';
 
+export interface WorkshopStageDraft {
+  kompetensiList: string[];
+  kondisiBengkel: KondisiBengkelCheck;
+}
+
+export const DEFAULT_WORKSHOP_DRAFT: WorkshopStageDraft = {
+  kompetensiList: ['', ''],
+  kondisiBengkel: { ...EMPTY_KONDISI_BENGKEL },
+};
+
 export interface StudentStageDraft {
   sakit: number;
   izin: number;
@@ -13,8 +23,6 @@ export interface StudentStageDraft {
   aktivitasDp: AktivitasSikapRating | '';
   aktivitasMt: AktivitasSikapRating | '';
   aktivitasKrt: AktivitasSikapRating | '';
-  kompetensiList: string[];
-  kondisiBengkel: KondisiBengkelCheck;
   ttdSiswa: string;
   nilaiPklMuncul: boolean | null;
   nilaiK3lh: number;
@@ -23,6 +31,12 @@ export interface StudentStageDraft {
   nilaiAlurBisnis: number;
   catatanPerkembangan: string;
 }
+
+export const CATATAN_QUICK_PRESETS: string[] = [
+  'Disiplin, aktif, dan mengikuti SOP bengkel dengan baik.',
+  'Buku jurnal terisi rapi sesuai kegiatan harian.',
+  'Perlu peningkatan ketelitian & inisiatif kerja.',
+];
 
 export interface GradeScoresDraft {
   nilaiK3lh: number;
@@ -39,8 +53,6 @@ export const DEFAULT_DRAFT: StudentStageDraft = {
   aktivitasDp: '',
   aktivitasMt: '',
   aktivitasKrt: '',
-  kompetensiList: ['', ''],
-  kondisiBengkel: { ...EMPTY_KONDISI_BENGKEL },
   ttdSiswa: '',
   nilaiPklMuncul: null,
   nilaiK3lh: 0,

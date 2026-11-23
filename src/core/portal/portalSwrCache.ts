@@ -9,6 +9,19 @@ interface PublicListCacheEntry {
   data: any[];
   etag?: string;
   updatedAt: number;
+  extra?: Record<string, any>;
+}
+
+function extractExtraFields(res: any): Record<string, any> | undefined {
+  if (!res || typeof res !== 'object') return undefined;
+  const ignored = new Set(['success', 'total', 'data', 'etag', 'notModified']);
+  const out: Record<string, any> = {};
+  for (const k of Object.keys(res)) {
+    if (!ignored.has(k) && res[k] !== undefined) {
+      out[k] = res[k];
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 const publicListMemCache = new Map<string, PublicListCacheEntry>();
@@ -73,24 +86,40 @@ export async function executeSwrCachedPublicList<TExtra extends object = {}>(par
     if (useSyncIdbHit) {
       const syncHit = IndexedDbSheetCache.getInstance().getSync(idbKey);
       if (syncHit) {
-        const entry = { data: syncHit.data, etag: syncHit.etag, updatedAt: syncHit.updatedAt };
+        const entry: PublicListCacheEntry = {
+          data: syncHit.data,
+          etag: syncHit.etag,
+          updatedAt: syncHit.updatedAt,
+          extra: syncHit.extra,
+        };
         publicListMemCache.set(idbKey, entry);
         return entry;
       }
     }
     const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
     if (fromIdb) {
-      const entry = { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
+      const entry: PublicListCacheEntry = {
+        data: fromIdb.data,
+        etag: fromIdb.etag,
+        updatedAt: fromIdb.updatedAt,
+        extra: fromIdb.extra,
+      };
       publicListMemCache.set(idbKey, entry);
       return entry;
     }
     return null;
   };
 
-  const persistCache = (rows: any[], etagVal?: string) => {
-    const entry = { data: rows, etag: etagVal, updatedAt: Date.now() };
+  const persistCache = (rows: any[], etagVal?: string, rawResponse?: any) => {
+    const extra = extractExtraFields(rawResponse);
+    const entry: PublicListCacheEntry = {
+      data: rows,
+      etag: etagVal,
+      updatedAt: Date.now(),
+      ...(extra ? { extra } : {}),
+    };
     publicListMemCache.set(idbKey, entry);
-    IndexedDbSheetCache.getInstance().set(idbKey, rows, etagVal).catch(() => {});
+    IndexedDbSheetCache.getInstance().set(idbKey, rows, etagVal, extra).catch(() => {});
   };
 
   const fetchFresh = async (priorEtag?: string) => {
@@ -110,19 +139,20 @@ export async function executeSwrCachedPublicList<TExtra extends object = {}>(par
           if (fetched.notModified) {
             const cachedNow = await readCached();
             if (cachedNow) {
-              const refreshed = {
+              const refreshed: PublicListCacheEntry = {
                 ...cachedNow,
                 updatedAt: Date.now(),
                 etag: fetched.etag || cachedNow.etag,
               };
               publicListMemCache.set(idbKey, refreshed);
               IndexedDbSheetCache.getInstance()
-                .set(idbKey, refreshed.data, refreshed.etag)
+                .set(idbKey, refreshed.data, refreshed.etag, refreshed.extra)
                 .catch(() => {});
               return {
                 ok: true,
                 status: 200,
                 data: {
+                  ...(cachedNow.extra || {}),
                   success: true,
                   total: cachedNow.data.length,
                   data: cachedNow.data,
@@ -132,13 +162,13 @@ export async function executeSwrCachedPublicList<TExtra extends object = {}>(par
             }
           }
           if (fetched.ok && fetched.data?.success && Array.isArray(fetched.data.data)) {
-            persistCache(fetched.data.data, fetched.etag || fetched.data.etag);
+            persistCache(fetched.data.data, fetched.etag || fetched.data.etag, fetched.data);
           }
           return fetched;
         },
         async () => {
           const directRes = await directFetcher();
-          persistCache(directRes.data || []);
+          persistCache(directRes.data || [], undefined, directRes);
           return directRes;
         }
       );
@@ -167,7 +197,12 @@ export async function executeSwrCachedPublicList<TExtra extends object = {}>(par
           })
           .catch(() => {});
       }
-      return { success: true, total: cached.data.length, data: cached.data } as any;
+      return {
+        ...(cached.extra || {}),
+        success: true,
+        total: cached.data.length,
+        data: cached.data,
+      } as any;
     }
     // For teacher/student scoped caches, even empty array cache hits can SWR-revalidate cleanly
     if (cached && Array.isArray(cached.data) && useSyncIdbHit) {
@@ -185,7 +220,12 @@ export async function executeSwrCachedPublicList<TExtra extends object = {}>(par
           })
           .catch(() => {});
       }
-      return { success: true, total: cached.data.length, data: cached.data } as any;
+      return {
+        ...(cached.extra || {}),
+        success: true,
+        total: cached.data.length,
+        data: cached.data,
+      } as any;
     }
   }
 

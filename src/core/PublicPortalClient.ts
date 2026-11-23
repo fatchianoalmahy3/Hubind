@@ -1,6 +1,17 @@
 import { GoogleSheetClient } from './GoogleSheetClient';
 import { ToastManager } from './ToastManager';
-import { type MonitoringStageControl } from './types/schema';
+import {
+  type IssuedStageDetail,
+  type LogPenerbitanSurat,
+  type MonitoringStageControl,
+} from './types/schema';
+import { getTodayWibIsoDate } from './utils/dateHelpers';
+import {
+  extractIssuedStageNumber,
+  getStageValueByNumber,
+  isIssuedLetterStatusActive,
+} from './utils/monitoringHelpers';
+import { pickField } from './utils/rowFieldHelpers';
 import { normalizeMonitoringStageControl } from './firebase/WorkspaceConfigStore';
 import { normalizeStr } from './utils/rowFieldHelpers';
 import { stripNisSymbols } from './utils/nisHelpers';
@@ -12,6 +23,7 @@ import {
   callPublicEndpoint,
   clearDirectSheetCache,
   ensureHydratedConfig,
+  readSheetDirect,
   resolveAuthToken,
   writeSheetDirect,
 } from './portal/portalTransport';
@@ -128,6 +140,8 @@ export const PublicPortalClient = {
 
       if (result?.success) {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
+        invalidatePublicTeacherCaches(false);
         ToastManager.getInstance().update(
           toastId,
           'Tersimpan di Cloud Server!',
@@ -350,9 +364,18 @@ export const PublicPortalClient = {
         total: number;
         data: any[];
         stageControl?: MonitoringStageControl;
+        issuedStages?: number[];
+        issuedStageDetails?: Record<number, IssuedStageDetail>;
       }) => void;
     }
-  ): Promise<{ success: boolean; total: number; data: any[]; stageControl?: MonitoringStageControl }> {
+  ): Promise<{
+    success: boolean;
+    total: number;
+    data: any[];
+    stageControl?: MonitoringStageControl;
+    issuedStages?: number[];
+    issuedStageDetails?: Record<number, IssuedStageDetail>;
+  }> {
     const cfg = GoogleSheetClient.getInstance().getConfig();
     const dudiKey = `${String(dudiId || '').trim()}::${normalizeStr(dudiNama)}::${normalizeStr(petugasNama)}`;
     const idbKey = IndexedDbSheetCache.buildKey(
@@ -361,7 +384,11 @@ export const PublicPortalClient = {
       `public::dudi-students::${dudiKey}`
     );
 
-    return executeSwrCachedPublicList<{ stageControl?: MonitoringStageControl }>({
+    return executeSwrCachedPublicList<{
+      stageControl?: MonitoringStageControl;
+      issuedStages?: number[];
+      issuedStageDetails?: Record<number, IssuedStageDetail>;
+    }>({
       idbKey,
       inflightPrefix: 'dudi_students',
       softTtlMs: PUBLIC_TEACHER_SWR_TTL_MS,
@@ -651,6 +678,7 @@ export const PublicPortalClient = {
       kepalaSekolah: string;
     };
     bundles: Array<{
+      dudiId?: string;
       namaDudi: string;
       alamatDudi: string;
       pemimpinDudi: string;
@@ -671,6 +699,8 @@ export const PublicPortalClient = {
     fileId: string;
     fileName: string;
     totalSheets: number;
+    issuedRecorded?: boolean;
+    issuedCount?: number;
     message?: string;
   }> {
     const toastId = ToastManager.getInstance().show(
@@ -686,6 +716,8 @@ export const PublicPortalClient = {
         fileId: string;
         fileName: string;
         totalSheets: number;
+        issuedRecorded?: boolean;
+        issuedCount?: number;
         message?: string;
       }>({
         proxyUrl: '/api/documents/generate-monitoring-bundle',
@@ -701,17 +733,34 @@ export const PublicPortalClient = {
                 `Apps Script belum mengembalikan URL PDF paket (HTTP ${status}). Pastikan kode GAS terbaru sudah di-Deploy.`
             );
           }
+          const pdfUrl = String(json.pdfUrl).trim();
+          const recorded = await PublicPortalClient.markIssuedLetters(
+            payload.bundles.map((b) => ({
+              dudiId: b.dudiId || '',
+              namaDudi: b.namaDudi,
+              tahap: payload.meta.tahapNum,
+              jenisDokumen: 'Paket PDF Drive',
+              nomorSurat: payload.meta.nomorSurat,
+              tanggalTerbit: payload.meta.tanggalSurat,
+              guruPendamping: b.namaGuru,
+              linkPdf: pdfUrl,
+            }))
+          ).catch(() => ({ count: 0 }));
           return {
             success: true,
-            pdfUrl: String(json.pdfUrl).trim(),
+            pdfUrl,
             fileId: String(json.fileId || ''),
             fileName: String(json.fileName || ''),
             totalSheets: Number(json.totalSheets || 0),
+            issuedRecorded: recorded.count > 0,
+            issuedCount: recorded.count,
             message: 'Paket dokumen monitoring PDF berhasil dibuat dari Template Google Docs.',
           };
         },
       });
 
+      GoogleSheetClient.getInstance().invalidateClientSheetCache('Log_Penerbitan_Surat');
+      invalidatePublicTeacherCaches(false);
       ToastManager.getInstance().update(
         toastId,
         'Paket PDF Siap Dicetak!',
@@ -728,6 +777,291 @@ export const PublicPortalClient = {
       );
       throw err;
     }
+  },
+
+  async getIssuedLetters(forceRefresh = false): Promise<LogPenerbitanSurat[]> {
+    try {
+      const token = await resolveAuthToken();
+      if (token) {
+        const { ok, data } = await safeFetchJson(
+          `/api/documents/issued-letters${forceRefresh ? `?fresh=1&_ts=${Date.now()}` : ''}`,
+          {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            timeoutMs: 12_000,
+          }
+        );
+        if (ok && data?.success && Array.isArray(data.data)) {
+          return data.data;
+        }
+      }
+    } catch {
+      // Fallback to direct sheet read below
+    }
+
+    const rows = await readSheetDirect('Log_Penerbitan_Surat', true, forceRefresh).catch(
+      () => [] as any[]
+    );
+    return rows.map((row: any, idx: number) => {
+      const idTerbit =
+        pickField(row, 'ID_Terbit', 'idTerbit', 'id') ||
+        `TRB-ROW-${Number(row?._sheetRowNumber || idx + 2)}`;
+      const tahap =
+        extractIssuedStageNumber(row?.Tahap ?? row?.tahap) ||
+        extractIssuedStageNumber(row?.Nama_Tahap ?? row?.namaTahap) ||
+        1;
+      return {
+        id: idTerbit,
+        idTerbit,
+        idDudi: pickField(row, 'ID_DUDI', 'idDudi'),
+        namaDudi: pickField(row, 'Nama_DUDI', 'namaDudi'),
+        tahap,
+        namaTahap: pickField(row, 'Nama_Tahap', 'namaTahap') || getStageValueByNumber(tahap),
+        statusTerbit: pickField(row, 'Status_Terbit', 'statusTerbit') || 'Sudah Terbit',
+        jenisDokumen: pickField(row, 'Jenis_Dokumen', 'jenisDokumen'),
+        nomorSurat: pickField(row, 'Nomor_Surat', 'nomorSurat'),
+        tanggalTerbit: pickField(row, 'Tanggal_Terbit', 'tanggalTerbit'),
+        diterbitkanOleh: pickField(row, 'Diterbitkan_Oleh', 'diterbitkanOleh'),
+        guruPendamping: pickField(row, 'Guru_Pendamping', 'guruPendamping'),
+        linkPdf: pickField(row, 'Link_PDF', 'linkPdf'),
+        updatedAt: pickField(row, 'Updated_At', 'updatedAt'),
+      };
+    });
+  },
+
+  async markIssuedLetters(
+    items: Array<{
+      dudiId?: string;
+      namaDudi: string;
+      tahap: number;
+      jenisDokumen?: string;
+      nomorSurat?: string;
+      tanggalTerbit?: string;
+      diterbitkanOleh?: string;
+      guruPendamping?: string;
+      linkPdf?: string;
+    }>
+  ): Promise<{ success: boolean; count: number; data: LogPenerbitanSurat[] }> {
+    if (!Array.isArray(items) || items.length === 0) {
+      return { success: true, count: 0, data: [] };
+    }
+
+    try {
+      const token = await resolveAuthToken();
+      if (token) {
+        const { ok, status, data } = await safeFetchJson('/api/documents/mark-issued', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ items }),
+          timeoutMs: 25_000,
+        });
+        if (ok && data?.success) {
+          clearDirectSheetCache();
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Log_Penerbitan_Surat');
+          invalidatePublicTeacherCaches(false);
+          return {
+            success: true,
+            count: Number(data.count || data.data?.length || items.length),
+            data: Array.isArray(data.data) ? data.data : [],
+          };
+        }
+        if (status < 500 && status !== 404 && status !== 405 && data?.message) {
+          throw new Error(data.message);
+        }
+      }
+    } catch (err: any) {
+      if (!isBackendProxyUnavailableError(err)) {
+        throw err;
+      }
+    }
+
+    // Direct GAS SPA fallback
+    const [existingRows, dudiRows] = await Promise.all([
+      readSheetDirect('Log_Penerbitan_Surat', true, true).catch(() => [] as any[]),
+      readSheetDirect('Master_DUDI', true, false).catch(() => [] as any[]),
+    ]);
+    const todayIso = getTodayWibIsoDate();
+    const nowIso = new Date().toISOString();
+    const workingExisting = [...existingRows];
+    const written: LogPenerbitanSurat[] = [];
+
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const tahap = Number(item.tahap);
+      if (!Number.isInteger(tahap) || tahap < 1 || tahap > 8) continue;
+      const rawName = String(item.namaDudi || '').trim();
+      let resolvedDudiId = String(item.dudiId || '').trim();
+      const targetNorm = normalizeStr(rawName);
+      if (!resolvedDudiId && targetNorm) {
+        const matchedDudi = dudiRows.find(
+          (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === targetNorm
+        );
+        if (matchedDudi) {
+          resolvedDudiId = pickField(matchedDudi, 'ID', 'id');
+        }
+      }
+      const resolvedDudiNama = rawName || resolvedDudiId;
+      if (!resolvedDudiNama && !resolvedDudiId) continue;
+
+      const existingIdx = workingExisting.findIndex((r: any) => {
+        const rowStage =
+          extractIssuedStageNumber(r.Tahap ?? r.tahap) ||
+          extractIssuedStageNumber(r.Nama_Tahap ?? r.namaTahap);
+        if (rowStage !== tahap) return false;
+        const rId = pickField(r, 'ID_DUDI', 'idDudi');
+        const rNama = normalizeStr(pickField(r, 'Nama_DUDI', 'namaDudi'));
+        return (
+          (resolvedDudiId && rId && rId === resolvedDudiId) ||
+          (targetNorm && rNama && rNama === targetNorm)
+        );
+      });
+
+      const existingRow = existingIdx >= 0 ? workingExisting[existingIdx] : null;
+      const idTerbit =
+        (existingRow && pickField(existingRow, 'ID_Terbit', 'idTerbit', 'id')) ||
+        `TRB-${(resolvedDudiId || 'DUDI').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)}-T${tahap}-${Date.now().toString(36).slice(-4)}${i}`;
+      const namaTahap = getStageValueByNumber(tahap);
+
+      const recordPayload: Record<string, any> = {
+        id: idTerbit,
+        ID_Terbit: idTerbit,
+        idTerbit,
+        ID_DUDI: resolvedDudiId,
+        idDudi: resolvedDudiId,
+        Nama_DUDI: resolvedDudiNama,
+        namaDudi: resolvedDudiNama,
+        Tahap: tahap,
+        tahap,
+        Nama_Tahap: namaTahap,
+        namaTahap,
+        Status_Terbit: 'Sudah Terbit',
+        statusTerbit: 'Sudah Terbit',
+        Jenis_Dokumen: item.jenisDokumen || 'Paket / Surat Supervisi',
+        jenisDokumen: item.jenisDokumen || 'Paket / Surat Supervisi',
+        Nomor_Surat: item.nomorSurat || '',
+        nomorSurat: item.nomorSurat || '',
+        Tanggal_Terbit: item.tanggalTerbit || todayIso,
+        tanggalTerbit: item.tanggalTerbit || todayIso,
+        Diterbitkan_Oleh: item.diterbitkanOleh || 'Admin Hubin',
+        diterbitkanOleh: item.diterbitkanOleh || 'Admin Hubin',
+        Guru_Pendamping: item.guruPendamping || '',
+        guruPendamping: item.guruPendamping || '',
+        Link_PDF: item.linkPdf || '',
+        linkPdf: item.linkPdf || '',
+        Updated_At: nowIso,
+        updatedAt: nowIso,
+      };
+
+      if (existingRow) {
+        await writeSheetDirect('Log_Penerbitan_Surat', 'UPDATE', {
+          ...recordPayload,
+          _sheetRowNumber: existingRow._sheetRowNumber,
+        });
+        workingExisting[existingIdx] = { ...existingRow, ...recordPayload };
+      } else {
+        await writeSheetDirect('Log_Penerbitan_Surat', 'CREATE', recordPayload);
+        workingExisting.push(recordPayload);
+      }
+
+      written.push({
+        id: idTerbit,
+        idTerbit,
+        idDudi: resolvedDudiId,
+        namaDudi: resolvedDudiNama,
+        tahap,
+        namaTahap,
+        statusTerbit: 'Sudah Terbit',
+        jenisDokumen: recordPayload.Jenis_Dokumen,
+        nomorSurat: recordPayload.Nomor_Surat,
+        tanggalTerbit: recordPayload.Tanggal_Terbit,
+        diterbitkanOleh: recordPayload.Diterbitkan_Oleh,
+        guruPendamping: recordPayload.Guru_Pendamping,
+        linkPdf: recordPayload.Link_PDF,
+        updatedAt: nowIso,
+      });
+    }
+
+    clearDirectSheetCache();
+    GoogleSheetClient.getInstance().invalidateClientSheetCache('Log_Penerbitan_Surat');
+    invalidatePublicTeacherCaches(false);
+    return { success: true, count: written.length, data: written };
+  },
+
+  async revokeIssuedLetter(params: {
+    idTerbit?: string;
+    dudiId?: string;
+    namaDudi?: string;
+    tahap: number;
+    actorName?: string;
+  }): Promise<{ success: boolean; revoked: boolean }> {
+    try {
+      const token = await resolveAuthToken();
+      if (token) {
+        const { ok, status, data } = await safeFetchJson('/api/documents/revoke-issued', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(params),
+          timeoutMs: 20_000,
+        });
+        if (ok && data?.success) {
+          clearDirectSheetCache();
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Log_Penerbitan_Surat');
+          invalidatePublicTeacherCaches(false);
+          return { success: true, revoked: Boolean(data.revoked) };
+        }
+        if (status < 500 && status !== 404 && status !== 405 && data?.message) {
+          throw new Error(data.message);
+        }
+      }
+    } catch (err: any) {
+      if (!isBackendProxyUnavailableError(err)) {
+        throw err;
+      }
+    }
+
+    const rows = await readSheetDirect('Log_Penerbitan_Surat', true, true).catch(() => [] as any[]);
+    const targetNorm = normalizeStr(params.namaDudi || '');
+    const nowIso = new Date().toISOString();
+    let revoked = false;
+    for (const row of rows) {
+      const rIdTerbit = pickField(row, 'ID_Terbit', 'idTerbit', 'id');
+      const rStage =
+        extractIssuedStageNumber(row.Tahap ?? row.tahap) ||
+        extractIssuedStageNumber(row.Nama_Tahap ?? row.namaTahap);
+      const rDudiId = pickField(row, 'ID_DUDI', 'idDudi');
+      const rDudiNama = normalizeStr(pickField(row, 'Nama_DUDI', 'namaDudi'));
+      const matched =
+        (params.idTerbit && rIdTerbit === params.idTerbit) ||
+        (rStage === params.tahap &&
+          ((params.dudiId && rDudiId && rDudiId === params.dudiId) ||
+            (targetNorm && rDudiNama && rDudiNama === targetNorm)));
+      if (!matched || !isIssuedLetterStatusActive(row.Status_Terbit ?? row.statusTerbit)) continue;
+      await writeSheetDirect('Log_Penerbitan_Surat', 'UPDATE', {
+        ...row,
+        id: rIdTerbit,
+        ID_Terbit: rIdTerbit,
+        idTerbit: rIdTerbit,
+        _sheetRowNumber: row._sheetRowNumber,
+        Status_Terbit: 'Dibatalkan',
+        statusTerbit: 'Dibatalkan',
+        Diterbitkan_Oleh: `${params.actorName || 'Admin Hubin'} (Dibatalkan)`,
+        Updated_At: nowIso,
+      });
+      revoked = true;
+    }
+    clearDirectSheetCache();
+    GoogleSheetClient.getInstance().invalidateClientSheetCache('Log_Penerbitan_Surat');
+    invalidatePublicTeacherCaches(false);
+    return { success: true, revoked };
   },
 
   async getDocumentSigners(): Promise<{ success: boolean; kepalaSekolah: string }> {

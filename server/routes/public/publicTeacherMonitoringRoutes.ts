@@ -10,6 +10,7 @@ import {
   getStageValueByNumber,
   parseKompetensiList,
   parseKondisiBengkel,
+  resolveIssuedStagesForDudi,
   serializeFormat0701Tag,
   serializeKompetensiList,
   serializeKondisiBengkel,
@@ -209,6 +210,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
           'Master_Siswa_XI',
           'Monitoring_5_Tahap',
           'Nilai_Dan_Sertifikat',
+          'Log_Penerbitan_Surat',
         ],
         new Set([
           'Plotting_Pemberangkatan',
@@ -216,6 +218,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
           'Master_Siswa_XI',
           'Monitoring_5_Tahap',
           'Nilai_Dan_Sertifikat',
+          'Log_Penerbitan_Surat',
         ])
       );
 
@@ -227,6 +230,11 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       const wsConfig = await getFirestoreWorkspaceConfig(String(req.query.fresh || '') === '1');
       const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
+      const { issuedStages, issuedStageDetails } = resolveIssuedStagesForDudi(
+        sheets['Log_Penerbitan_Surat'] || [],
+        dudiId,
+        dudiNama
+      );
 
       const result = buildDudiStudentsWithSummary({
         dudiNama,
@@ -238,6 +246,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         monitoringRows: sheets['Monitoring_5_Tahap'] || [],
         nilaiRows: sheets['Nilai_Dan_Sertifikat'] || [],
         stageControl,
+        issuedStages,
       });
 
       const etag = computeWeakEtag({
@@ -246,6 +255,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         dudiId,
         petugasNama,
         stageControl,
+        issuedStages,
         result,
       });
       res.setHeader('ETag', etag);
@@ -253,7 +263,15 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         return res.status(304).end();
       }
 
-      res.json({ success: true, total: result.length, stageControl, etag, data: result });
+      res.json({
+        success: true,
+        total: result.length,
+        stageControl,
+        issuedStages,
+        issuedStageDetails,
+        etag,
+        data: result,
+      });
     } catch (err: any) {
       handlePortalError(res, err);
     }
@@ -382,6 +400,24 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
             ? `${stageStr} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).`
             : `${stageStr} sedang dikunci sementara oleh SuperAdmin. Riwayat yang sudah tersimpan hanya dapat dilihat (Read-Only).`,
         });
+      }
+
+      if (stageControl.requireIssuedLetter !== false) {
+        const logRes = await fetchLiveSheetViaGas('Log_Penerbitan_Surat', true).catch(() => ({
+          rows: [] as any[],
+        }));
+        const { issuedStages } = resolveIssuedStagesForDudi(
+          logRes.rows,
+          String(payload.dudi_id || ''),
+          String(payload.nama_dudi || '')
+        );
+        if (!issuedStages.includes(stageNum)) {
+          return res.status(403).json({
+            success: false,
+            code: 'LETTER_NOT_ISSUED',
+            message: `Surat ${stageStr} untuk DUDI "${String(payload.nama_dudi || 'ini').trim()}" belum diterbitkan Admin Hubin di Pusat Dokumen. Harap konfirmasi penerbitan surat terlebih dahulu.`,
+          });
+        }
       }
 
       const monRes = await fetchLiveSheetViaGas('Monitoring_5_Tahap', true).catch(() => ({

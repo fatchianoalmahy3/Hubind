@@ -3,6 +3,7 @@ import {
   MONITORING_STAGES,
   type AktivitasSikapRating,
   type BukuLaporanStatus,
+  type IssuedStageDetail,
   type KondisiBengkelCheck,
   type KondisiBengkelRating,
   type MonitoringStageControl,
@@ -653,9 +654,94 @@ export function buildStudentMonitoringSummary(
   };
 }
 
+export function extractIssuedStageNumber(raw: any): number {
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= 8) return raw;
+  const str = String(raw ?? '').trim();
+  if (!str) return 0;
+  const directNum = Number(str);
+  if (Number.isInteger(directNum) && directNum >= 1 && directNum <= 8) return directNum;
+  return extractStageNumber(str);
+}
+
+export function isIssuedLetterStatusActive(statusVal: unknown): boolean {
+  const s = String(statusVal ?? '').trim().toLowerCase();
+  if (!s) return true;
+  if (s.includes('batal') || s.includes('cabut') || s === 'nonaktif' || s === 'false') {
+    return false;
+  }
+  return s === 'sudah terbit' || s === 'terbit' || s === 'active' || s === 'ya' || s === 'true';
+}
+
+export function resolveIssuedStagesForDudi(
+  logRows: any[],
+  dudiId?: string,
+  namaDudi?: string
+): {
+  issuedStages: number[];
+  issuedStageDetails: Record<number, IssuedStageDetail>;
+} {
+  const norm = (val: unknown) =>
+    String(val ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  const targetId = norm(dudiId);
+  const targetName = norm(namaDudi);
+
+  if (!Array.isArray(logRows) || logRows.length === 0 || (!targetId && !targetName)) {
+    return { issuedStages: [], issuedStageDetails: {} };
+  }
+
+  const latestByStage: Record<number, IssuedStageDetail & { _rowOrder: number }> = {};
+
+  logRows.forEach((row, idx) => {
+    if (!row || typeof row !== 'object') return;
+    const rowDudiId = norm(row.ID_DUDI ?? row.idDudi);
+    const rowDudiName = norm(row.Nama_DUDI ?? row.namaDudi);
+    const matchesId = Boolean(targetId && rowDudiId && rowDudiId === targetId);
+    const matchesName = Boolean(targetName && rowDudiName && rowDudiName === targetName);
+    if (!matchesId && !matchesName) return;
+
+    const stageNum =
+      extractIssuedStageNumber(row.Tahap ?? row.tahap) ||
+      extractIssuedStageNumber(row.Nama_Tahap ?? row.namaTahap);
+    if (stageNum < 1 || stageNum > 8) return;
+
+    const statusTerbit = String(row.Status_Terbit ?? row.statusTerbit ?? 'Sudah Terbit').trim() || 'Sudah Terbit';
+    latestByStage[stageNum] = {
+      tahap: stageNum,
+      statusTerbit,
+      jenisDokumen: String(row.Jenis_Dokumen ?? row.jenisDokumen ?? '').trim(),
+      nomorSurat: String(row.Nomor_Surat ?? row.nomorSurat ?? '').trim(),
+      tanggalTerbit:
+        normalizeToIsoDate(row.Tanggal_Terbit ?? row.tanggalTerbit ?? '') ||
+        String(row.Tanggal_Terbit ?? row.tanggalTerbit ?? '').trim(),
+      diterbitkanOleh: String(row.Diterbitkan_Oleh ?? row.diterbitkanOleh ?? '').trim(),
+      linkPdf: String(row.Link_PDF ?? row.linkPdf ?? '').trim(),
+      _rowOrder: Number(row._sheetRowNumber || idx + 2),
+    };
+  });
+
+  const issuedStages: number[] = [];
+  const issuedStageDetails: Record<number, IssuedStageDetail> = {};
+
+  for (let st = 1; st <= 8; st += 1) {
+    const entry = latestByStage[st];
+    if (!entry) continue;
+    if (!isIssuedLetterStatusActive(entry.statusTerbit)) continue;
+    issuedStages.push(st);
+    const { _rowOrder, ...cleanDetail } = entry;
+    void _rowOrder;
+    issuedStageDetails[st] = cleanDetail;
+  }
+
+  return { issuedStages, issuedStageDetails };
+}
+
 export function pickRecommendedStageForControl(
   completedStages: number[],
-  control?: MonitoringStageControl | null
+  control?: MonitoringStageControl | null,
+  issuedStages?: number[]
 ): number {
   const unlocked = Array.isArray(control?.unlockedStages)
     ? Array.from(
@@ -670,22 +756,32 @@ export function pickRecommendedStageForControl(
     typeof control?.requireSequential === 'boolean'
       ? control.requireSequential
       : DEFAULT_MONITORING_STAGE_CONTROL.requireSequential;
+  const requireIssuedLetter =
+    typeof control?.requireIssuedLetter === 'boolean'
+      ? control.requireIssuedLetter
+      : DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true;
   const completed = Array.isArray(completedStages) ? completedStages : [];
+  const issuedSet = Array.isArray(issuedStages) ? new Set(issuedStages) : null;
 
-  if (unlocked.length > 0) {
+  const isEligibleOpenStage = (num: number) =>
+    unlocked.includes(num) && (!requireIssuedLetter || !issuedSet || issuedSet.has(num));
+
+  const eligibleOpenStages = unlocked.filter((num) => isEligibleOpenStage(num));
+
+  if (eligibleOpenStages.length > 0) {
     if (requireSequential) {
-      const nextSequential = unlocked.find(
+      const nextSequential = eligibleOpenStages.find(
         (num) => !completed.includes(num) && (num === 1 || completed.includes(num - 1))
       );
       if (nextSequential !== undefined) return nextSequential;
     }
-    const firstUnlockedPending = unlocked.find((num) => !completed.includes(num));
-    if (firstUnlockedPending !== undefined) return firstUnlockedPending;
-    return unlocked[0];
+    const firstEligiblePending = eligibleOpenStages.find((num) => !completed.includes(num));
+    if (firstEligiblePending !== undefined) return firstEligiblePending;
+    return eligibleOpenStages[0];
   }
 
   if (completed.length > 0) {
     return completed[completed.length - 1];
   }
-  return 1;
+  return unlocked[0] ?? 1;
 }

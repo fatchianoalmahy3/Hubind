@@ -143,6 +143,7 @@ export function buildBundleDudiItems(params: {
   statusFilter: string;
   bundleStageNum: number;
   searchQuery: string;
+  requireSequential?: boolean;
 }): DudiBundleItem[] {
   const {
     activeDocKey,
@@ -156,6 +157,7 @@ export function buildBundleDudiItems(params: {
     statusFilter,
     bundleStageNum,
     searchQuery,
+    requireSequential = true,
   } = params;
 
   if (activeDocKey !== 'doc_paket_monitoring') return [];
@@ -243,7 +245,9 @@ export function buildBundleDudiItems(params: {
       if (!hay.includes(q)) continue;
     }
 
-    const pendingStudents = getPendingStudentsForStage(dedupedRows, bundleStageNum, monitoringList);
+    const pendingStudents = requireSequential
+      ? getPendingStudentsForStage(dedupedRows, bundleStageNum, monitoringList)
+      : [];
     const isLocked = pendingStudents.length > 0;
     if (statusFilter === 'SIAP' && isLocked) continue;
     if (statusFilter === 'TERKUNCI' && !isLocked) continue;
@@ -263,6 +267,7 @@ export function buildBundleDudiItems(params: {
       guruNama: guruObj?.nama || grp.guruNama,
       guruNip: guruObj?.nip || '-',
       guruJabatan: guruObj?.peranUtama || 'Guru SMK PGRI 2 Ponorogo',
+      dudiId: dudiObj?.id || grp.dudiId,
       dudiKey: grp.namaDudi.toLowerCase(),
       namaDudi: dudiObj?.namaDudi || grp.namaDudi,
       alamatDudi: dudiObj?.alamat
@@ -580,6 +585,7 @@ export function buildFilteredItems(params: {
 
       return {
         id: `dudi_grp::${key}`,
+        dudiId: grp.dudiId,
         title: grp.dudiName,
         badge: `${dedupedRows.length} sw`,
         subtitle: `${dedupedRows.length} siswa · ${Array.from(jurSet).join('/') || '-'} · ${guruNames.join(', ') || 'Guru belum diatur'}`,
@@ -599,6 +605,7 @@ export function buildSuratTugasAudit(params: {
   siswaByNis: Map<string, Siswa>;
   suratTugasStageNum: number;
   selectedSuratTugasDudi: string;
+  requireSequential?: boolean;
 }): SuratTugasAuditResult {
   const {
     activeDocKey,
@@ -609,6 +616,7 @@ export function buildSuratTugasAudit(params: {
     siswaByNis,
     suratTugasStageNum,
     selectedSuratTugasDudi,
+    requireSequential = true,
   } = params;
 
   if (activeDocKey !== 'doc_surat_tugas' || !activeRecord) {
@@ -648,14 +656,13 @@ export function buildSuratTugasAudit(params: {
       : '-';
     const pemimpinDudi = dudiObj?.namaPemimpin || dudiObj?.namaPic || '';
     const dedupedStudents = dedupePlacementsByCanonicalNis(grp.students, siswaByNis);
-    const pendingStudents = getPendingStudentsForStage(
-      dedupedStudents,
-      suratTugasStageNum,
-      monitoringList
-    );
+    const pendingStudents = requireSequential
+      ? getPendingStudentsForStage(dedupedStudents, suratTugasStageNum, monitoringList)
+      : [];
 
     return {
       key,
+      dudiId: dudiObj?.id || grp.dudiId,
       namaDudi: grp.namaDudi,
       alamatDudi,
       pemimpinDudi,
@@ -673,7 +680,7 @@ export function buildSuratTugasAudit(params: {
   const prevStageLabel = getStageValueByNumber(Math.max(1, suratTugasStageNum - 1));
   const currentStageLabel = getStageValueByNumber(suratTugasStageNum);
 
-  if (suratTugasStageNum >= 2 && dudiGroups.length > 0) {
+  if (requireSequential && suratTugasStageNum >= 2 && dudiGroups.length > 0) {
     if (selectedSuratTugasDudi === 'ALL_UNLOCKED') {
       if (unlockedGroups.length === 0) {
         isPrintBlocked = true;
@@ -706,6 +713,7 @@ export function buildBatchSuratTugasPages(params: {
   dudiList: Dudi[];
   siswaByNis: Map<string, Siswa>;
   suratTugasStageNum: number;
+  requireSequential?: boolean;
 }): BatchSuratTugasPage[] {
   const {
     activeDocKey,
@@ -716,6 +724,7 @@ export function buildBatchSuratTugasPages(params: {
     dudiList,
     siswaByNis,
     suratTugasStageNum,
+    requireSequential = true,
   } = params;
 
   if (activeDocKey !== 'doc_surat_tugas' || !isMultiCheckedMode) return [];
@@ -743,7 +752,9 @@ export function buildBatchSuratTugasPages(params: {
 
     for (const [dKey, grp] of groupMap.entries()) {
       const dedupedStudents = dedupePlacementsByCanonicalNis(grp.students, siswaByNis);
-      const pending = getPendingStudentsForStage(dedupedStudents, suratTugasStageNum, monitoringList);
+      const pending = requireSequential
+        ? getPendingStudentsForStage(dedupedStudents, suratTugasStageNum, monitoringList)
+        : [];
       if (pending.length > 0) continue;
 
       const dudiObj = findMatchingDudi(dudiList, grp.dudiId, grp.namaDudi);
@@ -753,6 +764,7 @@ export function buildBatchSuratTugasPages(params: {
       const pemimpinDudi = dudiObj?.namaPemimpin || dudiObj?.namaPic || '';
       pages.push({
         id: `st_batch_${guru.id}_${dKey}`,
+        dudiId: dudiObj?.id || grp.dudiId,
         guru,
         namaDudi: grp.namaDudi,
         alamatDudi,

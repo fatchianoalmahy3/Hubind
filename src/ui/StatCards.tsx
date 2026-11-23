@@ -64,8 +64,8 @@ export const StatCards: React.FC<StatCardsProps> = ({ configs, data, loading = f
             key={idx}
             className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between gap-2.5"
           >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-slate-500 truncate">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-medium text-slate-500 leading-snug">
                 {card.title}
               </span>
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${styles.icon}`}>
@@ -81,7 +81,7 @@ export const StatCards: React.FC<StatCardsProps> = ({ configs, data, loading = f
                 </div>
               )}
               {card.change && (
-                <p className={`mt-1.5 text-xs font-medium truncate ${styles.change}`}>
+                <p className={`mt-1.5 text-[11px] font-medium leading-snug ${styles.change}`}>
                   {card.change}
                 </p>
               )}

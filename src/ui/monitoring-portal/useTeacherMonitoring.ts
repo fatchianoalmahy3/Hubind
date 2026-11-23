@@ -5,6 +5,7 @@ import { PublicPortalClient } from '../../core/PublicPortalClient';
 import { useUnloadGuard } from '../../hooks/useUnloadGuard';
 import {
   DEFAULT_MONITORING_STAGE_CONTROL,
+  type IssuedStageDetail,
   type MonitoringStageControl,
 } from '../../core/types/schema';
 import {
@@ -19,19 +20,22 @@ import {
 import { getTodayWibIsoDate } from '../../core/utils/dateHelpers';
 import {
   DEFAULT_DRAFT,
+  DEFAULT_WORKSHOP_DRAFT,
   getStudentKey,
   isDudiContactIncomplete,
   type GradeScoresDraft,
   type MonitoringSaveReceipt,
   type StudentStageDraft,
+  type WorkshopStageDraft,
 } from './types';
 
 const NOTICE_ACK_KEY = 'hubin_petugas_notice_ack';
 const MONITORING_DRAFTS_KEY = 'hubin_monitoring_drafts_v1';
+const WORKSHOP_DRAFTS_KEY = 'hubin_monitoring_workshop_drafts_v1';
 
-function readStoredMonitoringDrafts(): Record<string, StudentStageDraft> {
+function readStoredMap<T>(storageKey: string): Record<string, T> {
   try {
-    const raw = localStorage.getItem(MONITORING_DRAFTS_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : {};
@@ -40,30 +44,52 @@ function readStoredMonitoringDrafts(): Record<string, StudentStageDraft> {
   }
 }
 
-function writeStoredMonitoringDraft(fullKey: string, draft: StudentStageDraft): void {
+function writeStoredMapItem<T>(storageKey: string, fullKey: string, value: T): void {
   try {
-    const all = readStoredMonitoringDrafts();
-    all[fullKey] = draft;
+    const all = readStoredMap<T>(storageKey);
+    all[fullKey] = value;
     const keys = Object.keys(all);
     if (keys.length > 35) {
       delete all[keys[0]];
     }
-    localStorage.setItem(MONITORING_DRAFTS_KEY, JSON.stringify(all));
+    localStorage.setItem(storageKey, JSON.stringify(all));
   } catch {
     // Ignore storage quota issues
   }
 }
 
-function removeStoredMonitoringDraft(fullKey: string): void {
+function removeStoredMapItem(storageKey: string, fullKey: string): void {
   try {
-    const all = readStoredMonitoringDrafts();
+    const all = readStoredMap<unknown>(storageKey);
     if (fullKey in all) {
       delete all[fullKey];
-      localStorage.setItem(MONITORING_DRAFTS_KEY, JSON.stringify(all));
+      localStorage.setItem(storageKey, JSON.stringify(all));
     }
   } catch {
     // ignore
   }
+}
+
+function normalizeWorkshopDraft(raw?: Partial<WorkshopStageDraft> | null): WorkshopStageDraft {
+  const rawComp = Array.isArray(raw?.kompetensiList) ? raw!.kompetensiList : [];
+  const paddedComp =
+    rawComp.length >= 2 ? [...rawComp] : [...rawComp, ...Array(2 - rawComp.length).fill('')];
+  return {
+    kompetensiList: paddedComp,
+    kondisiBengkel: raw?.kondisiBengkel
+      ? { ...EMPTY_KONDISI_BENGKEL, ...raw.kondisiBengkel }
+      : { ...EMPTY_KONDISI_BENGKEL },
+  };
+}
+
+function hasFilledWorkshopData(w?: WorkshopStageDraft | null): boolean {
+  if (!w) return false;
+  const hasComp = w.kompetensiList.some((k) => k.trim().length > 0);
+  const kb = w.kondisiBengkel;
+  const hasBengkel = Boolean(
+    kb.volumePekerjaan || kb.relevansiPekerjaan || kb.kenyamanan || kb.kelayakan
+  );
+  return hasComp || hasBengkel;
 }
 
 export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
@@ -94,9 +120,12 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   const [studentsError, setStudentsError] = useState('');
   const [selectedStudentIndex, setSelectedStudentIndex] = useState(0);
 
-  // Isolated per-student stage & per-(student, stage) drafts
+  // Isolated per-student stage & per-(student, stage) drafts + shared per-(DUDI, stage) workshop draft
   const [stageByStudent, setStageByStudent] = useState<Record<string, number>>({});
   const [draftsByKey, setDraftsByKey] = useState<Record<string, StudentStageDraft>>({});
+  const [workshopDraftsByStage, setWorkshopDraftsByStage] = useState<
+    Record<number, WorkshopStageDraft>
+  >({});
   const [editingGradeByStudent, setEditingGradeByStudent] = useState<Record<string, boolean>>({});
   const [gradeEditDrafts, setGradeEditDrafts] = useState<Record<string, GradeScoresDraft>>({});
   const [savingGradeEdit, setSavingGradeEdit] = useState(false);
@@ -113,10 +142,12 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   const [dudiJamSelesai, setDudiJamSelesai] = useState('');
   const [showDudiContactEditor, setShowDudiContactEditor] = useState(false);
 
-  // Global SuperAdmin stage lock & transition policy
+  // Global SuperAdmin stage lock & transition policy + DUDI issued-letter status
   const [stageControl, setStageControl] = useState<MonitoringStageControl>(
     DEFAULT_MONITORING_STAGE_CONTROL
   );
+  const [issuedStages, setIssuedStages] = useState<number[]>([]);
+  const [issuedStageDetails, setIssuedStageDetails] = useState<Record<number, IssuedStageDetail>>({});
 
   // Mandatory incomplete DUDI contact + spelling confirmation popup
   const [dudiPopupOpen, setDudiPopupOpen] = useState(false);
@@ -351,8 +382,11 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setSelectedStudentIndex(0);
     setStageByStudent({});
     setDraftsByKey({});
+    setWorkshopDraftsByStage({});
     setEditingGradeByStudent({});
     setGradeEditDrafts({});
+    setIssuedStages([]);
+    setIssuedStageDetails({});
 
     if (isDudiContactIncomplete(initPemimpin, initPic, initTelp)) {
       setPopupPemimpin(initPemimpin);
@@ -370,6 +404,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     }
 
     let latestStageControl = stageControl;
+    let latestIssuedStages: number[] = [];
     void PublicPortalClient.getMonitoringStageConfig(true)
       .then((cfg) => {
         if (activeDudiKeyRef.current === dudiKey) {
@@ -382,29 +417,30 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     const applyStudentsPayload = (
       students: any[],
       isBackgroundRefresh: boolean,
-      controlOverride?: MonitoringStageControl
+      controlOverride?: MonitoringStageControl,
+      issuedStagesOverride?: number[]
     ) => {
       const effectiveControl = controlOverride || latestStageControl;
+      const effectiveIssuedStages = issuedStagesOverride ?? latestIssuedStages;
       const initStages: Record<string, number> = {};
       const initDrafts: Record<string, StudentStageDraft> = {};
-      const storedDrafts = readStoredMonitoringDrafts();
+      const initWorkshops: Record<number, WorkshopStageDraft> = {};
+      const storedDrafts = readStoredMap<StudentStageDraft>(MONITORING_DRAFTS_KEY);
+      const storedWorkshops = readStoredMap<WorkshopStageDraft>(WORKSHOP_DRAFTS_KEY);
 
       students.forEach((stu: any, idx: number) => {
         const stuKey = getStudentKey(stu, idx);
         const recStage = pickRecommendedStageForControl(
           Array.isArray(stu.completedStages) ? stu.completedStages : [],
-          effectiveControl
+          effectiveControl,
+          effectiveIssuedStages
         );
         initStages[stuKey] = recStage;
 
         if (stu.stageLogs && typeof stu.stageLogs === 'object') {
           Object.entries(stu.stageLogs).forEach(([stageStr, log]: [string, any]) => {
+            const stNum = Number(stageStr);
             const draftKey = `${stuKey}::${stageStr}`;
-            const rawComp: string[] = Array.isArray(log?.kompetensiList) ? log.kompetensiList : [];
-            const paddedComp =
-              rawComp.length >= 2
-                ? [...rawComp]
-                : [...rawComp, ...Array(2 - rawComp.length).fill('')];
             initDrafts[draftKey] = {
               ...DEFAULT_DRAFT,
               sakit: Number(log?.sakit ?? 0) || 0,
@@ -414,13 +450,43 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
               aktivitasDp: log?.aktivitasDp || '',
               aktivitasMt: log?.aktivitasMt || '',
               aktivitasKrt: log?.aktivitasKrt || '',
-              kompetensiList: paddedComp,
-              kondisiBengkel: log?.kondisiBengkel
-                ? { ...EMPTY_KONDISI_BENGKEL, ...log.kondisiBengkel }
-                : { ...EMPTY_KONDISI_BENGKEL },
               ttdSiswa: String(log?.ttdSiswa || ''),
               catatanPerkembangan: String(log?.catatan || ''),
             };
+
+            const candidateWorkshop = normalizeWorkshopDraft({
+              kompetensiList: Array.isArray(log?.kompetensiList) ? log.kompetensiList : [],
+              kondisiBengkel: log?.kondisiBengkel,
+            });
+            if (stNum >= 1 && stNum <= 8 && hasFilledWorkshopData(candidateWorkshop)) {
+              const curr = initWorkshops[stNum];
+              if (!curr || !hasFilledWorkshopData(curr)) {
+                initWorkshops[stNum] = candidateWorkshop;
+              } else {
+                const currKompCount = curr.kompetensiList.filter((k) => k.trim()).length;
+                const candKompCount = candidateWorkshop.kompetensiList.filter((k) => k.trim()).length;
+                initWorkshops[stNum] = {
+                  kompetensiList:
+                    candKompCount > currKompCount
+                      ? candidateWorkshop.kompetensiList
+                      : curr.kompetensiList,
+                  kondisiBengkel: {
+                    volumePekerjaan:
+                      curr.kondisiBengkel.volumePekerjaan ||
+                      candidateWorkshop.kondisiBengkel.volumePekerjaan,
+                    relevansiPekerjaan:
+                      curr.kondisiBengkel.relevansiPekerjaan ||
+                      candidateWorkshop.kondisiBengkel.relevansiPekerjaan,
+                    kenyamanan:
+                      curr.kondisiBengkel.kenyamanan ||
+                      candidateWorkshop.kondisiBengkel.kenyamanan,
+                    kelayakan:
+                      curr.kondisiBengkel.kelayakan ||
+                      candidateWorkshop.kondisiBengkel.kelayakan,
+                  },
+                };
+              }
+            }
           });
         }
 
@@ -432,24 +498,32 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
             initDrafts[draftKey] = {
               ...DEFAULT_DRAFT,
               ...localSaved,
-              kondisiBengkel: localSaved.kondisiBengkel
-                ? { ...EMPTY_KONDISI_BENGKEL, ...localSaved.kondisiBengkel }
-                : { ...EMPTY_KONDISI_BENGKEL },
-              kompetensiList:
-                Array.isArray(localSaved.kompetensiList) && localSaved.kompetensiList.length >= 2
-                  ? localSaved.kompetensiList
-                  : ['', ''],
             };
           }
         }
       });
 
+      for (let stNum = 1; stNum <= 8; stNum += 1) {
+        const localWorkshop = storedWorkshops[`${dudiKey}::stage::${stNum}`];
+        if (localWorkshop && !hasFilledWorkshopData(initWorkshops[stNum])) {
+          initWorkshops[stNum] = normalizeWorkshopDraft(localWorkshop);
+        }
+      }
+
       if (isBackgroundRefresh) {
         setStageByStudent((prev) => ({ ...initStages, ...prev }));
         setDraftsByKey((prev) => ({ ...initDrafts, ...prev }));
+        setWorkshopDraftsByStage((prev) => ({ ...initWorkshops, ...prev }));
       } else {
         setStageByStudent(initStages);
         setDraftsByKey(initDrafts);
+        setWorkshopDraftsByStage(initWorkshops);
+        const firstPendingIdx = students.findIndex((stu, idx) => {
+          const recStage = initStages[getStudentKey(stu, idx)] || 1;
+          const completed = Array.isArray(stu.completedStages) ? stu.completedStages : [];
+          return !completed.includes(recStage);
+        });
+        setSelectedStudentIndex(firstPendingIdx >= 0 ? firstPendingIdx : 0);
       }
       setDudiStudents(students);
     };
@@ -466,8 +540,20 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
               latestStageControl = freshJson.stageControl;
               setStageControl(freshJson.stageControl);
             }
+            if (Array.isArray(freshJson?.issuedStages)) {
+              latestIssuedStages = freshJson.issuedStages;
+              setIssuedStages(freshJson.issuedStages);
+            }
+            if (freshJson?.issuedStageDetails && typeof freshJson.issuedStageDetails === 'object') {
+              setIssuedStageDetails(freshJson.issuedStageDetails);
+            }
             if (freshJson?.success && Array.isArray(freshJson.data)) {
-              applyStudentsPayload(freshJson.data, true, freshJson?.stageControl);
+              applyStudentsPayload(
+                freshJson.data,
+                true,
+                freshJson?.stageControl,
+                Array.isArray(freshJson?.issuedStages) ? freshJson.issuedStages : undefined
+              );
             }
           },
         }
@@ -477,6 +563,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         latestStageControl = json.stageControl;
         setStageControl(json.stageControl);
       }
+      if (Array.isArray(json?.issuedStages)) {
+        latestIssuedStages = json.issuedStages;
+        setIssuedStages(json.issuedStages);
+      }
+      if (json?.issuedStageDetails && typeof json.issuedStageDetails === 'object') {
+        setIssuedStageDetails(json.issuedStageDetails);
+      }
       if (!json.success) {
         const errMsg = 'Gagal memuat daftar siswa dari Cloud Server.';
         setStudentsError(errMsg);
@@ -485,7 +578,12 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       }
 
       const students = Array.isArray(json.data) ? json.data : [];
-      applyStudentsPayload(students, false, json?.stageControl);
+      applyStudentsPayload(
+        students,
+        false,
+        json?.stageControl,
+        Array.isArray(json?.issuedStages) ? json.issuedStages : undefined
+      );
     } catch (e: any) {
       if (activeDudiKeyRef.current !== dudiKey) return;
       const errMsg = e?.message || 'Gagal menghubungi Cloud Server.';
@@ -589,18 +687,23 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     ? stageByStudent[activeStudentKey] ||
       pickRecommendedStageForControl(
         Array.isArray(activeStudent.completedStages) ? activeStudent.completedStages : [],
-        stageControl
+        stageControl,
+        issuedStages
       )
     : 1;
   const isStageGlobalUnlocked = stageControl.unlockedStages.includes(activeStageNum);
+  const isStageLetterIssued =
+    stageControl.requireIssuedLetter === false || issuedStages.includes(activeStageNum);
   const isStageCompleted = Boolean(
     activeStudent && (activeStudent.completedStages || []).includes(activeStageNum)
   );
-  const isStageReadOnly = !isStageGlobalUnlocked;
+  const isStageReadOnly = !isStageGlobalUnlocked || !isStageLetterIssued;
 
   const activeDraftKey = activeStudent ? `${activeStudentKey}::${activeStageNum}` : '';
   const activeDraft: StudentStageDraft =
     (activeDraftKey && draftsByKey[activeDraftKey]) || DEFAULT_DRAFT;
+  const activeWorkshopDraft: WorkshopStageDraft =
+    workshopDraftsByStage[activeStageNum] || DEFAULT_WORKSHOP_DRAFT;
 
   const updateActiveDraft = (patch: Partial<StudentStageDraft>) => {
     if (!activeDraftKey || isStageReadOnly) return;
@@ -611,7 +714,11 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         ...patch,
       };
       if (activeDudiKeyRef.current) {
-        writeStoredMonitoringDraft(`${activeDudiKeyRef.current}::${activeDraftKey}`, nextDraft);
+        writeStoredMapItem(
+          MONITORING_DRAFTS_KEY,
+          `${activeDudiKeyRef.current}::${activeDraftKey}`,
+          nextDraft
+        );
       }
       return {
         ...prev,
@@ -620,40 +727,67 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     });
   };
 
-  const canCopyInspectionFromPrevious = !isStageReadOnly && selectedStudentIndex > 0;
+  const updateActiveWorkshopDraft = (patch: Partial<WorkshopStageDraft>) => {
+    if (!selectedDudi || isStageReadOnly) return;
+    setFormError('');
+    setWorkshopDraftsByStage((prev) => {
+      const base = prev[activeStageNum] || DEFAULT_WORKSHOP_DRAFT;
+      const nextWorkshop = normalizeWorkshopDraft({
+        ...base,
+        ...patch,
+      });
+      if (activeDudiKeyRef.current) {
+        writeStoredMapItem(
+          WORKSHOP_DRAFTS_KEY,
+          `${activeDudiKeyRef.current}::stage::${activeStageNum}`,
+          nextWorkshop
+        );
+      }
+      return {
+        ...prev,
+        [activeStageNum]: nextWorkshop,
+      };
+    });
+  };
 
-  const copyInspectionFromPreviousStudent = () => {
-    if (!canCopyInspectionFromPrevious || !activeDraftKey) return;
-    const prevStu = dudiStudents[selectedStudentIndex - 1];
-    if (!prevStu) return;
-    const prevStuKey = getStudentKey(prevStu, selectedStudentIndex - 1);
-    const prevStageNum = stageByStudent[prevStuKey] || activeStageNum;
-    const prevDraft = draftsByKey[`${prevStuKey}::${prevStageNum}`];
-    const prevLog = prevStu.stageLogs?.[prevStageNum] || prevStu.stageLogs?.[activeStageNum];
+  const prevStageWorkshop =
+    activeStageNum > 1 ? workshopDraftsByStage[activeStageNum - 1] : undefined;
+  const canCopyWorkshopFromPrevStage =
+    !isStageReadOnly && activeStageNum > 1 && hasFilledWorkshopData(prevStageWorkshop);
 
-    const sourceKomp: string[] = prevDraft?.kompetensiList?.some((k) => k.trim())
-      ? prevDraft.kompetensiList
-      : Array.isArray(prevLog?.kompetensiList) && prevLog.kompetensiList.length > 0
-      ? prevLog.kompetensiList
-      : ['', ''];
-    const paddedKomp =
-      sourceKomp.length >= 2 ? [...sourceKomp] : [...sourceKomp, ...Array(2 - sourceKomp.length).fill('')];
+  const copyWorkshopFromPrevStage = () => {
+    if (!canCopyWorkshopFromPrevStage || !prevStageWorkshop) return;
+    updateActiveWorkshopDraft({
+      kompetensiList: [...prevStageWorkshop.kompetensiList],
+      kondisiBengkel: { ...prevStageWorkshop.kondisiBengkel },
+    });
+  };
 
-    const sourceBengkel = prevDraft?.kondisiBengkel?.volumePekerjaan
-      ? { ...prevDraft.kondisiBengkel }
-      : prevLog?.kondisiBengkel
-      ? { ...EMPTY_KONDISI_BENGKEL, ...prevLog.kondisiBengkel }
-      : { ...EMPTY_KONDISI_BENGKEL };
+  const markAllBengkelBaik = () => {
+    updateActiveWorkshopDraft({
+      kondisiBengkel: {
+        volumePekerjaan: 'Baik',
+        relevansiPekerjaan: 'Baik',
+        kenyamanan: 'Baik',
+        kelayakan: 'Baik',
+      },
+    });
+  };
 
+  const applyStandardStudentChecklist = () => {
     updateActiveDraft({
-      kompetensiList: paddedKomp,
-      kondisiBengkel: sourceBengkel,
+      bukuLaporan: 'SDH',
+      aktivitasDp: 'Baik',
+      aktivitasMt: 'Baik',
+      aktivitasKrt: 'Baik',
     });
   };
 
   const setStudentStage = (stageNum: number) => {
     if (!activeStudentKey) return;
     const isGlobalUnlocked = stageControl.unlockedStages.includes(stageNum);
+    const isLetterIssued =
+      stageControl.requireIssuedLetter === false || issuedStages.includes(stageNum);
     const isCompleted = (activeStudent?.completedStages || []).includes(stageNum);
 
     if (!isGlobalUnlocked && !isCompleted) {
@@ -665,8 +799,16 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
+    if (!isLetterIssued && !isCompleted) {
+      reportValidationError(
+        `Surat ${getStageValueByNumber(stageNum)} untuk DUDI "${selectedDudi?.nama || 'ini'}" belum diterbitkan Admin Hubin di Pusat Dokumen.`
+      );
+      return;
+    }
+
     if (
       isGlobalUnlocked &&
+      isLetterIssued &&
       stageControl.requireSequential &&
       stageNum > 1 &&
       !(activeStudent?.completedStages || []).includes(stageNum - 1)
@@ -830,11 +972,18 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     if (!activeStudent || !selectedDudi) return;
     setFormError('');
 
-    if (isStageReadOnly) {
+    if (!isStageGlobalUnlocked) {
       reportValidationError(
         stageControl.lockedReason
           ? `Tahap ${activeStageNum} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).`
           : `Tahap ${activeStageNum} sedang dikunci oleh SuperAdmin dan hanya dapat dilihat (Read-Only).`
+      );
+      return;
+    }
+
+    if (!isStageLetterIssued) {
+      reportValidationError(
+        `Surat ${getStageValueByNumber(activeStageNum)} untuk DUDI "${selectedDudi?.nama || 'ini'}" belum diterbitkan Admin Hubin di Pusat Dokumen.`
       );
       return;
     }
@@ -871,8 +1020,9 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       activeStageNum === 1 &&
       (!dudiHariMulai || !dudiHariSelesai || !dudiJamMulai || !dudiJamSelesai)
     ) {
+      setShowDudiContactEditor(true);
       reportValidationError(
-        'Pada Tahap 1 (Pengantaran), harap lengkapi rentang Hari Kerja (Hari Mulai s/d Hari Selesai) dan Jam Kerja (Jam Masuk s/d Jam Pulang) DUDI.'
+        'Jadwal Hari Kerja & Jam Kerja DUDI masih kosong. Harap lengkapi 1x pada bagian Data DUDI di atas sebelum menyimpan Tahap 1.'
       );
       return;
     }
@@ -880,6 +1030,24 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     if (!activeDraft.ttdSiswa) {
       reportValidationError(
         'Tanda Tangan Siswa di bawah Absensi wajib diisi oleh siswa bersangkutan sebelum menyimpan.'
+      );
+      return;
+    }
+
+    const filledKompetensi = activeWorkshopDraft.kompetensiList
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (filledKompetensi.length < 2) {
+      reportValidationError(
+        'Harap isikan minimal 2 baris Kompetensi yang didapat pada bagian Data Umum Bengkel DUDI.'
+      );
+      return;
+    }
+
+    const kb = activeWorkshopDraft.kondisiBengkel;
+    if (!kb.volumePekerjaan || !kb.relevansiPekerjaan || !kb.kenyamanan || !kb.kelayakan) {
+      reportValidationError(
+        'Harap lengkapi seluruh pilihan centang Keadaan Bengkel pada bagian Data Umum Bengkel DUDI.'
       );
       return;
     }
@@ -892,22 +1060,6 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     if (!activeDraft.aktivitasDp || !activeDraft.aktivitasMt || !activeDraft.aktivitasKrt) {
       reportValidationError(
         'Harap lengkapi Ceklist Aktivitas Siswa untuk ketiga aspek (DP Kedisiplinan, MT Motivasi, dan KRT Kreativitas).'
-      );
-      return;
-    }
-
-    const filledKompetensi = activeDraft.kompetensiList.map((k) => k.trim()).filter(Boolean);
-    if (filledKompetensi.length < 2) {
-      reportValidationError(
-        'Harap isikan minimal 2 baris Kompetensi yang didapat siswa di tempat PKL.'
-      );
-      return;
-    }
-
-    const kb = activeDraft.kondisiBengkel;
-    if (!kb.volumePekerjaan || !kb.relevansiPekerjaan || !kb.kenyamanan || !kb.kelayakan) {
-      reportValidationError(
-        'Harap lengkapi seluruh pilihan centang pada bagian Keadaan Bengkel (Volume Pekerjaan, Relevansi Pekerjaan, Kenyamanan, dan Kelayakan).'
       );
       return;
     }
@@ -964,7 +1116,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         aktivitas_mt: activeDraft.aktivitasMt,
         aktivitas_krt: activeDraft.aktivitasKrt,
         kompetensi_siswa: filledKompetensi,
-        kondisi_bengkel: activeDraft.kondisiBengkel,
+        kondisi_bengkel: activeWorkshopDraft.kondisiBengkel,
         ttd_siswa: activeDraft.ttdSiswa,
         nilai_pkl_muncul: shouldSubmitGrades,
         nilai_k3lh: shouldSubmitGrades ? activeDraft.nilaiK3lh : undefined,
@@ -989,7 +1141,10 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
       if (json.success) {
         if (activeDudiKeyRef.current && activeDraftKey) {
-          removeStoredMonitoringDraft(`${activeDudiKeyRef.current}::${activeDraftKey}`);
+          removeStoredMapItem(
+            MONITORING_DRAFTS_KEY,
+            `${activeDudiKeyRef.current}::${activeDraftKey}`
+          );
         }
         if (json.dudiContact) {
           const updatedContact = {
@@ -1026,7 +1181,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
             const nextCompleted = Array.from(new Set([...prevCompleted, activeStageNum])).sort(
               (a, b) => a - b
             );
-            const nextRec = pickRecommendedStageForControl(nextCompleted, stageControl);
+            const nextRec = pickRecommendedStageForControl(nextCompleted, stageControl, issuedStages);
 
             return {
               ...stu,
@@ -1059,7 +1214,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
                   aktivitasMt: activeDraft.aktivitasMt,
                   aktivitasKrt: activeDraft.aktivitasKrt,
                   kompetensiList: filledKompetensi,
-                  kondisiBengkel: { ...activeDraft.kondisiBengkel },
+                  kondisiBengkel: { ...activeWorkshopDraft.kondisiBengkel },
                   ttdSiswa: activeDraft.ttdSiswa,
                   catatan: activeDraft.catatanPerkembangan,
                   tanggal: payload.tanggal,
@@ -1070,9 +1225,24 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           })
         );
 
+        const allCompletedNow = dudiStudents.every((stu, idx) => {
+          if (idx === selectedStudentIndex) return true;
+          return Array.isArray(stu.completedStages) && stu.completedStages.includes(activeStageNum);
+        });
+        if (allCompletedNow && activeDudiKeyRef.current) {
+          removeStoredMapItem(
+            WORKSHOP_DRAFTS_KEY,
+            `${activeDudiKeyRef.current}::stage::${activeStageNum}`
+          );
+        }
+
         if (onSuccess) onSuccess();
 
-        const hasNextStudent = selectedStudentIndex < dudiStudents.length - 1;
+        const nextPendingIdx = dudiStudents.findIndex((stu, idx) => {
+          if (idx === selectedStudentIndex) return false;
+          const completed = Array.isArray(stu.completedStages) ? stu.completedStages : [];
+          return !completed.includes(activeStageNum);
+        });
         setSaveReceipt({
           idMonitoring: savedMonId,
           studentName: activeStudent.nama,
@@ -1091,8 +1261,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           verifiedInSpreadsheet: json.verifiedInSpreadsheet !== false,
           sheetRowNumber: json.sheetRowNumber,
           savedAt: json.savedAt || new Date().toISOString(),
-          nextStudentIndex: hasNextStudent ? selectedStudentIndex + 1 : undefined,
-          nextStudentName: hasNextStudent ? dudiStudents[selectedStudentIndex + 1]?.nama : undefined,
+          nextStudentIndex: nextPendingIdx >= 0 ? nextPendingIdx : undefined,
+          nextStudentName: nextPendingIdx >= 0 ? dudiStudents[nextPendingIdx]?.nama : undefined,
         });
       } else {
         reportValidationError(json.message || 'Gagal menyimpan data ke Cloud Server.');
@@ -1148,6 +1318,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setDraftsByKey({});
     setEditingGradeByStudent({});
     setGradeEditDrafts({});
+    setIssuedStages([]);
+    setIssuedStageDetails({});
     setCurrentStep(1);
     setPinInput('');
     ToastManager.getInstance().show(
@@ -1209,6 +1381,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     showDudiContactEditor,
     setShowDudiContactEditor,
     stageControl,
+    issuedStages,
+    issuedStageDetails,
     dudiPopupOpen,
     setDudiPopupOpen,
     popupPemimpin,
@@ -1233,13 +1407,15 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     activeStudent,
     activeStageNum,
     isStageReadOnly,
+    isStageLetterIssued,
     isStageCompleted,
     activeDraft,
+    activeWorkshopDraft,
     alreadyHasGrade,
     isEditingGrade,
     canInputGradeThisStage,
     showGradeInputs,
-    canCopyInspectionFromPrevious,
+    canCopyWorkshopFromPrevStage,
     activeGradeEditDraft,
     rataRataEditNilai,
     predikatEditNilai,
@@ -1250,7 +1426,10 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     handleSelectDudi,
     handleSaveDudiPopup,
     updateActiveDraft,
-    copyInspectionFromPreviousStudent,
+    updateActiveWorkshopDraft,
+    copyWorkshopFromPrevStage,
+    markAllBengkelBaik,
+    applyStandardStudentChecklist,
     setStudentStage,
     startEditGrade,
     cancelEditGrade,

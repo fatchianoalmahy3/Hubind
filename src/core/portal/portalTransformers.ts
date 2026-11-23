@@ -110,13 +110,26 @@ export function aggregatePetugasDudiGroups(params: {
   }
 
   const pengajuanMapsByDudi = new Map<string, string>();
+  const pengajuanHariByDudi = new Map<string, string>();
+  const pengajuanJamByDudi = new Map<string, string>();
   for (const reqRow of pengajuanRows) {
-    const lm = pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps');
-    if (!lm) continue;
     const did = pickField(reqRow, 'ID_DUDI', 'idDudi');
     const dname = normalizeStr(pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'));
-    if (did && !pengajuanMapsByDudi.has(did)) pengajuanMapsByDudi.set(did, lm);
-    if (dname && !pengajuanMapsByDudi.has(dname)) pengajuanMapsByDudi.set(dname, lm);
+    const lm = pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps');
+    const hk = pickField(reqRow, 'Hari_Kerja', 'hariKerja', 'hari_kerja');
+    const jk = pickField(reqRow, 'Jam_Kerja', 'jamKerja', 'jam_kerja');
+    if (lm) {
+      if (did && !pengajuanMapsByDudi.has(did)) pengajuanMapsByDudi.set(did, lm);
+      if (dname && !pengajuanMapsByDudi.has(dname)) pengajuanMapsByDudi.set(dname, lm);
+    }
+    if (hk) {
+      if (did && !pengajuanHariByDudi.has(did)) pengajuanHariByDudi.set(did, hk);
+      if (dname && !pengajuanHariByDudi.has(dname)) pengajuanHariByDudi.set(dname, hk);
+    }
+    if (jk) {
+      if (did && !pengajuanJamByDudi.has(did)) pengajuanJamByDudi.set(did, jk);
+      if (dname && !pengajuanJamByDudi.has(dname)) pengajuanJamByDudi.set(dname, jk);
+    }
   }
 
   const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
@@ -159,6 +172,16 @@ export function aggregatePetugasDudiGroups(params: {
         pengajuanMapsByDudi.get(masterId) ||
         pengajuanMapsByDudi.get(key) ||
         '';
+      const resolvedHari =
+        pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
+        pengajuanHariByDudi.get(masterId) ||
+        pengajuanHariByDudi.get(key) ||
+        '';
+      const resolvedJam =
+        pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
+        pengajuanJamByDudi.get(masterId) ||
+        pengajuanJamByDudi.get(key) ||
+        '';
       grouped.set(key, {
         dudi: {
           id: masterId,
@@ -168,8 +191,8 @@ export function aggregatePetugasDudiGroups(params: {
           namaPemimpin: pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') || '',
           pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
           kontak: resolvedKontak,
-          hariKerja: pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') || '',
-          jamKerja: pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') || '',
+          hariKerja: resolvedHari,
+          jamKerja: resolvedJam,
           linkMaps: resolvedMaps,
           kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
         },
@@ -208,6 +231,18 @@ export function aggregatePetugasDudiGroups(params: {
         pengajuanMapsByDudi.get(masterId) ||
         pengajuanMapsByDudi.get(key) ||
         '';
+      const resolvedHari =
+        pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
+        pickField(reqRow, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
+        pengajuanHariByDudi.get(masterId) ||
+        pengajuanHariByDudi.get(key) ||
+        '';
+      const resolvedJam =
+        pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
+        pickField(reqRow, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
+        pengajuanJamByDudi.get(masterId) ||
+        pengajuanJamByDudi.get(key) ||
+        '';
       grouped.set(key, {
         dudi: {
           id: masterId,
@@ -229,8 +264,8 @@ export function aggregatePetugasDudiGroups(params: {
             pickField(reqRow, 'Nama_PIC', 'namaPic') ||
             '-',
           kontak: resolvedKontak,
-          hariKerja: pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') || '',
-          jamKerja: pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') || '',
+          hariKerja: resolvedHari,
+          jamKerja: resolvedJam,
           linkMaps: resolvedMaps,
           kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
         },
@@ -259,6 +294,7 @@ export function buildDudiStudentsWithSummary(params: {
   monitoringRows: any[];
   nilaiRows: any[];
   stageControl: MonitoringStageControl;
+  issuedStages?: number[];
 }) {
   const {
     dudiNama,
@@ -270,6 +306,7 @@ export function buildDudiStudentsWithSummary(params: {
     monitoringRows,
     nilaiRows,
     stageControl,
+    issuedStages,
   } = params;
 
   const siswaByNis = new Map<string, any>();
@@ -377,7 +414,11 @@ export function buildDudiStudentsWithSummary(params: {
     return {
       ...stu,
       ...summary,
-      recommendedStage: pickRecommendedStageForControl(summary.completedStages, stageControl),
+      recommendedStage: pickRecommendedStageForControl(
+        summary.completedStages,
+        stageControl,
+        issuedStages
+      ),
     };
   });
 }

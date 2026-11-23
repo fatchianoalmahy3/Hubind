@@ -10,6 +10,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import type { GoogleMapsValidationResult } from '../../core/utils/mapsHelpers';
+import { WorkScheduleRangeInputs } from '../monitoring-portal/WorkScheduleRangeInputs';
 
 interface WizardStep3DudiMapProps {
   dudiList: any[];
@@ -21,6 +22,10 @@ interface WizardStep3DudiMapProps {
   customDudiName: string;
   customDudiAddress: string;
   customDudiField: string;
+  hariMulai: string;
+  hariSelesai: string;
+  jamMulai: string;
+  jamSelesai: string;
   linkMaps: string;
   mapsValidation: GoogleMapsValidationResult | null;
   submitting: boolean;
@@ -29,6 +34,10 @@ interface WizardStep3DudiMapProps {
   onChangeCustomDudiName: (val: string) => void;
   onChangeCustomDudiAddress: (val: string) => void;
   onChangeCustomDudiField: (val: string) => void;
+  onChangeHariMulai: (val: string) => void;
+  onChangeHariSelesai: (val: string) => void;
+  onChangeJamMulai: (val: string) => void;
+  onChangeJamSelesai: (val: string) => void;
   onChangeLinkMaps: (val: string) => void;
   onBackToStep2: () => void;
 }
@@ -43,6 +52,10 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
   customDudiName,
   customDudiAddress,
   customDudiField,
+  hariMulai,
+  hariSelesai,
+  jamMulai,
+  jamSelesai,
   linkMaps,
   mapsValidation,
   submitting,
@@ -51,6 +64,10 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
   onChangeCustomDudiName,
   onChangeCustomDudiAddress,
   onChangeCustomDudiField,
+  onChangeHariMulai,
+  onChangeHariSelesai,
+  onChangeJamMulai,
+  onChangeJamSelesai,
   onChangeLinkMaps,
   onBackToStep2,
 }) => {
@@ -183,6 +200,23 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
             )
           )}
 
+          {/* Jadwal Hari & Jam Kerja DUDI (Diisi 1x di awal pengajuan) */}
+          <div className="pt-3 border-t border-slate-200/80">
+            <WorkScheduleRangeInputs
+              hariMulai={hariMulai}
+              hariSelesai={hariSelesai}
+              jamMulai={jamMulai}
+              jamSelesai={jamSelesai}
+              disabled={submitting}
+              required={true}
+              helperText="Jika DUDI sudah terdaftar, jadwal kerja terisi otomatis bila tersedia dan dapat disesuaikan bila berbeda."
+              onChangeHariMulai={onChangeHariMulai}
+              onChangeHariSelesai={onChangeHariSelesai}
+              onChangeJamMulai={onChangeJamMulai}
+              onChangeJamSelesai={onChangeJamSelesai}
+            />
+          </div>
+
           {/* Input Link Google Maps Tempat PKL (Wajib Valid) */}
           <div className="pt-3 border-t border-slate-200/80 space-y-2.5 text-xs">
             <div className="flex items-center justify-between gap-2">
@@ -232,7 +266,7 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
             )}
 
             <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-3 py-2">
-              Catatan: Data Penanggung Jawab (Pemimpin &amp; PIC/Pendamping) serta nomor telepon DUDI akan dicatat langsung oleh Guru Pendamping saat pengantaran siswa ke lokasi PKL.
+              Catatan: Data Penanggung Jawab (Pemimpin &amp; PIC/Pendamping) serta nomor telepon resmi DUDI akan diverifikasi Guru Pendamping saat pengantaran siswa, sedangkan Hari &amp; Jam Kerja otomatis tersimpan dari pengajuan ini.
             </p>
           </div>
         </div>

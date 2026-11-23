@@ -8,7 +8,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
   subtitle: 'Pengantaran, Monitoring 1–6, Absensi S/I/A, Nilai PKL (mulai Monitoring 4), & Penarikan',
   tableName: 'Monitoring_5_Tahap',
   icon: 'Compass',
-  allowedRoles: ['Hubin', 'Kakomli', 'GuruPendamping'],
+  allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
   statCards: [
     {
       title: 'Total Kunjungan Terdata',
@@ -384,6 +384,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       options: [
         { label: 'Belum Terlaksana', value: 'Belum Terlaksana', badgeColor: 'bg-zinc-100 text-zinc-700' },
         { label: 'Terlaksana', value: 'Terlaksana', badgeColor: 'bg-blue-100 text-blue-800' },
+        { label: 'Tervalidasi Kakomli', value: 'Tervalidasi Kakomli', badgeColor: 'bg-indigo-100 text-indigo-800' },
         { label: 'Tervalidasi Hubin', value: 'Tervalidasi Hubin', badgeColor: 'bg-emerald-100 text-emerald-800' },
       ],
     },

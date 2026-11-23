@@ -68,35 +68,35 @@ export const DudiSelectionStep: React.FC<DudiSelectionStepProps> = ({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5 pt-0.5">
           {assignedDudiList.map((dudi, idx) => (
             <div
               key={`${dudi.id || 'dudi'}_${idx}`}
               onClick={() => onSelectDudi(dudi)}
-              className="p-4 rounded-2xl border border-slate-200/90 bg-white hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+              className="p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 bg-white hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5 text-[11px] text-slate-500">
-                  <span className="font-semibold text-blue-700 truncate">{dudi.bidang}</span>
-                  <span className="font-bold text-slate-600 flex items-center gap-1 shrink-0">
+                <div className="flex items-start justify-between gap-2 mb-1 text-[11px] text-slate-500">
+                  <span className="font-semibold text-blue-700 leading-snug">{dudi.bidang}</span>
+                  <span className="font-bold text-slate-600 flex items-center gap-1 shrink-0 whitespace-nowrap tabular-nums">
                     <Users className="w-3.5 h-3.5 text-slate-400" />
                     <span>{dudi.jumlahSiswa ?? dudi.kuota} Siswa</span>
                   </span>
                 </div>
 
-                <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                <h4 className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors leading-snug">
                   {dudi.nama}
                 </h4>
 
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-2">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="truncate">{dudi.alamat}</span>
+                <div className="flex items-start gap-1.5 text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                  <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                  <span>{dudi.alamat}</span>
                 </div>
               </div>
 
-              <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <span className="text-[11px] text-slate-500 truncate block">
+              <div className="pt-2.5 mt-2.5 border-t border-slate-100 flex items-center justify-between gap-2.5">
+                <div className="min-w-0 space-y-0.5">
+                  <span className="text-[11px] text-slate-500 block leading-snug">
                     PIC: <b className="text-slate-700">{dudi.pic}</b>
                   </span>
                   {getWhatsAppHref(dudi.kontak) && (
@@ -106,7 +106,7 @@ export const DudiSelectionStep: React.FC<DudiSelectionStepProps> = ({
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
                       title={`Chat WhatsApp ke ${formatPhoneDisplay(dudi.kontak)}`}
-                      className="inline-flex items-center gap-1 mt-0.5 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 hover:underline underline-offset-2"
+                      className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 hover:text-emerald-900 hover:underline underline-offset-2"
                     >
                       <MessageCircle className="w-3 h-3 text-emerald-600 shrink-0" />
                       <span>{formatPhoneDisplay(dudi.kontak)}</span>
@@ -115,7 +115,7 @@ export const DudiSelectionStep: React.FC<DudiSelectionStepProps> = ({
                 </div>
                 <button
                   type="button"
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition-all shrink-0"
+                  className="min-h-[40px] px-3.5 py-2 rounded-xl bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition-all shrink-0 whitespace-nowrap"
                 >
                   <span>Supervisi</span>
                   <ChevronRight className="w-3.5 h-3.5" />

@@ -122,7 +122,11 @@ export async function fetchGasPost(
     sheetSvc.prepareOutgoingRecord(sheetName, payload)
   );
   const rawId =
-    preparedPayload?.id || preparedPayload?.ID_Monitoring || preparedPayload?.ID_Penempatan || '';
+    preparedPayload?.id ||
+    preparedPayload?.ID_Monitoring ||
+    preparedPayload?.ID_Penempatan ||
+    preparedPayload?.ID_Terbit ||
+    '';
   const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(rawId);
 
   try {

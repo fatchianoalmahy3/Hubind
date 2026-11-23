@@ -160,6 +160,17 @@ export class GoogleDriveSheetService {
     Status_Blangko: ['statusBlangko', 'status_blangko', 'Status_Blangko'],
     Status_Raport: ['statusRaport', 'status_raport', 'Status_Raport'],
     Tgl_Terbit: ['tanggalTerbit', 'tglTerbit', 'tgl_terbit', 'Tgl_Terbit'],
+
+    // Log Penerbitan Surat
+    ID_Terbit: ['idTerbit', 'id_terbit', 'ID_Terbit', 'id'],
+    Nama_Tahap: ['namaTahap', 'nama_tahap', 'Nama_Tahap'],
+    Status_Terbit: ['statusTerbit', 'status_terbit', 'Status_Terbit'],
+    Jenis_Dokumen: ['jenisDokumen', 'jenis_dokumen', 'Jenis_Dokumen'],
+    Nomor_Surat: ['nomorSurat', 'nomor_surat', 'Nomor_Surat'],
+    Tanggal_Terbit: ['tanggalTerbit', 'tanggal_terbit', 'Tanggal_Terbit', 'tglTerbit'],
+    Diterbitkan_Oleh: ['diterbitkanOleh', 'diterbitkan_oleh', 'Diterbitkan_Oleh'],
+    Link_PDF: ['linkPdf', 'link_pdf', 'Link_PDF', 'pdfUrl'],
+    Updated_At: ['updatedAt', 'updated_at', 'Updated_At'],
   };
 
   private static readonly PRIMARY_ID_HEADER_BY_SHEET: Record<string, string> = {
@@ -175,6 +186,7 @@ export class GoogleDriveSheetService {
     Monitoring_5_Tahap: 'ID_Monitoring',
     Nilai_Dan_Sertifikat: 'ID_Penempatan',
     Master_Akun: 'ID',
+    Log_Penerbitan_Surat: 'ID_Terbit',
   };
 
   private static readonly BOOLEAN_HEADER_KEYS = new Set<string>([
@@ -403,6 +415,7 @@ export class GoogleDriveSheetService {
     'idperizinan',
     'noperizinan',
     'idmonitoring',
+    'idterbit',
     'sheetrownumber',
   ]);
 
@@ -616,6 +629,8 @@ export class GoogleDriveSheetService {
         record.idPenempatan ||
         record.ID_Monitoring ||
         record.idMonitoring ||
+        record.ID_Terbit ||
+        record.idTerbit ||
         record.NIS ||
         record.nis ||
         `row_${sheetRowNum}`;

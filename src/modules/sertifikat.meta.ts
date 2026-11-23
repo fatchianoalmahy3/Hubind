@@ -7,7 +7,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
   subtitle: 'Manajemen alokasi nomor seri blangko fisik, rekapitulasi nilai, dan penerbitan raport',
   tableName: 'Nilai_Dan_Sertifikat',
   icon: 'Award',
-  allowedRoles: ['Hubin', 'Kakomli'],
+  allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek'],
   statCards: [
     {
       title: 'Total Siswa Siap Terbit',

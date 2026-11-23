@@ -5,6 +5,7 @@ import { ToastManager } from '../../core/ToastManager';
 import { useUnloadGuard } from '../../hooks/useUnloadGuard';
 import { formatNisVisual, stripNisSymbols } from '../../core/utils/nisHelpers';
 import { validateGoogleMapsUrl } from '../../core/utils/mapsHelpers';
+import { formatRangePair, parseRangePair } from '../../core/utils/monitoringHelpers';
 
 const STUDENT_DRAFT_KEY = 'hubin_student_pengajuan_draft_v1';
 
@@ -37,6 +38,10 @@ export function useStudentWizard(isOpen: boolean) {
   const [customDudiName, setCustomDudiName] = useState('');
   const [customDudiAddress, setCustomDudiAddress] = useState('');
   const [customDudiField, setCustomDudiField] = useState('');
+  const [hariMulai, setHariMulai] = useState('');
+  const [hariSelesai, setHariSelesai] = useState('');
+  const [jamMulai, setJamMulai] = useState('');
+  const [jamSelesai, setJamSelesai] = useState('');
   const [linkMaps, setLinkMaps] = useState('');
 
   const mapsValidation = useMemo(
@@ -104,6 +109,10 @@ export function useStudentWizard(isOpen: boolean) {
             if (parsed.customDudiName) setCustomDudiName(String(parsed.customDudiName));
             if (parsed.customDudiAddress) setCustomDudiAddress(String(parsed.customDudiAddress));
             if (parsed.customDudiField) setCustomDudiField(String(parsed.customDudiField));
+            if (parsed.hariMulai) setHariMulai(String(parsed.hariMulai));
+            if (parsed.hariSelesai) setHariSelesai(String(parsed.hariSelesai));
+            if (parsed.jamMulai) setJamMulai(String(parsed.jamMulai));
+            if (parsed.jamSelesai) setJamSelesai(String(parsed.jamSelesai));
             if (parsed.linkMaps) setLinkMaps(String(parsed.linkMaps));
           }
         }
@@ -134,6 +143,10 @@ export function useStudentWizard(isOpen: boolean) {
           customDudiName,
           customDudiAddress,
           customDudiField,
+          hariMulai,
+          hariSelesai,
+          jamMulai,
+          jamSelesai,
           linkMaps,
           updatedAt: Date.now(),
         })
@@ -158,6 +171,10 @@ export function useStudentWizard(isOpen: boolean) {
     customDudiName,
     customDudiAddress,
     customDudiField,
+    hariMulai,
+    hariSelesai,
+    jamMulai,
+    jamSelesai,
     linkMaps,
   ]);
 
@@ -187,6 +204,10 @@ export function useStudentWizard(isOpen: boolean) {
     setCustomDudiName('');
     setCustomDudiAddress('');
     setCustomDudiField('');
+    setHariMulai('');
+    setHariSelesai('');
+    setJamMulai('');
+    setJamSelesai('');
     setLinkMaps('');
     setSubmitError('');
     setSubmissionResult(null);
@@ -279,6 +300,10 @@ export function useStudentWizard(isOpen: boolean) {
       setCustomDudiName('');
       setCustomDudiAddress('');
       setCustomDudiField('');
+      setHariMulai('');
+      setHariSelesai('');
+      setJamMulai('');
+      setJamSelesai('');
       setLinkMaps('');
       return;
     }
@@ -289,6 +314,10 @@ export function useStudentWizard(isOpen: boolean) {
       setCustomDudiName('');
       setCustomDudiAddress('');
       setCustomDudiField('');
+      setHariMulai('');
+      setHariSelesai('');
+      setJamMulai('');
+      setJamSelesai('');
       setLinkMaps('');
     } else {
       setIsDudiUnregistered(false);
@@ -298,6 +327,12 @@ export function useStudentWizard(isOpen: boolean) {
         setCustomDudiName(chosen.nama_dudi || '');
         setCustomDudiAddress(chosen.alamat || chosen.kota || '');
         setCustomDudiField(chosen.bidang_usaha || '');
+        const parsedHari = parseRangePair(chosen.hari_kerja, '', '');
+        const parsedJam = parseRangePair(chosen.jam_kerja, '', '');
+        setHariMulai(parsedHari.start);
+        setHariSelesai(parsedHari.end);
+        setJamMulai(parsedJam.start);
+        setJamSelesai(parsedJam.end);
         setLinkMaps(chosen.link_maps || '');
       }
     }
@@ -328,6 +363,13 @@ export function useStudentWizard(isOpen: boolean) {
       return;
     }
 
+    if (!hariMulai || !hariSelesai || !jamMulai || !jamSelesai) {
+      setSubmitError(
+        'Silakan lengkapi rentang Hari Kerja (Hari Mulai s/d Hari Selesai) dan Jam Kerja (Jam Masuk s/d Jam Pulang) DUDI tujuan.'
+      );
+      return;
+    }
+
     const mapsCheck = validateGoogleMapsUrl(linkMaps);
     if (!mapsCheck.valid) {
       setSubmitError(mapsCheck.error || 'Link Google Maps lokasi tempat PKL tidak valid.');
@@ -349,6 +391,8 @@ export function useStudentWizard(isOpen: boolean) {
         nama_dudi: customDudiName.trim(),
         alamat_dudi: customDudiAddress.trim(),
         bidang_dudi: customDudiField.trim() || '-',
+        hari_kerja: formatRangePair(hariMulai, hariSelesai),
+        jam_kerja: formatRangePair(jamMulai, jamSelesai),
         link_maps: mapsCheck.normalizedUrl,
         is_dudi_unregistered: isDudiUnregistered,
       };
@@ -411,6 +455,14 @@ export function useStudentWizard(isOpen: boolean) {
     setCustomDudiAddress,
     customDudiField,
     setCustomDudiField,
+    hariMulai,
+    setHariMulai,
+    hariSelesai,
+    setHariSelesai,
+    jamMulai,
+    setJamMulai,
+    jamSelesai,
+    setJamSelesai,
     linkMaps,
     setLinkMaps,
     mapsValidation,

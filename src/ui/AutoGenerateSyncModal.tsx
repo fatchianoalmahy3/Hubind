@@ -120,7 +120,7 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Master_DUDI",
-      headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_Pemimpin", "Nama_PIC", "Kontak_PIC", "No_Telp_DUDI", "Link_Maps", "ID_Guru_Pendamping", "Guru_Pendamping", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"]
+      headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_Pemimpin", "Nama_PIC", "Kontak_PIC", "No_Telp_DUDI", "Link_Maps", "ID_Guru_Pendamping", "Guru_Pendamping", "Hari_Kerja", "Jam_Kerja", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"]
     },
     {
       name: "Master_Guru_Pendamping",
@@ -128,7 +128,7 @@ function autoGenerateAllSheetsAndForm() {
     },
     {
       name: "Data_Pengajuan_PKL",
-      headers: ["No_Pengajuan", "Timestamp", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "ID_DUDI", "DUDI_Tujuan", "Alamat_DUDI", "Bidang_Pekerjaan", "Nama_Pemimpin", "Nama_PIC", "No_Telp_DUDI", "Link_Maps", "No_WA", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Kakomli", "Catatan_Kakomli", "Status_Hubin", "ID_Guru_Pendamping", "Guru_Pendamping", "Tgl_Berangkat"]
+      headers: ["No_Pengajuan", "Timestamp", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "ID_DUDI", "DUDI_Tujuan", "Alamat_DUDI", "Bidang_Pekerjaan", "Nama_Pemimpin", "Nama_PIC", "No_Telp_DUDI", "Hari_Kerja", "Jam_Kerja", "Link_Maps", "No_WA", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Kakomli", "Catatan_Kakomli", "Status_Hubin", "ID_Guru_Pendamping", "Guru_Pendamping", "Tgl_Berangkat"]
     },
     {
       name: "Data_Perizinan_PKL",

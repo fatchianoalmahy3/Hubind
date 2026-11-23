@@ -159,6 +159,14 @@ const KEY_ALIASES = {
   nopengajuan: ['nopengajuan', 'id'],
   idpenempatan: ['idpenempatan', 'id'],
   idmonitoring: ['idmonitoring', 'id'],
+  idterbit: ['idterbit', 'id'],
+  namatahap: ['namatahap'],
+  statusterbit: ['statusterbit'],
+  jenisdokumen: ['jenisdokumen'],
+  nomorsurat: ['nomorsurat'],
+  diterbitkanoleh: ['diterbitkanoleh'],
+  linkpdf: ['linkpdf', 'linksuratpdf'],
+  updatedat: ['updatedat'],
   tahap: ['tahap', 'tahapmonitoring'],
   tahapmonitoring: ['tahapmonitoring', 'tahap'],
   nohpsiswa: ['nohpsiswa', 'nohp', 'telepon'],
@@ -278,7 +286,7 @@ function readSheetRowsFast(ss, sheetName, ssId, ver, bypassCache) {
 
   const sheet = resolveSheetAlias(ss, sheetName);
   if (!sheet) {
-    if (sheetName === 'Master_Akun') {
+    if (sheetName === 'Master_Akun' || sheetName === 'Log_Penerbitan_Surat') {
       return { rows: [], missingSheet: true };
     }
     return { error: 'Sheet tidak ditemukan: ' + sheetName };
@@ -598,6 +606,8 @@ function extractRecordId(obj) {
     obj.idPenempatan ||
     obj.ID_Monitoring ||
     obj.idMonitoring ||
+    obj.ID_Terbit ||
+    obj.idTerbit ||
     ''
   ).trim();
 }
@@ -607,7 +617,7 @@ function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicit
   const cleanId = parsed.cleanId;
   const rowNumHint = Number(explicitRowNum || (rowObj && rowObj._sheetRowNumber) || parsed.rowNum || 0);
 
-  let idColIdx = findColumnIndex(headers, ['id', 'nopengajuan', 'idperizinan', 'idpenempatan', 'idmonitoring']);
+  let idColIdx = findColumnIndex(headers, ['id', 'nopengajuan', 'idperizinan', 'idpenempatan', 'idmonitoring', 'idterbit']);
   if (idColIdx === -1) idColIdx = 0;
 
   const nisColIdx = findColumnIndex(headers, ['nis']);
@@ -1838,15 +1848,17 @@ function doPost(e) {
 
     let sheet = resolveSheetAlias(ss, sheetName);
 
-    if (!sheet && sheetName === 'Master_Akun') {
-      const akunHeaders = REQUIRED_SHEET_HEADERS.Master_Akun;
-      sheet = ss.insertSheet('Master_Akun');
-      sheet.appendRow(akunHeaders);
-      sheet.getRange(1, 1, 1, akunHeaders.length)
-        .setFontWeight('bold')
-        .setBackground('#0F172A')
-        .setFontColor('#FFFFFF');
-      sheet.setFrozenRows(1);
+    if (!sheet && (sheetName === 'Master_Akun' || sheetName === 'Log_Penerbitan_Surat')) {
+      const autoHeaders = REQUIRED_SHEET_HEADERS[sheetName] || [];
+      sheet = ss.insertSheet(sheetName);
+      if (autoHeaders.length > 0) {
+        sheet.appendRow(autoHeaders);
+        sheet.getRange(1, 1, 1, autoHeaders.length)
+          .setFontWeight('bold')
+          .setBackground('#0F172A')
+          .setFontColor('#FFFFFF');
+        sheet.setFrozenRows(1);
+      }
     }
 
     if (!sheet) {

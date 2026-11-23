@@ -7,7 +7,7 @@ export const GuruMetadata: ModuleMetadata<Guru> = {
   subtitle: 'Master data guru pembimbing PKL, peran tugas, dan PIN akses Portal Monitoring Guru',
   tableName: 'Master_Guru_Pendamping',
   icon: 'UserCheck',
-  allowedRoles: ['Hubin', 'Kakomli'],
+  allowedRoles: ['Hubin', 'Pokja'],
   statCards: [
     {
       title: 'Total Guru Terdaftar',

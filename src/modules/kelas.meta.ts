@@ -7,7 +7,7 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
   subtitle: 'Pemetaan rombongan belajar tingkat XI dan Wali Kelas pembina',
   tableName: 'Master_Kelas_Walas',
   icon: 'Layers',
-  allowedRoles: ['Hubin', 'Kakomli'],
+  allowedRoles: ['Hubin', 'Pokja'],
   statCards: [
     {
       title: 'Total Rombel Kelas XI',

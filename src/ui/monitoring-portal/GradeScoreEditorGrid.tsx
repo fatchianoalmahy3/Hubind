@@ -44,13 +44,13 @@ export const GradeScoreEditorGrid: React.FC<GradeScoreEditorGridProps> = ({
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
         {GRADE_CATEGORIES.map((cat) => {
           const score = scores[cat.field];
           return (
             <div
               key={cat.field}
-              className={`p-3.5 rounded-xl space-y-2.5 border ${
+              className={`p-3 sm:p-3.5 rounded-xl space-y-2 border ${
                 isEdit
                   ? 'bg-white border-emerald-200'
                   : 'bg-slate-50/80 border-slate-200'

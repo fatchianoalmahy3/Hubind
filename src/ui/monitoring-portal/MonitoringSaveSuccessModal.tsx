@@ -74,21 +74,21 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
                 {receipt.studentName} ({formatNisVisual(receipt.studentNis)})
               </span>
             </div>
-            <div className="flex justify-between gap-2 pb-1.5 border-b border-slate-200/70">
-              <span className="text-slate-500">DUDI</span>
-              <span className="font-semibold text-slate-800 text-right truncate max-w-[220px]">
+            <div className="flex justify-between items-start gap-2 pb-1.5 border-b border-slate-200/70">
+              <span className="text-slate-500 shrink-0">DUDI</span>
+              <span className="font-semibold text-slate-800 text-right leading-snug">
                 {receipt.dudiName}
               </span>
             </div>
             <div className="flex justify-between gap-2 pb-1.5 border-b border-slate-200/70">
               <span className="text-slate-500">Presensi (S / I / A)</span>
-              <span className="font-mono font-bold text-slate-800">
+              <span className="font-mono font-bold text-slate-800 tabular-nums">
                 S:{receipt.sakit} · I:{receipt.izin} · A:{receipt.alpha}
               </span>
             </div>
-            <div className="flex justify-between gap-2 pb-1.5 border-b border-slate-200/70">
-              <span className="text-slate-500">Format 07.01 &amp; TTD</span>
-              <span className="font-semibold text-emerald-700 inline-flex items-center gap-1">
+            <div className="flex justify-between items-start gap-2 pb-1.5 border-b border-slate-200/70">
+              <span className="text-slate-500 shrink-0">Format 07.01 &amp; TTD</span>
+              <span className="font-semibold text-emerald-700 inline-flex items-center gap-1 text-right">
                 <ClipboardCheck className="w-3.5 h-3.5 shrink-0" />
                 <span>
                   Laporan {receipt.bukuLaporan || '-'} · {receipt.ttdSigned ? 'TTD Sah' : 'Tanpa TTD'}
@@ -98,7 +98,7 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
             {receipt.gradeAvg !== undefined && receipt.gradeAvg > 0 && (
               <div className="flex justify-between gap-2 pt-0.5">
                 <span className="text-slate-500">Nilai DUDI</span>
-                <span className="font-bold text-indigo-700">
+                <span className="font-bold text-indigo-700 tabular-nums">
                   {receipt.gradeAvg} ({receipt.gradePredikat || 'Tercatat'})
                 </span>
               </div>
@@ -110,10 +110,10 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
               <button
                 type="button"
                 onClick={onContinueNext}
-                className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-center leading-snug"
               >
-                <span className="truncate">
-                  Lanjut ke Siswa Berikutnya ({receipt.nextStudentName})
+                <span>
+                  Lanjut Siswa Berikutnya: {receipt.nextStudentName}
                 </span>
                 <ArrowRight className="w-4 h-4 shrink-0" />
               </button>
@@ -122,14 +122,14 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
               <button
                 type="button"
                 onClick={onStayHere}
-                className="min-h-[42px] px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs cursor-pointer"
+                className="min-h-[44px] px-2.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs cursor-pointer whitespace-nowrap"
               >
-                Tetap di Halaman Ini
+                Tetap di Sini
               </button>
               <button
                 type="button"
                 onClick={onClosePortal}
-                className="min-h-[42px] px-3 py-2 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
+                className="min-h-[44px] px-2.5 py-2 rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer whitespace-nowrap"
               >
                 Selesai &amp; Tutup
               </button>

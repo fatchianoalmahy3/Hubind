@@ -127,10 +127,12 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
       requireSequential: DEFAULT_MONITORING_STAGE_CONTROL.requireSequential,
       unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
       lockedReason: '',
+      requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true,
     };
   }
   const obj = raw as Record<string, unknown>;
   const requireSequential = typeof obj.requireSequential === 'boolean' ? obj.requireSequential : true;
+  const requireIssuedLetter = typeof obj.requireIssuedLetter === 'boolean' ? obj.requireIssuedLetter : true;
   const rawList = Array.isArray(obj.unlockedStages)
     ? obj.unlockedStages
     : DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages;
@@ -145,6 +147,7 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
     requireSequential,
     unlockedStages: deduped.slice(0, 8),
     lockedReason: sanitizeString(obj.lockedReason ?? '', 150),
+    requireIssuedLetter,
   };
 }
 

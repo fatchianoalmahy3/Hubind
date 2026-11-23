@@ -7,7 +7,7 @@ export const JurusanMetadata: ModuleMetadata<Jurusan> = {
   subtitle: 'Daftar 9 Program Keahlian dan Ketua Kompetensi Keahlian SMK PGRI 2 Ponorogo',
   tableName: 'Master_Jurusan',
   icon: 'BookOpen',
-  allowedRoles: ['Hubin', 'Kakomli'],
+  allowedRoles: ['Hubin', 'Pokja'],
   statCards: [
     {
       title: 'Total Jurusan',

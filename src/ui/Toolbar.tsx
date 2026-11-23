@@ -40,6 +40,7 @@ interface ToolbarProps {
   onOpenStageControl?: () => void;
   syncingRelations?: boolean;
   canAdd?: boolean;
+  readOnly?: boolean;
   viewMode?: 'table' | 'card';
   onViewModeChange?: (mode: 'table' | 'card') => void;
 }
@@ -64,6 +65,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenStageControl,
   syncingRelations = false,
   canAdd = true,
+  readOnly = false,
   viewMode = 'card',
   onViewModeChange,
 }) => {
@@ -273,7 +275,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 role="menu"
                 className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-30"
               >
-                {onSyncRelations && (
+                {!readOnly && onSyncRelations && (
                   <button
                     type="button"
                     role="menuitem"
@@ -300,23 +302,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenImportModal();
-                  }}
-                  className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      Unggah baris massal ke Cloud Server
+                {!readOnly && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onOpenImportModal();
+                    }}
+                    className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Unggah baris massal ke Cloud Server
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                )}
 
                 {onOpenDocsModal && (
                   <button

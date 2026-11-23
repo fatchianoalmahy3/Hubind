@@ -10,6 +10,7 @@ export const REST_RESOURCE_TO_SHEET: Record<string, string> = {
   monitoring: 'Monitoring_5_Tahap',
   certificates: 'Nilai_Dan_Sertifikat',
   accounts: 'Master_Akun',
+  'issued-letters': 'Log_Penerbitan_Surat',
 };
 
 export const SHEET_TO_REST_RESOURCE: Record<string, string> = {
@@ -28,6 +29,7 @@ export const SHEET_TO_REST_RESOURCE: Record<string, string> = {
   Monitoring_PKL: 'monitoring',
   Nilai_Dan_Sertifikat: 'certificates',
   Master_Akun: 'accounts',
+  Log_Penerbitan_Surat: 'issued-letters',
 };
 
 export const DEFAULT_ADMIN_BOOTSTRAP_TABLES: string[] = [

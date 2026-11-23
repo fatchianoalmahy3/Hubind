@@ -193,6 +193,8 @@ export function registerPublicStudentRoutes(app: Express): void {
         if (existingApp) {
           const existingId = pickField(existingApp, 'No_Pengajuan', 'noPengajuan', 'id');
           const existingMaps = pickField(existingApp, 'Link_Maps', 'linkMaps', 'link_maps');
+          const existingHari = pickField(existingApp, 'Hari_Kerja', 'hariKerja', 'hari_kerja');
+          const existingJam = pickField(existingApp, 'Jam_Kerja', 'jamKerja', 'jam_kerja');
           return res.json({
             success: true,
             deduplicated: true,
@@ -209,6 +211,10 @@ export function registerPublicStudentRoutes(app: Express): void {
               kelas: pickField(existingApp, 'Kelas', 'kelas') || canonicalKelas,
               jurusan: pickField(existingApp, 'Jurusan', 'jurusan') || canonicalJurusan,
               nama_dudi: pickField(existingApp, 'DUDI_Tujuan', 'dudiTujuan', 'nama_dudi') || resolvedDudiNama,
+              Hari_Kerja: existingHari || String(payload.hari_kerja || '').trim(),
+              hari_kerja: existingHari || String(payload.hari_kerja || '').trim(),
+              Jam_Kerja: existingJam || String(payload.jam_kerja || '').trim(),
+              jam_kerja: existingJam || String(payload.jam_kerja || '').trim(),
               Link_Maps: existingMaps || mapsCheck.normalizedUrl,
               link_maps: existingMaps || mapsCheck.normalizedUrl,
               status: pickField(existingApp, 'Status_Hubin', 'statusHubin', 'status') || 'Menunggu ACC Kakomli',
@@ -263,6 +269,12 @@ export function registerPublicStudentRoutes(app: Express): void {
         noTelpDudi: '',
         Kontak_PIC: '',
         kontakPic: '',
+        Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+        hariKerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+        hari_kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+        Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
+        jamKerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
+        jam_kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
         Link_Maps: mapsCheck.normalizedUrl,
         linkMaps: mapsCheck.normalizedUrl,
         link_maps: mapsCheck.normalizedUrl,
@@ -326,24 +338,36 @@ export function registerPublicStudentRoutes(app: Express): void {
         }
       }
 
-      if (
-        matchedDudiRow &&
-        mapsCheck.normalizedUrl &&
-        !pickField(matchedDudiRow, 'Link_Maps', 'linkMaps', 'link_maps')
-      ) {
-        try {
-          const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
-          if (targetDudiId) {
-            await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
-              id: targetDudiId,
-              ID: targetDudiId,
-              _sheetRowNumber: matchedDudiRow._sheetRowNumber,
-              Link_Maps: mapsCheck.normalizedUrl,
-              linkMaps: mapsCheck.normalizedUrl,
-            });
+      if (matchedDudiRow) {
+        const inputHari = String(payload.hari_kerja || payload.Hari_Kerja || '').trim();
+        const inputJam = String(payload.jam_kerja || payload.Jam_Kerja || '').trim();
+        const dudiUpdates: Record<string, any> = {};
+        if (mapsCheck.normalizedUrl && !pickField(matchedDudiRow, 'Link_Maps', 'linkMaps', 'link_maps')) {
+          dudiUpdates.Link_Maps = mapsCheck.normalizedUrl;
+          dudiUpdates.linkMaps = mapsCheck.normalizedUrl;
+        }
+        if (inputHari && !pickField(matchedDudiRow, 'Hari_Kerja', 'hariKerja', 'hari_kerja')) {
+          dudiUpdates.Hari_Kerja = inputHari;
+          dudiUpdates.hariKerja = inputHari;
+        }
+        if (inputJam && !pickField(matchedDudiRow, 'Jam_Kerja', 'jamKerja', 'jam_kerja')) {
+          dudiUpdates.Jam_Kerja = inputJam;
+          dudiUpdates.jamKerja = inputJam;
+        }
+        if (Object.keys(dudiUpdates).length > 0) {
+          try {
+            const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
+            if (targetDudiId) {
+              await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
+                id: targetDudiId,
+                ID: targetDudiId,
+                _sheetRowNumber: matchedDudiRow._sheetRowNumber,
+                ...dudiUpdates,
+              });
+            }
+          } catch {
+            // non-blocking backfill
           }
-        } catch {
-          // non-blocking backfill
         }
       }
 

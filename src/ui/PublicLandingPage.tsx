@@ -96,13 +96,13 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           {/* Zone 1: Brand Wordmark */}
           <a
             href="#"
-            className="flex items-center gap-2 sm:gap-2.5 text-sm sm:text-base font-bold tracking-tight text-slate-900 min-w-0 shrink"
+            className="flex items-center gap-2 sm:gap-2.5 text-sm sm:text-base font-bold tracking-tight text-slate-900 shrink-0 whitespace-nowrap"
           >
             <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-extrabold text-sm shadow-xs shrink-0">
               H
             </div>
-            <span className="hidden md:inline truncate">Hubind Sterida · SMK PGRI 2 Ponorogo</span>
-            <span className="md:hidden font-bold truncate">Hubind Sterida</span>
+            <span className="hidden md:inline whitespace-nowrap">Hubind Sterida · SMK PGRI 2 Ponorogo</span>
+            <span className="md:hidden font-bold whitespace-nowrap">Hubind Sterida</span>
           </a>
 
           {/* Zone 2: Navigation links */}
@@ -120,15 +120,15 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             {currentUser ? (
               <button
                 onClick={onGoToDashboard}
-                className="px-3 sm:px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                className="px-2.5 sm:px-4 py-2 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
               >
-                <span>Dashboard ({currentUser.role})</span>
+                <span>Dashboard</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             ) : (
               <button
                 onClick={onOpenLogin}
-                className="px-3 sm:px-4 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                className="px-2.5 sm:px-4 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 hover:text-slate-900 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
               >
                 <Lock className="w-3.5 h-3.5 text-blue-600" />
                 <span className="hidden sm:inline">Login Pengelola</span>
@@ -140,32 +140,19 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
       </header>
 
       {/* 2. Hero Section */}
-      <section id="beranda" className="pt-10 pb-14 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="text-center max-w-3xl mx-auto space-y-4">
+      <section id="beranda" className="pt-6 sm:pt-10 pb-8 sm:pb-12 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+        <div className="text-center max-w-3xl mx-auto space-y-3 sm:space-y-3.5">
           <div className="inline-flex items-center gap-2 text-xs font-semibold text-blue-700 bg-blue-50 px-3 py-1 rounded-full border border-blue-200 max-w-full">
             <Sparkles className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">Tahun Ajaran Aktif {liveYear} · Pokja Hubungan Industri</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 tracking-tight leading-snug [text-wrap:balance] max-w-2xl mx-auto">
             Portal Terpadu Praktek Kerja Lapangan &amp; Kemitraan DUDI
           </h1>
 
-          <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Sistem informasi resmi SMK PGRI 2 Ponorogo. Memudahkan siswa mengajukan tempat PKL mandiri berbasis NIS, guru melaksanakan supervisi terstruktur per DUDI, dan sekolah mengelola seluruh data langsung di Database Cloud Server.
-          </p>
-
-          {/* Unboxed Metadata Capabilities */}
-          <div className="pt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium">
-            <span>Pengajuan Mandiri Berbasis NIS</span>
-            <span aria-hidden="true">·</span>
-            <span>Supervisi 8 Tahap &amp; 4 Kategori Nilai</span>
-            <span aria-hidden="true">·</span>
-            <span>Terhubung Database Cloud Server Resmi</span>
-          </div>
-
           {!isPortalConfigured && (
-            <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium">
+            <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
                 Layanan Cloud Server publik sedang disiapkan oleh Admin Hubin.
@@ -175,7 +162,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
         </div>
 
         {/* 2 Dominant Action Portal Cards (2 cards per row on mobile & desktop) */}
-        <div className="mt-8 sm:mt-10 grid grid-cols-2 gap-2.5 sm:gap-6 max-w-4xl mx-auto">
+        <div className="mt-6 sm:mt-8 grid grid-cols-2 gap-2.5 sm:gap-6 max-w-4xl mx-auto">
           {/* Portal Card 1: Pengajuan PKL Siswa */}
           <div
             onMouseEnter={handlePrefetchStudentPortal}

@@ -43,13 +43,14 @@ service cloud.firestore {
     function isValidMonitoringStageControl(msc) {
       return msc is map
         && msc.keys().hasAll(['requireSequential', 'unlockedStages'])
-        && msc.keys().hasOnly(['requireSequential', 'unlockedStages', 'lockedReason'])
+        && msc.keys().hasOnly(['requireSequential', 'unlockedStages', 'lockedReason', 'requireIssuedLetter'])
         && msc.requireSequential is bool
         && msc.unlockedStages is list
         && msc.unlockedStages.size() <= 8
         && (msc.unlockedStages.size() == 0 || msc.unlockedStages[0] is int)
         && msc.unlockedStages.hasOnly([1, 2, 3, 4, 5, 6, 7, 8])
-        && (!('lockedReason' in msc) || (msc.lockedReason is string && msc.lockedReason.size() <= 150));
+        && (!('lockedReason' in msc) || (msc.lockedReason is string && msc.lockedReason.size() <= 150))
+        && (!('requireIssuedLetter' in msc) || msc.requireIssuedLetter is bool);
     }
 
     function isValidWorkspaceConfig(data) {

@@ -67,7 +67,7 @@ export function moduleSupportsMonitoringRecap(moduleId: string): boolean {
 export function moduleSupportsBulkApprove(moduleId: string, userRole: UserRole): boolean {
   return (
     moduleId === 'pengajuan' &&
-    (userRole === 'Kakomli' || userRole === 'Hubin' || userRole === 'SuperAdmin')
+    (userRole === 'Kakomli' || userRole === 'Hubin' || userRole === 'Pokja' || userRole === 'SuperAdmin')
   );
 }
 
@@ -77,12 +77,12 @@ export function getCustomRowActionsForModule(
   hasDocsCallback: boolean
 ): ModuleRowActionDef[] {
   const actions: ModuleRowActionDef[] = [];
-  const isHubinOrSuper = userRole === 'Hubin' || userRole === 'SuperAdmin';
-  const isKakomliOrAdmin = userRole === 'Kakomli' || isHubinOrSuper;
+  const isHubinOrPokja = userRole === 'Hubin' || userRole === 'Pokja' || userRole === 'SuperAdmin';
+  const isKakomliOrOperator = userRole === 'Kakomli' || isHubinOrPokja;
 
   switch (moduleId) {
     case 'pengajuan':
-      if (isKakomliOrAdmin) {
+      if (isKakomliOrOperator) {
         actions.push(
           {
             name: 'approve_kakomli',
@@ -104,7 +104,7 @@ export function getCustomRowActionsForModule(
           }
         );
       }
-      if (isHubinOrSuper) {
+      if (isHubinOrPokja) {
         actions.push({
           name: 'schedule_hubin',
           label: 'Jadwalkan',
@@ -115,7 +115,7 @@ export function getCustomRowActionsForModule(
       break;
 
     case 'perizinan':
-      if (isKakomliOrAdmin) {
+      if (isHubinOrPokja) {
         actions.push(
           {
             name: 'send_wa_dudi',
@@ -143,7 +143,7 @@ export function getCustomRowActionsForModule(
 
     case 'siswa_pkl':
     case 'sertifikat':
-      if (moduleId === 'siswa_pkl' && isHubinOrSuper) {
+      if (moduleId === 'siswa_pkl' && isHubinOrPokja) {
         actions.push({
           name: 'transfer_dudi',
           label: 'Pindah DUDI',

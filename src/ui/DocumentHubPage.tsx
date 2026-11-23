@@ -13,9 +13,15 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  CheckCircle2,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { PublicPortalClient } from '../core/PublicPortalClient';
+import { ToastManager } from '../core/ToastManager';
+import {
+  getStoredAdminSession,
+  type AdminSessionUser,
+} from '../core/auth/LocalAccountAuthService';
 import { DudiService } from '../services/DudiService';
 import { GuruService } from '../services/GuruService';
 import { PengajuanService } from '../services/PengajuanService';
@@ -25,16 +31,23 @@ import { MonitoringService } from '../services/MonitoringService';
 import {
   Dudi,
   Guru,
+  LogPenerbitanSurat,
   Pengajuan,
   PenempatanPKL,
   Siswa,
   Monitoring,
+  UserRole,
 } from '../core/types/schema';
 import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
-import { getCanonicalNisDigits } from '../core/utils/relationHelpers';
-import { getStageValueByNumber } from '../core/utils/monitoringHelpers';
+import { getCanonicalNisDigits, normalizeRelationText } from '../core/utils/relationHelpers';
+import {
+  extractIssuedStageNumber,
+  getStageValueByNumber,
+  isIssuedLetterStatusActive,
+} from '../core/utils/monitoringHelpers';
 import { PrintPortal } from './PrintPortal';
 import { PreviewZoomMode, ResizablePaperPreview } from './ResizablePaperPreview';
+import { AppleConfirmModal } from './AppleConfirmModal';
 import { OfficialSchoolKop0708, SuratTugas0708Sheet } from './DocumentPrintTemplates';
 import {
   DOC_META,
@@ -60,19 +73,45 @@ import { DocumentParametersModal } from './document-hub/DocumentParametersModal'
 
 export type { DocumentHubKey };
 
+interface IssuedTargetDraft {
+  dudiId: string;
+  namaDudi: string;
+  tahap: number;
+  jenisDokumen: string;
+  nomorSurat: string;
+  tanggalTerbit: string;
+  guruPendamping: string;
+}
+
 interface DocumentHubPageProps {
   activeDocKey: DocumentHubKey;
   onSelectDocKey: (key: DocumentHubKey) => void;
   onOpenTemplateManager?: () => void;
+  userRole?: UserRole;
+  currentUser?: AdminSessionUser | null;
 }
 
 export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   activeDocKey,
   onOpenTemplateManager,
+  userRole,
+  currentUser,
 }) => {
   const client = GoogleSheetClient.getInstance();
   const activeYear = client.getActiveYear();
   const templates = client.getTemplates();
+  const stageControl = client.getMonitoringStageControl();
+  const storedSessionUser = getStoredAdminSession()?.user || null;
+  const effectiveRole = userRole || currentUser?.role || storedSessionUser?.role;
+  const canManageIssuedStatus = Boolean(
+    effectiveRole && ['SuperAdmin', 'Hubin', 'Pokja'].includes(effectiveRole)
+  );
+  const actorDisplayName =
+    currentUser?.name ||
+    currentUser?.username ||
+    storedSessionUser?.name ||
+    storedSessionUser?.username ||
+    'Admin Hubin';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,13 +171,25 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     fileName: string;
     totalSheets: number;
   } | null>(null);
+  const [issuedLetters, setIssuedLetters] = useState<LogPenerbitanSurat[]>([]);
+  const [issuingBusy, setIssuingBusy] = useState<boolean>(false);
+  const [pendingIssueTargets, setPendingIssueTargets] = useState<IssuedTargetDraft[] | null>(null);
+  const [pendingRevokeTargets, setPendingRevokeTargets] = useState<IssuedTargetDraft[] | null>(null);
 
   const meta = DOC_META[activeDocKey];
   const templateConfig = templates.find((t) => t.id === activeDocKey);
 
+  const refreshIssuedLetters = async (forceRefresh = false) => {
+    const rows = await PublicPortalClient.getIssuedLetters(forceRefresh).catch(
+      () => [] as LogPenerbitanSurat[]
+    );
+    setIssuedLetters(rows);
+  };
+
   const loadDataForDoc = async (forceReload = false) => {
     setLoading(true);
     setError(null);
+    void refreshIssuedLetters(forceReload);
     try {
       const bootstrapped = forceReload
         ? await client.bootstrapAdminTables(true).catch(() => false)
@@ -346,6 +397,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         statusFilter,
         bundleStageNum,
         searchQuery,
+        requireSequential: stageControl.requireSequential,
       }),
     [
       activeDocKey,
@@ -359,6 +411,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
       statusFilter,
       bundleStageNum,
       searchQuery,
+      stageControl.requireSequential,
     ]
   );
 
@@ -465,6 +518,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         siswaByNis,
         suratTugasStageNum,
         selectedSuratTugasDudi,
+        requireSequential: stageControl.requireSequential,
       }),
     [
       activeDocKey,
@@ -475,6 +529,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
       siswaByNis,
       suratTugasStageNum,
       selectedSuratTugasDudi,
+      stageControl.requireSequential,
     ]
   );
 
@@ -489,6 +544,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         dudiList,
         siswaByNis,
         suratTugasStageNum,
+        requireSequential: stageControl.requireSequential,
       }),
     [
       activeDocKey,
@@ -499,8 +555,165 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
       dudiList,
       siswaByNis,
       suratTugasStageNum,
+      stageControl.requireSequential,
     ]
   );
+
+  const activeIssuedByKey = useMemo(() => {
+    const latest = new Map<string, LogPenerbitanSurat>();
+    for (const row of issuedLetters) {
+      const tahapNum =
+        extractIssuedStageNumber(row.tahap) || extractIssuedStageNumber(row.namaTahap);
+      if (tahapNum < 1 || tahapNum > 8) continue;
+      const cleanId = String(row.idDudi || '').trim().toLowerCase();
+      const cleanName = normalizeRelationText(row.namaDudi);
+      if (cleanId) latest.set(`${tahapNum}::id:${cleanId}`, row);
+      if (cleanName) latest.set(`${tahapNum}::name:${cleanName}`, row);
+    }
+    return latest;
+  }, [issuedLetters]);
+
+  const findActiveIssuedRecord = (
+    dudiId: string | undefined,
+    namaDudi: string,
+    tahap: number
+  ): LogPenerbitanSurat | undefined => {
+    const cleanId = String(dudiId || '').trim().toLowerCase();
+    const cleanName = normalizeRelationText(namaDudi);
+    const row =
+      (cleanId ? activeIssuedByKey.get(`${tahap}::id:${cleanId}`) : undefined) ||
+      (cleanName ? activeIssuedByKey.get(`${tahap}::name:${cleanName}`) : undefined);
+    if (!row || !isIssuedLetterStatusActive(row.statusTerbit)) return undefined;
+    return row;
+  };
+
+  const isTargetIssued = (dudiId: string | undefined, namaDudi: string, tahap: number) =>
+    Boolean(findActiveIssuedRecord(dudiId, namaDudi, tahap));
+
+  const resolveDudiIdForTarget = (rawId?: string, rawName?: string): string => {
+    const cleanId = String(rawId || '').trim();
+    if (cleanId) return cleanId;
+    const normName = normalizeRelationText(rawName);
+    if (!normName) return '';
+    return dudiList.find((d) => normalizeRelationText(d.namaDudi) === normName)?.id || '';
+  };
+
+  const currentSupervisionTargets = useMemo<IssuedTargetDraft[]>(() => {
+    const todayIso = getTodayWibIsoDate();
+    const rawTargets: IssuedTargetDraft[] = [];
+
+    if (activeDocKey === 'doc_paket_monitoring') {
+      selectedBundles.forEach((b) => {
+        rawTargets.push({
+          dudiId: resolveDudiIdForTarget(b.dudiId, b.namaDudi),
+          namaDudi: b.namaDudi,
+          tahap: bundleStageNum,
+          jenisDokumen: 'Paket Cetak Monitoring',
+          nomorSurat,
+          tanggalTerbit: todayIso,
+          guruPendamping: b.guruNama || '',
+        });
+      });
+    } else if (activeDocKey === 'doc_surat_tugas') {
+      if (isMultiCheckedMode) {
+        batchSuratTugasPages.forEach((pg) => {
+          rawTargets.push({
+            dudiId: resolveDudiIdForTarget(pg.dudiId, pg.namaDudi),
+            namaDudi: pg.namaDudi,
+            tahap: suratTugasStageNum,
+            jenisDokumen: 'Surat Tugas 07.08',
+            nomorSurat,
+            tanggalTerbit: todayIso,
+            guruPendamping: pg.guru.nama || '',
+          });
+        });
+      } else if (activeRecord && !suratTugasAudit.isPrintBlocked) {
+        const guru = activeRecord as Guru;
+        const activeGroups =
+          selectedSuratTugasDudi === 'ALL_UNLOCKED'
+            ? suratTugasAudit.unlockedGroups
+            : suratTugasAudit.unlockedGroups.filter((g) => g.key === selectedSuratTugasDudi);
+        activeGroups.forEach((grp) => {
+          rawTargets.push({
+            dudiId: resolveDudiIdForTarget(grp.dudiId, grp.namaDudi),
+            namaDudi: grp.namaDudi,
+            tahap: suratTugasStageNum,
+            jenisDokumen: 'Surat Tugas 07.08',
+            nomorSurat,
+            tanggalTerbit: todayIso,
+            guruPendamping: guru.nama || '',
+          });
+        });
+      }
+    } else if (
+      activeDocKey === 'doc_monitoring' ||
+      activeDocKey === 'doc_pengantaran' ||
+      activeDocKey === 'doc_penarikan'
+    ) {
+      const targetTahap =
+        activeDocKey === 'doc_pengantaran'
+          ? 1
+          : activeDocKey === 'doc_penarikan'
+          ? 8
+          : suratTugasStageNum;
+      const jenisLabel =
+        activeDocKey === 'doc_pengantaran'
+          ? 'Surat Pengantaran'
+          : activeDocKey === 'doc_penarikan'
+          ? 'Surat Penarikan'
+          : 'Lembar Monitoring 07.01';
+      const items = isMultiCheckedMode ? checkedItems : activeItem ? [activeItem] : [];
+      items.forEach((it) => {
+        const rawPlacement = it.raw as PenempatanPKL | undefined;
+        rawTargets.push({
+          dudiId: resolveDudiIdForTarget(it.dudiId || rawPlacement?.idDudi, it.title),
+          namaDudi: it.title,
+          tahap: targetTahap,
+          jenisDokumen: jenisLabel,
+          nomorSurat,
+          tanggalTerbit: todayIso,
+          guruPendamping: rawPlacement?.guruPendamping || '',
+        });
+      });
+    }
+
+    const deduped = new Map<string, IssuedTargetDraft>();
+    for (const t of rawTargets) {
+      if (!t.namaDudi && !t.dudiId) continue;
+      const dKey = (t.dudiId || normalizeRelationText(t.namaDudi)).toLowerCase();
+      const mapKey = `${t.tahap}::${dKey}`;
+      if (!deduped.has(mapKey)) {
+        deduped.set(mapKey, t);
+      }
+    }
+    return Array.from(deduped.values());
+  }, [
+    activeDocKey,
+    selectedBundles,
+    bundleStageNum,
+    isMultiCheckedMode,
+    batchSuratTugasPages,
+    suratTugasStageNum,
+    activeRecord,
+    suratTugasAudit.isPrintBlocked,
+    suratTugasAudit.unlockedGroups,
+    selectedSuratTugasDudi,
+    checkedItems,
+    activeItem,
+    nomorSurat,
+    dudiList,
+  ]);
+
+  const unissuedCurrentTargets = useMemo(
+    () =>
+      currentSupervisionTargets.filter(
+        (t) => !findActiveIssuedRecord(t.dudiId, t.namaDudi, t.tahap)
+      ),
+    [currentSupervisionTargets, activeIssuedByKey]
+  );
+
+  const allCurrentTargetsIssued =
+    currentSupervisionTargets.length > 0 && unissuedCurrentTargets.length === 0;
 
   const stTemplateId = extractGoogleDocId(templates.find((t) => t.id === 'doc_surat_tugas')?.url);
   const monTemplateId = extractGoogleDocId(templates.find((t) => t.id === 'doc_monitoring')?.url);
@@ -511,24 +724,97 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   if (bundleIncludeMon && !monTemplateId) missingBundleTemplates.push('Lembar Monitoring');
   if (bundleIncludeNilai && !nilaiTemplateId) missingBundleTemplates.push('Lembar Penilaian PKL');
 
+  const promptIssueAfterPrint = () => {
+    if (canManageIssuedStatus && unissuedCurrentTargets.length > 0) {
+      setPendingIssueTargets(unissuedCurrentTargets);
+    }
+  };
+
+  const handleConfirmMarkIssued = async (targets: IssuedTargetDraft[]) => {
+    if (!targets.length || issuingBusy) return;
+    setIssuingBusy(true);
+    try {
+      const res = await PublicPortalClient.markIssuedLetters(
+        targets.map((t) => ({
+          ...t,
+          diterbitkanOleh: actorDisplayName,
+        }))
+      );
+      await refreshIssuedLetters(true);
+      setPendingIssueTargets(null);
+      ToastManager.getInstance().show(
+        'Status Surat Terbit Disimpan',
+        'success',
+        `${res.count} DUDI (${targets
+          .map((t) => `Tahap ${t.tahap}`)
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .join(', ')}) telah ditandai Sudah Terbit untuk Portal Supervisi.`
+      );
+    } catch (err: any) {
+      ToastManager.getInstance().show(
+        'Gagal Menandai Surat Terbit',
+        'error',
+        err?.message || 'Terjadi kesalahan saat menyimpan status terbit ke Cloud Server.'
+      );
+    } finally {
+      setIssuingBusy(false);
+    }
+  };
+
+  const handleConfirmRevokeIssued = async (targets: IssuedTargetDraft[]) => {
+    if (!targets.length || issuingBusy) return;
+    setIssuingBusy(true);
+    try {
+      for (const t of targets) {
+        const existing = findActiveIssuedRecord(t.dudiId, t.namaDudi, t.tahap);
+        await PublicPortalClient.revokeIssuedLetter({
+          idTerbit: existing?.idTerbit || existing?.id,
+          dudiId: t.dudiId,
+          namaDudi: t.namaDudi,
+          tahap: t.tahap,
+          actorName: actorDisplayName,
+        });
+      }
+      await refreshIssuedLetters(true);
+      setPendingRevokeTargets(null);
+      ToastManager.getInstance().show(
+        'Status Terbit Dibatalkan',
+        'info',
+        `Status penerbitan surat untuk ${targets.length} DUDI telah dibatalkan.`
+      );
+    } catch (err: any) {
+      ToastManager.getInstance().show(
+        'Gagal Membatalkan Status Terbit',
+        'error',
+        err?.message || 'Terjadi kesalahan saat memperbarui status penerbitan surat.'
+      );
+    } finally {
+      setIssuingBusy(false);
+    }
+  };
+
   const handlePrint = () => {
     if (activeDocKey === 'doc_paket_monitoring') {
       if (bundlePrintPages.length === 0) return;
       window.print();
+      promptIssueAfterPrint();
       return;
     }
     if (isMultiCheckedMode) {
       if (activeDocKey === 'doc_surat_tugas') {
         if (batchSuratTugasPages.length === 0) return;
         window.print();
+        promptIssueAfterPrint();
         return;
       }
       if (checkedItems.length === 0) return;
       window.print();
+      promptIssueAfterPrint();
       return;
     }
     if (!activeRecord || suratTugasAudit.isPrintBlocked) return;
     window.print();
+    promptIssueAfterPrint();
   };
 
   const handleGenerateDocsPdfBundle = async () => {
@@ -556,6 +842,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           kepalaSekolah,
         },
         bundles: selectedBundles.map((b) => ({
+          dudiId: b.dudiId,
           namaDudi: b.namaDudi,
           alamatDudi: b.alamatDudi,
           pemimpinDudi: b.pemimpinDudi,
@@ -571,6 +858,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         fileName: res.fileName,
         totalSheets: res.totalSheets,
       });
+      void refreshIssuedLetters(true);
     } catch {
       // ToastManager shows clear message
     } finally {
@@ -707,6 +995,41 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
               </button>
             )}
 
+            {canManageIssuedStatus && currentSupervisionTargets.length > 0 && (
+              allCurrentTargetsIssued ? (
+                <button
+                  type="button"
+                  disabled={issuingBusy}
+                  onClick={() => setPendingRevokeTargets(currentSupervisionTargets)}
+                  title="Surat DUDI & tahap ini sudah ditandai Terbit. Klik untuk membatalkan status terbit."
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-rose-50 hover:border-rose-300 text-emerald-800 hover:text-rose-700 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Terbit ✓ · Batalkan</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={issuingBusy}
+                  onClick={() => setPendingIssueTargets(unissuedCurrentTargets)}
+                  title="Tandai surat DUDI & tahap terpilih sudah diterbitkan agar Portal Supervisi guru terbuka"
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {issuingBusy ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>
+                    Tandai Terbit
+                    {unissuedCurrentTargets.length > 1
+                      ? ` (${unissuedCurrentTargets.length})`
+                      : ''}
+                  </span>
+                </button>
+              )
+            )}
+
             <button
               type="button"
               onClick={handlePrint}
@@ -774,6 +1097,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           isMultiCheckedMode={isMultiCheckedMode}
           batchSuratTugasPages={batchSuratTugasPages}
           bundleStageNum={bundleStageNum}
+          suratTugasStageNum={suratTugasStageNum}
           bundleGuruFilter={bundleGuruFilter}
           bundleIncludeSt={bundleIncludeSt}
           bundleIncludeMon={bundleIncludeMon}
@@ -784,6 +1108,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           bundlePrintPages={bundlePrintPages}
           missingBundleTemplates={missingBundleTemplates}
           generatedBundlePdf={generatedBundlePdf}
+          isTargetIssued={isTargetIssued}
           onChangeSearchQuery={setSearchQuery}
           onChangeGuruFilter={setGuruFilter}
           onChangeJurusanFilter={setJurusanFilter}
@@ -1146,6 +1471,44 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         onSaveKepalaSekolahToCloud={handleSaveKepalaSekolahToCloud}
         syncingKepalaSekolah={syncingKepalaSekolah}
         onClose={() => setIsParamModalOpen(false)}
+      />
+
+      <AppleConfirmModal
+        isOpen={Boolean(pendingIssueTargets && pendingIssueTargets.length > 0)}
+        onClose={() => !issuingBusy && setPendingIssueTargets(null)}
+        onConfirm={() => pendingIssueTargets && handleConfirmMarkIssued(pendingIssueTargets)}
+        title="Tandai Surat Sudah Terbit?"
+        description={
+          pendingIssueTargets && pendingIssueTargets.length > 0
+            ? pendingIssueTargets.length === 1
+              ? `Surat ${getStageValueByNumber(pendingIssueTargets[0].tahap)} untuk DUDI "${pendingIssueTargets[0].namaDudi}" akan dicatat Sudah Terbit sehingga pengisian Portal Supervisi guru untuk tahap ini otomatis terbuka.`
+              : `${pendingIssueTargets.length} DUDI untuk ${getStageValueByNumber(pendingIssueTargets[0].tahap)} akan dicatat Sudah Terbit sehingga pengisian Portal Supervisi guru untuk tahap tersebut otomatis terbuka.`
+            : ''
+        }
+        sheetName="Log_Penerbitan_Surat"
+        confirmText="Ya, Tandai Terbit"
+        cancelText="Belum"
+        variant="primary"
+        loading={issuingBusy}
+      />
+
+      <AppleConfirmModal
+        isOpen={Boolean(pendingRevokeTargets && pendingRevokeTargets.length > 0)}
+        onClose={() => !issuingBusy && setPendingRevokeTargets(null)}
+        onConfirm={() => pendingRevokeTargets && handleConfirmRevokeIssued(pendingRevokeTargets)}
+        title="Batalkan Status Surat Terbit?"
+        description={
+          pendingRevokeTargets && pendingRevokeTargets.length > 0
+            ? pendingRevokeTargets.length === 1
+              ? `Status terbit ${getStageValueByNumber(pendingRevokeTargets[0].tahap)} untuk DUDI "${pendingRevokeTargets[0].namaDudi}" akan dibatalkan sehingga input baru Portal Supervisi untuk tahap ini kembali terkunci.`
+              : `Status terbit ${pendingRevokeTargets.length} DUDI untuk ${getStageValueByNumber(pendingRevokeTargets[0].tahap)} akan dibatalkan.`
+            : ''
+        }
+        sheetName="Log_Penerbitan_Surat"
+        confirmText="Ya, Batalkan Terbit"
+        cancelText="Tutup"
+        variant="danger"
+        loading={issuingBusy}
       />
     </div>
   );

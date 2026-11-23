@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -12,20 +12,36 @@ import {
   Lock,
   MapPin,
   MessageCircle,
+  Mic,
+  MicOff,
   Minus,
   Pencil,
   Plus,
   Save,
 } from 'lucide-react';
-import { MONITORING_STAGES, type MonitoringStageControl } from '../../core/types/schema';
+import {
+  MONITORING_STAGES,
+  type IssuedStageDetail,
+  type MonitoringStageControl,
+} from '../../core/types/schema';
+import { formatIndonesianDate } from '../../core/utils/dateHelpers';
 import { formatRangePair, getStageValueByNumber } from '../../core/utils/monitoringHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { formatPhoneDisplay, getWhatsAppHref } from '../../core/utils/autoIdHelpers';
+import { appendVoiceTranscript, useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { Format0701InspectionSection } from './Format0701InspectionSection';
 import { GradeScoreEditorGrid } from './GradeScoreEditorGrid';
 import { SignaturePadInput } from './SignaturePadInput';
 import { WorkScheduleRangeInputs } from './WorkScheduleRangeInputs';
-import type { GradeScoresDraft, StudentStageDraft } from './types';
+import { WorkshopSharedInspectionCard } from './WorkshopSharedInspectionCard';
+import {
+  CATATAN_QUICK_PRESETS,
+  getStudentKey,
+  isDudiContactIncomplete,
+  type GradeScoresDraft,
+  type StudentStageDraft,
+  type WorkshopStageDraft,
+} from './types';
 
 interface MonitoringEntryStepProps {
   selectedDudi: any;
@@ -37,9 +53,13 @@ interface MonitoringEntryStepProps {
   activeStudent: any;
   activeStageNum: number;
   stageControl: MonitoringStageControl;
+  issuedStages: number[];
+  issuedStageDetails: Record<number, IssuedStageDetail>;
+  isStageLetterIssued: boolean;
   isStageReadOnly: boolean;
   isStageCompleted: boolean;
   activeDraft: StudentStageDraft;
+  activeWorkshopDraft: WorkshopStageDraft;
   alreadyHasGrade: boolean;
   isEditingGrade: boolean;
   canInputGradeThisStage: boolean;
@@ -61,12 +81,15 @@ interface MonitoringEntryStepProps {
   dudiJamMulai: string;
   dudiJamSelesai: string;
   showDudiContactEditor: boolean;
-  canCopyInspectionFromPrevious: boolean;
+  canCopyWorkshopFromPrevStage: boolean;
   onChangeStepToDudiList: () => void;
   onSelectStudentIndex: (idx: number) => void;
   onSelectStage: (stageNum: number) => void;
   onUpdateDraft: (patch: Partial<StudentStageDraft>) => void;
-  onCopyInspectionFromPrevious: () => void;
+  onUpdateWorkshopDraft: (patch: Partial<WorkshopStageDraft>) => void;
+  onCopyWorkshopFromPrevStage: () => void;
+  onMarkAllBengkelBaik: () => void;
+  onApplyStandardChecklist: () => void;
   onChangeDudiPemimpin: (val: string) => void;
   onChangeDudiPic: (val: string) => void;
   onChangeDudiTelp: (val: string) => void;
@@ -93,9 +116,13 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   activeStudent,
   activeStageNum,
   stageControl,
+  issuedStages,
+  issuedStageDetails,
+  isStageLetterIssued,
   isStageReadOnly,
   isStageCompleted,
   activeDraft,
+  activeWorkshopDraft,
   alreadyHasGrade,
   isEditingGrade,
   canInputGradeThisStage,
@@ -117,12 +144,15 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   dudiJamMulai,
   dudiJamSelesai,
   showDudiContactEditor,
-  canCopyInspectionFromPrevious,
+  canCopyWorkshopFromPrevStage,
   onChangeStepToDudiList,
   onSelectStudentIndex,
   onSelectStage,
   onUpdateDraft,
-  onCopyInspectionFromPrevious,
+  onUpdateWorkshopDraft,
+  onCopyWorkshopFromPrevStage,
+  onMarkAllBengkelBaik,
+  onApplyStandardChecklist,
   onChangeDudiPemimpin,
   onChangeDudiPic,
   onChangeDudiTelp,
@@ -139,6 +169,9 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   onSaveSupervision,
 }) => {
   const errorRef = useRef<HTMLDivElement | null>(null);
+  const mobileActiveStageRef = useRef<HTMLButtonElement | null>(null);
+  const voice = useVoiceDictation('id-ID');
+  const [lastVoiceZone, setLastVoiceZone] = useState<'kompetensi' | 'catatan' | null>(null);
 
   useEffect(() => {
     if (formError && errorRef.current) {
@@ -146,26 +179,51 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
     }
   }, [formError, formErrorTrigger]);
 
+  useEffect(() => {
+    voice.stopListening();
+  }, [selectedStudentIndex, activeStageNum, voice.stopListening]);
+
+  useEffect(() => {
+    if (mobileActiveStageRef.current) {
+      mobileActiveStageRef.current.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+    }
+  }, [activeStageNum, selectedStudentIndex]);
+
+  const activeStudentKey = activeStudent
+    ? getStudentKey(activeStudent, selectedStudentIndex)
+    : '';
+  const isDudiScheduleComplete = Boolean(
+    dudiHariMulai && dudiHariSelesai && dudiJamMulai && dudiJamSelesai
+  );
+  const isDudiBioComplete =
+    !isDudiContactIncomplete(dudiPemimpin, dudiPic, dudiTelp) && isDudiScheduleComplete;
+  const shouldShowDudiEditor =
+    showDudiContactEditor || (activeStageNum === 1 && !isDudiBioComplete);
+
   return (
-    <div className="space-y-4 sm:space-y-5 animate-in fade-in duration-150">
+    <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-150">
       {/* Selected DUDI Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 p-2.5 sm:p-3.5 bg-slate-50 border border-slate-200/90 rounded-xl sm:rounded-2xl">
+        <div className="flex items-start sm:items-center gap-2 sm:gap-2.5 min-w-0">
           <button
             type="button"
             onClick={onChangeStepToDudiList}
-            className="min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 flex items-center gap-1 text-xs font-semibold cursor-pointer shrink-0"
+            className="min-h-[38px] sm:min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 flex items-center gap-1 text-xs font-semibold cursor-pointer shrink-0 whitespace-nowrap"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
             <span>Ganti DUDI</span>
           </button>
           <div className="text-xs min-w-0">
             <span className="text-slate-500 block text-[10px]">DUDI Yang Dipilih</span>
-            <span className="font-bold text-slate-900 truncate block">{selectedDudi.nama}</span>
+            <span className="font-bold text-slate-900 leading-snug block">{selectedDudi.nama}</span>
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-2 shrink-0">
+        <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1 shrink-0">
           {selectedDudi.linkMaps && (
             <>
               <a
@@ -175,7 +233,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:text-blue-900 hover:underline underline-offset-2"
               >
                 <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>Lokasi Maps</span>
+                <span>Maps</span>
                 <ExternalLink className="w-3 h-3 shrink-0" />
               </a>
               <span aria-hidden="true">·</span>
@@ -199,7 +257,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
             Petugas: <b>{selectedPetugasNama}</b>
           </span>
           <span aria-hidden="true">·</span>
-          <span className="text-blue-700 font-bold">{dudiStudents.length} Siswa</span>
+          <span className="text-blue-700 font-bold tabular-nums">{dudiStudents.length} Siswa</span>
         </div>
       </div>
 
@@ -245,9 +303,9 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
       ) : (
         <>
           {/* Student Switcher (Isolated State per Student) */}
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <label className="block text-xs font-bold text-slate-700">
+              <label className="block text-xs font-bold text-slate-700 tabular-nums">
                 Pilih Siswa ({selectedStudentIndex + 1}/{dudiStudents.length}):
               </label>
               {dudiStudents.length > 1 && (
@@ -257,7 +315,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     disabled={selectedStudentIndex <= 0}
                     onClick={() => onSelectStudentIndex(Math.max(0, selectedStudentIndex - 1))}
                     aria-label="Siswa sebelumnya"
-                    className="min-w-[34px] min-h-[34px] rounded-lg border border-slate-300 bg-white text-slate-700 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                    className="min-w-[38px] min-h-[38px] rounded-lg border border-slate-300 bg-white text-slate-700 flex items-center justify-center disabled:opacity-40 cursor-pointer"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
@@ -270,7 +328,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                       )
                     }
                     aria-label="Siswa berikutnya"
-                    className="min-w-[34px] min-h-[34px] rounded-lg border border-slate-300 bg-white text-slate-700 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                    className="min-w-[38px] min-h-[38px] rounded-lg border border-slate-300 bg-white text-slate-700 flex items-center justify-center disabled:opacity-40 cursor-pointer"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -278,8 +336,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
               )}
             </div>
 
-            {/* Mobile: Compact Horizontal Scrollable Switcher */}
-            <div className="flex sm:hidden gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
+            {/* Mobile: Compact Horizontal Scrollable Switcher without cutting names */}
+            <div className="flex sm:hidden gap-2 overflow-x-auto pb-1 snap-x">
               {dudiStudents.map((student, idx) => {
                 const isSelected = selectedStudentIndex === idx;
                 const completedCount = Array.isArray(student.completedStages)
@@ -292,20 +350,22 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     key={`${student.id || 'stu_mob'}_${idx}`}
                     type="button"
                     onClick={() => onSelectStudentIndex(idx)}
-                    className={`snap-start shrink-0 min-w-[168px] max-w-[210px] min-h-[48px] px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`snap-start shrink-0 min-w-[150px] max-w-[240px] min-h-[48px] px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                       isSelected
                         ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
                         : 'border-slate-200 bg-white text-slate-700'
                     }`}
                   >
-                    <div className="font-bold text-xs truncate">{student.nama}</div>
+                    <div className="font-bold text-xs leading-snug line-clamp-2">
+                      {student.nama}
+                    </div>
                     <div
-                      className={`text-[10px] mt-0.5 flex items-center justify-between gap-2 ${
+                      className={`text-[10px] mt-1 flex items-center justify-between gap-2 tabular-nums ${
                         isSelected ? 'text-blue-100' : 'text-slate-500'
                       }`}
                     >
                       <span>{student.kelas}</span>
-                      <span className="font-semibold">
+                      <span className="font-semibold shrink-0">
                         T{completedCount}/8{hasGrade ? ' · ✓' : ''}
                       </span>
                     </div>
@@ -334,14 +394,14 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                         : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500">
+                    <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500 tabular-nums">
                       <span>NIS: {formatNisVisual(student.nis)}</span>
                       <span className="font-semibold text-slate-600">
                         Tahap {completedCount}/8{hasGrade ? ' · Nilai ✓' : ''}
                       </span>
                     </div>
-                    <div className="font-bold text-xs truncate mt-1">{student.nama}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5 truncate">{student.kelas}</div>
+                    <div className="font-bold text-xs mt-1 leading-snug">{student.nama}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">{student.kelas}</div>
                   </button>
                 );
               })}
@@ -349,47 +409,117 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
           </div>
 
           {activeStudent && (
-            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-5">
+            <div className="pt-2.5 border-t border-slate-200 space-y-3.5 sm:p-5 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50/50 sm:space-y-5">
               {/* Active Student Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-200 gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 sm:pb-3 border-b border-slate-200 gap-1.5">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">
+                  <h4 className="text-sm font-bold text-slate-900 leading-snug">
                     Supervisi: {activeStudent.nama}
                   </h4>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-[11px] sm:text-xs text-slate-500 tabular-nums">
                     NIS: {formatNisVisual(activeStudent.nis)} · Kelas: {activeStudent.kelas} · Jurusan: {activeStudent.jurusan}
                   </p>
                 </div>
-                <div className="text-xs font-semibold text-blue-700">
+                <div className="text-[11px] sm:text-xs font-semibold text-blue-700 tabular-nums">
                   Deteksi Otomatis: Tahap {activeStudent.recommendedStage || 1} dari 8
                 </div>
               </div>
 
               {/* 8-Stage Auto-Detect & SuperAdmin Control Selector */}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="space-y-1.5 sm:space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
                   <span className="font-bold text-slate-800">
-                    Tahap Monitoring ({stageControl.requireSequential ? '8 Tahap Berurutan' : 'Mode Transisi Fleksibel'}):
+                    Tahap Monitoring ({stageControl.requireSequential ? 'Berurutan 1–8' : 'Mode Fleksibel'}):
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    {isStageReadOnly
-                      ? 'Dikunci SuperAdmin · Riwayat Baca-Saja'
+                    {!stageControl.unlockedStages.includes(activeStageNum)
+                      ? 'Dikunci SuperAdmin · Baca-Saja'
+                      : !isStageLetterIssued
+                      ? 'Surat Belum Terbit · Baca-Saja'
                       : isStageCompleted
-                      ? 'Sudah terdata di Cloud Server'
+                      ? 'Tersimpan di Cloud'
                       : 'Siap diisi'}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+
+                {/* Mobile: 1-Row Horizontal Scrollable Stage Selector (cuts ~180px height & removes truncation) */}
+                <div className="flex sm:hidden gap-1.5 overflow-x-auto pb-1 snap-x">
                   {MONITORING_STAGES.map((st) => {
                     const isCompleted = (activeStudent.completedStages || []).includes(st.num);
                     const isGlobalUnlocked = stageControl.unlockedStages.includes(st.num);
+                    const isLetterIssued =
+                      stageControl.requireIssuedLetter === false || issuedStages.includes(st.num);
                     const isSequentialLocked =
                       isGlobalUnlocked &&
+                      isLetterIssued &&
                       stageControl.requireSequential &&
                       st.num > 1 &&
                       !(activeStudent.completedStages || []).includes(st.num - 1);
-                    const isReadOnlyHistory = !isGlobalUnlocked && isCompleted;
-                    const isDisabled = (!isGlobalUnlocked && !isCompleted) || isSequentialLocked;
+                    const isReadOnlyHistory = (!isGlobalUnlocked || !isLetterIssued) && isCompleted;
+                    const isDisabled =
+                      ((!isGlobalUnlocked || !isLetterIssued) && !isCompleted) ||
+                      isSequentialLocked;
+                    const isActive = activeStageNum === st.num;
+
+                    return (
+                      <button
+                        key={`mob_st_${st.num}`}
+                        ref={isActive ? mobileActiveStageRef : undefined}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => onSelectStage(st.num)}
+                        className={`snap-start shrink-0 min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                          isDisabled
+                            ? 'border-slate-200 bg-slate-100/80 text-slate-400 cursor-not-allowed'
+                            : isActive && isReadOnlyHistory
+                            ? 'border-amber-600 bg-amber-600 text-white shadow-xs cursor-pointer'
+                            : isActive
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-xs cursor-pointer'
+                            : isReadOnlyHistory
+                            ? 'border-amber-300 bg-amber-50 text-amber-800 cursor-pointer'
+                            : isCompleted
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 cursor-pointer'
+                            : 'border-slate-200 bg-white text-slate-700 cursor-pointer'
+                        }`}
+                      >
+                        <span>{st.label}</span>
+                        {isDisabled ? (
+                          <Lock className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                        ) : isReadOnlyHistory ? (
+                          <Lock
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive ? 'text-white' : 'text-amber-600'
+                            }`}
+                          />
+                        ) : isCompleted ? (
+                          <CheckCircle2
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive ? 'text-white' : 'text-emerald-600'
+                            }`}
+                          />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop / Tablet: 4x2 Grid */}
+                <div className="hidden sm:grid sm:grid-cols-4 gap-2">
+                  {MONITORING_STAGES.map((st) => {
+                    const isCompleted = (activeStudent.completedStages || []).includes(st.num);
+                    const isGlobalUnlocked = stageControl.unlockedStages.includes(st.num);
+                    const isLetterIssued =
+                      stageControl.requireIssuedLetter === false || issuedStages.includes(st.num);
+                    const isSequentialLocked =
+                      isGlobalUnlocked &&
+                      isLetterIssued &&
+                      stageControl.requireSequential &&
+                      st.num > 1 &&
+                      !(activeStudent.completedStages || []).includes(st.num - 1);
+                    const isReadOnlyHistory = (!isGlobalUnlocked || !isLetterIssued) && isCompleted;
+                    const isDisabled =
+                      ((!isGlobalUnlocked || !isLetterIssued) && !isCompleted) ||
+                      isSequentialLocked;
                     const isActive = activeStageNum === st.num;
 
                     return (
@@ -400,6 +530,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                         title={
                           !isGlobalUnlocked && !isCompleted
                             ? `Tahap dikunci oleh SuperAdmin${stageControl.lockedReason ? `: ${stageControl.lockedReason}` : ''}`
+                            : !isLetterIssued && !isCompleted
+                            ? `Surat ${st.value} untuk DUDI "${selectedDudi?.nama || ''}" belum diterbitkan Admin Hubin di Pusat Dokumen`
                             : isReadOnlyHistory
                             ? `${st.value} — Riwayat Terkunci (Klik untuk melihat mode Baca-Saja)`
                             : isSequentialLocked
@@ -421,7 +553,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 cursor-pointer'
                         }`}
                       >
-                        <span className="truncate">{st.label}</span>
+                        <span>{st.label}</span>
                         {isDisabled ? (
                           <Lock className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                         ) : isReadOnlyHistory ? (
@@ -443,20 +575,46 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-500">
                   {stageControl.requireSequential
-                    ? 'Pengisian dilakukan berurutan tahap per tahap (1 → 8). Tahap selanjutnya otomatis terbuka setelah tahap sebelumnya disimpan.'
-                    : 'Mode Transisi aktif: Anda dapat langsung memilih tahap berstatus Terbuka (misal Mon 3 / Mon 4) tanpa harus mengisi tahap manual sebelumnya.'}
+                    ? 'Urutan tahap 1 → 8: tahap berikut terbuka otomatis setelah tahap sebelumnya disimpan.'
+                    : 'Mode Transisi aktif: tahap berstatus Terbuka dapat langsung dipilih.'}
+                  {stageControl.requireIssuedLetter !== false &&
+                    ' Pengisian aktif untuk tahap yang suratnya sudah diterbitkan Admin Hubin.'}
                 </p>
+
+                {stageControl.requireIssuedLetter !== false &&
+                  isStageLetterIssued &&
+                  issuedStageDetails[activeStageNum] && (
+                    <div className="text-[11px] text-emerald-700 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="inline-flex items-center gap-1 font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>Surat Tahap {activeStageNum} Sudah Terbit</span>
+                      </span>
+                      {issuedStageDetails[activeStageNum].nomorSurat && (
+                        <span className="font-mono text-slate-600">
+                          · No. {issuedStageDetails[activeStageNum].nomorSurat}
+                        </span>
+                      )}
+                      {issuedStageDetails[activeStageNum].tanggalTerbit && (
+                        <span className="text-slate-500">
+                          · {formatIndonesianDate(issuedStageDetails[activeStageNum].tanggalTerbit)}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                 {isStageReadOnly && (
                   <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-900">
                     <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                     <div>
                       <div className="font-bold">
-                        Tahap {activeStageNum} Dikunci oleh SuperAdmin (Mode Baca-Saja)
+                        {!stageControl.unlockedStages.includes(activeStageNum)
+                          ? `Tahap ${activeStageNum} Dikunci oleh SuperAdmin (Mode Baca-Saja)`
+                          : `Surat Tahap ${activeStageNum} Belum Diterbitkan Admin (Mode Baca-Saja)`}
                       </div>
                       <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
-                        {stageControl.lockedReason ? `${stageControl.lockedReason}. ` : ''}
-                        Riwayat yang sudah tersimpan tetap ditampilkan untuk ditinjau, namun tidak dapat diubah atau disimpan ulang.
+                        {!stageControl.unlockedStages.includes(activeStageNum)
+                          ? `${stageControl.lockedReason ? `${stageControl.lockedReason}. ` : ''}Riwayat yang sudah tersimpan tetap ditampilkan untuk ditinjau, namun tidak dapat diubah atau disimpan ulang.`
+                          : `Admin Hubin / Pokja perlu mencetak atau menandai surat ${getStageValueByNumber(activeStageNum)} untuk DUDI "${selectedDudi?.nama || 'ini'}" sebagai Terbit di Pusat Dokumen sebelum pengisian dibuka.`}
                       </p>
                     </div>
                   </div>
@@ -464,19 +622,19 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
               </div>
 
               {/* Data Penanggung Jawab & Kontak DUDI */}
-              {activeStageNum === 1 || showDudiContactEditor ? (
+              {shouldShowDudiEditor ? (
                 <div className="p-3.5 sm:p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h5 className="text-xs font-bold text-slate-900">
-                        Data Penanggung Jawab &amp; Kontak DUDI{' '}
-                        {activeStageNum === 1 ? '(Wajib Saat Pengantaran)' : '(Pembaruan Kontak)'}
+                        Data Penanggung Jawab &amp; Jadwal Kerja DUDI{' '}
+                        {activeStageNum === 1 ? '(Lengkapi 1x Saat Pengantaran)' : '(Pembaruan Kontak)'}
                       </h5>
                       <p className="text-[11px] text-slate-600">
                         Data ini otomatis menyinkronkan profil Master DUDI &amp; berkas pengajuan siswa.
                       </p>
                     </div>
-                    {activeStageNum !== 1 && (
+                    {(activeStageNum !== 1 || isDudiBioComplete) && (
                       <button
                         type="button"
                         onClick={onCloseDudiContactEditor}
@@ -542,25 +700,25 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   />
                 </div>
               ) : (
-                <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600">
+                <div className="p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-600 text-[11px] sm:text-xs">
                     <span>
                       Pemimpin: <b className="text-slate-800">{dudiPemimpin || '-'}</b>
                     </span>
                     <span>
-                      PIC DUDI: <b className="text-slate-800">{dudiPic || '-'}</b>
+                      PIC: <b className="text-slate-800">{dudiPic || '-'}</b>
                     </span>
                     <span>
-                      Telp/WA: <b className="font-mono text-slate-800">{dudiTelp || '-'}</b>
+                      Telp: <b className="font-mono text-slate-800">{dudiTelp || '-'}</b>
                     </span>
                     <span>
-                      Hari Kerja:{' '}
+                      Hari:{' '}
                       <b className="text-slate-800">
                         {formatRangePair(dudiHariMulai, dudiHariSelesai) || '-'}
                       </b>
                     </span>
                     <span>
-                      Jam Kerja:{' '}
+                      Jam:{' '}
                       <b className="font-mono text-slate-800">
                         {formatRangePair(dudiJamMulai, dudiJamSelesai) || '-'}
                       </b>
@@ -570,40 +728,87 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     <button
                       type="button"
                       onClick={onOpenDudiPopupForEdit}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 cursor-pointer"
+                      className="min-h-[34px] px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
                     >
-                      <Pencil className="w-3 h-3" />
-                      <span>Edit Biodata DUDI</span>
+                      <Pencil className="w-3 h-3 shrink-0" />
+                      <span>Edit Biodata</span>
                     </button>
                   )}
                 </div>
               )}
 
-              {/* Section: Absensi (Sakit, Izin, Alpha) */}
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                  <ClipboardCheck className="w-4 h-4 text-blue-600" />
+              {/* ZONA A: Data Umum Bengkel DUDI — Diisi 1x Per DUDI Per Tahap (Auto-Collapse bila sudah lengkap) */}
+              <WorkshopSharedInspectionCard
+                dudiNama={selectedDudi.nama}
+                stageNum={activeStageNum}
+                studentKey={activeStudentKey}
+                studentCount={dudiStudents.length}
+                kompetensiList={activeWorkshopDraft.kompetensiList}
+                kondisiBengkel={activeWorkshopDraft.kondisiBengkel}
+                disabled={isStageReadOnly}
+                canCopyFromPrevStage={canCopyWorkshopFromPrevStage}
+                onCopyFromPrevStage={onCopyWorkshopFromPrevStage}
+                onMarkAllBaik={onMarkAllBengkelBaik}
+                onChangeKompetensiList={(nextList) =>
+                  onUpdateWorkshopDraft({ kompetensiList: nextList })
+                }
+                onChangeKondisiBengkel={(nextCheck) =>
+                  onUpdateWorkshopDraft({ kondisiBengkel: nextCheck })
+                }
+                voiceSupported={voice.isSupported}
+                voiceActiveFieldId={voice.activeFieldId}
+                voiceInterimText={voice.interimText}
+                voiceError={lastVoiceZone === 'kompetensi' ? voice.voiceError : ''}
+                onToggleVoice={(fieldId, onFinal) => {
+                  setLastVoiceZone('kompetensi');
+                  voice.toggleListening(fieldId, onFinal);
+                }}
+              />
+
+              {/* Section: Absensi (Sakit, Izin, Alpha) — Compact 3-Column Row on Mobile */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                  <ClipboardCheck className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>Absensi Siswa (Sakit, Izin, Alpha) — Tahap {activeStageNum}</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                   {(
                     [
-                      { key: 'sakit', label: 'Sakit (Hari)', accent: 'text-amber-700' },
-                      { key: 'izin', label: 'Izin (Hari)', accent: 'text-blue-700' },
-                      { key: 'alpha', label: 'Alpha (Hari)', accent: 'text-rose-700' },
+                      { key: 'sakit', label: 'Sakit', accent: 'text-amber-700' },
+                      { key: 'izin', label: 'Izin', accent: 'text-blue-700' },
+                      { key: 'alpha', label: 'Alpha', accent: 'text-rose-700' },
                     ] as const
                   ).map((item) => {
                     const val = activeDraft[item.key];
                     return (
                       <div
                         key={item.key}
-                        className="p-3 bg-white border border-slate-200 rounded-xl space-y-2"
+                        className="p-2 sm:p-3 bg-white border border-slate-200 rounded-xl space-y-1.5 sm:space-y-2"
                       >
-                        <label className={`block text-xs font-bold ${item.accent}`}>
-                          {item.label}
+                        <label
+                          className={`block text-[11px] sm:text-xs font-bold text-center sm:text-left ${item.accent}`}
+                        >
+                          {item.label} <span className="hidden sm:inline">(Hari)</span>
                         </label>
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 sm:gap-2">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            max={90}
+                            disabled={isStageReadOnly}
+                            aria-label={`${item.label} (Hari)`}
+                            value={val}
+                            onChange={(e) => {
+                              const parsed = Math.max(
+                                0,
+                                Math.min(90, Math.round(Number(e.target.value) || 0))
+                              );
+                              onUpdateDraft({ [item.key]: parsed });
+                            }}
+                            className="order-1 sm:order-2 w-full sm:flex-1 min-h-[38px] sm:min-h-[44px] text-center font-mono tabular-nums text-base font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-500"
+                          />
                           <button
                             type="button"
                             disabled={isStageReadOnly}
@@ -613,26 +818,10 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                                 [item.key]: Math.max(0, val - 1),
                               })
                             }
-                            className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="order-2 sm:order-1 flex-1 sm:flex-none sm:min-w-[44px] min-h-[38px] sm:min-h-[44px] rounded-lg sm:rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <Minus className="w-4 h-4" />
+                            <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           </button>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            min={0}
-                            max={90}
-                            disabled={isStageReadOnly}
-                            value={val}
-                            onChange={(e) => {
-                              const parsed = Math.max(
-                                0,
-                                Math.min(90, Math.round(Number(e.target.value) || 0))
-                              );
-                              onUpdateDraft({ [item.key]: parsed });
-                            }}
-                            className="w-full min-h-[44px] text-center font-mono tabular-nums text-base font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-500"
-                          />
                           <button
                             type="button"
                             disabled={isStageReadOnly}
@@ -642,9 +831,9 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                                 [item.key]: Math.min(90, val + 1),
                               })
                             }
-                            className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="order-3 flex-1 sm:flex-none sm:min-w-[44px] min-h-[38px] sm:min-h-[44px] rounded-lg sm:rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <Plus className="w-4 h-4" />
+                            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           </button>
                         </div>
                       </div>
@@ -661,21 +850,16 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 />
               </div>
 
-              {/* Format 07.01 Inspection Checklist (Buku Laporan, Aktivitas Siswa, Kompetensi, Keadaan Bengkel) */}
+              {/* ZONA B: Ceklist Format 07.01 Individual Siswa (Buku Laporan & Aktivitas Sikap) */}
               <Format0701InspectionSection
                 bukuLaporan={activeDraft.bukuLaporan}
                 aktivitasDp={activeDraft.aktivitasDp}
                 aktivitasMt={activeDraft.aktivitasMt}
                 aktivitasKrt={activeDraft.aktivitasKrt}
-                kompetensiList={activeDraft.kompetensiList}
-                kondisiBengkel={activeDraft.kondisiBengkel}
                 disabled={isStageReadOnly}
-                canCopyFromPrevious={canCopyInspectionFromPrevious}
-                onCopyFromPrevious={onCopyInspectionFromPrevious}
+                onApplyStandardAll={onApplyStandardChecklist}
                 onChangeBukuLaporan={(val) => onUpdateDraft({ bukuLaporan: val })}
                 onChangeAktivitas={(field, val) => onUpdateDraft({ [field]: val })}
-                onChangeKompetensiList={(nextList) => onUpdateDraft({ kompetensiList: nextList })}
-                onChangeKondisiBengkel={(nextCheck) => onUpdateDraft({ kondisiBengkel: nextCheck })}
               />
 
               {/* Conditional Section: Already Submitted Grade Notice (+ Edit Nilai) OR Monitoring ke-4+ Prompt */}
@@ -838,19 +1022,106 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 )
               )}
 
-              {/* Catatan Pembimbing */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Catatan Pembimbing / Evaluasi DUDI:
-                </label>
+              {/* Catatan Pembimbing + Dikte Suara + Template Cepat */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Catatan Pembimbing / Evaluasi Siswa ({activeStudent.nama}):
+                  </label>
+                  {!isStageReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLastVoiceZone('catatan');
+                        voice.toggleListening('catatan', (spoken) => {
+                          onUpdateDraft({
+                            catatanPerkembangan: appendVoiceTranscript(
+                              activeDraft.catatanPerkembangan,
+                              spoken
+                            ),
+                          });
+                        });
+                      }}
+                      title={
+                        voice.isSupported
+                          ? 'Dikte catatan supervisi dengan suara Bahasa Indonesia'
+                          : 'Browser tidak mendukung dikte suara'
+                      }
+                      className={`min-h-[32px] px-3 py-1 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all ${
+                        voice.activeFieldId === 'catatan'
+                          ? 'border-rose-500 bg-rose-600 text-white animate-pulse shadow-xs'
+                          : 'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700'
+                      }`}
+                    >
+                      {voice.activeFieldId === 'catatan' ? (
+                        <>
+                          <MicOff className="w-3.5 h-3.5" />
+                          <span>Stop Dikte</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>Dikte Suara</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {voice.activeFieldId === 'catatan' && (
+                  <p className="text-[11px] font-medium text-rose-700 flex items-center gap-1.5 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping shrink-0" />
+                    <span>
+                      {voice.interimText
+                        ? `Mendengarkan: "${voice.interimText}"`
+                        : 'Silakan ucapkan catatan pembimbing (Bahasa Indonesia)...'}
+                    </span>
+                  </p>
+                )}
+
+                {lastVoiceZone === 'catatan' && voice.voiceError && (
+                  <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                    {voice.voiceError}
+                  </p>
+                )}
+
                 <textarea
                   rows={2}
                   disabled={isStageReadOnly}
                   value={activeDraft.catatanPerkembangan}
                   onChange={(e) => onUpdateDraft({ catatanPerkembangan: e.target.value })}
-                  placeholder="Tuliskan catatan supervisi, kondisi siswa, atau kendala lapangan..."
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:bg-slate-100 disabled:text-slate-500"
+                  placeholder="Tuliskan atau tekan Dikte Suara untuk mencatat kondisi siswa & kendala lapangan..."
+                  className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 disabled:bg-slate-100 disabled:text-slate-500 ${
+                    voice.activeFieldId === 'catatan'
+                      ? 'border-rose-400 focus:ring-rose-500'
+                      : 'border-slate-300 focus:ring-blue-600'
+                  }`}
                 />
+
+                {!isStageReadOnly && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-slate-500 mr-0.5">
+                      Isi Cepat:
+                    </span>
+                    {CATATAN_QUICK_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() =>
+                          onUpdateDraft({
+                            catatanPerkembangan: appendVoiceTranscript(
+                              activeDraft.catatanPerkembangan,
+                              preset
+                            ),
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-700 cursor-pointer text-left transition-colors"
+                      >
+                        + {preset}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {formError && (
@@ -865,11 +1136,15 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
               )}
 
               {/* Primary Save CTA OR Read-Only Notice */}
-              <div className="sticky bottom-0 z-10 -mx-3.5 -mb-4 sm:static sm:mx-0 sm:mb-0 px-3.5 py-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xs sm:backdrop-blur-none border-t border-slate-200 sm:border-t-0 flex justify-end">
+              <div className="sticky bottom-0 z-10 -mx-3 -mb-3 sm:static sm:mx-0 sm:mb-0 px-3 py-2.5 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xs sm:backdrop-blur-none border-t border-slate-200 sm:border-t-0 flex justify-end">
                 {isStageReadOnly ? (
                   <div className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-xs flex items-center justify-center gap-2">
                     <Lock className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Mode Baca-Saja (Tahap Dikunci SuperAdmin)</span>
+                    <span>
+                      {!stageControl.unlockedStages.includes(activeStageNum)
+                        ? 'Mode Baca-Saja (Tahap Dikunci SuperAdmin)'
+                        : 'Mode Baca-Saja (Surat Tahap Belum Diterbitkan Admin)'}
+                    </span>
                   </div>
                 ) : (
                   <button

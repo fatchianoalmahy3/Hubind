@@ -7,7 +7,7 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
   subtitle: 'Verifikasi kesesuaian kompetensi oleh Ketua Jurusan dan penjadwalan Hubin',
   tableName: 'Data_Pengajuan_PKL',
   icon: 'FileText',
-  allowedRoles: ['Hubin', 'Kakomli', 'GuruPendamping'],
+  allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek'],
   statCards: [
     {
       title: 'Total Pengajuan Masuk',
@@ -165,6 +165,22 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
+    },
+    {
+      key: 'hariKerja',
+      label: 'Hari Kerja DUDI',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'Contoh: Senin s/d Sabtu',
+    },
+    {
+      key: 'jamKerja',
+      label: 'Jam Kerja DUDI',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'Contoh: 08:00 s/d 16:00',
     },
     {
       key: 'linkMaps',

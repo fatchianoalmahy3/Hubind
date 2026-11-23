@@ -19,6 +19,87 @@ import {
   resolveRestTableName,
 } from '../utils/httpHelpers';
 
+type MutationVerb = 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_UPDATE' | 'BULK_DELETE' | 'IMPORT' | 'SYNC_ALL';
+
+function ensureRestMutationAllowed(
+  res: Response,
+  role: string,
+  tableName: string,
+  verb: MutationVerb
+): boolean {
+  const lowerTable = tableName.toLowerCase();
+
+  if (lowerTable === 'master_akun' && role !== 'SuperAdmin') {
+    res.status(403).json({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Akses ubah akun hanya diperbolehkan untuk peran SuperAdmin.',
+    });
+    return false;
+  }
+
+  if (role === 'SuperAdmin' || role === 'Hubin' || role === 'Pokja') {
+    return true;
+  }
+
+  if (role === 'Kepsek') {
+    res.status(403).json({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Peran Kepala Sekolah berada pada mode pantau (hanya baca & cetak).',
+    });
+    return false;
+  }
+
+  if (role === 'Waka') {
+    if (lowerTable === 'monitoring_5_tahap' && verb === 'UPDATE') {
+      return true;
+    }
+    res.status(403).json({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Peran Waka hanya berhak melakukan verifikasi Hubin pada data Monitoring PKL.',
+    });
+    return false;
+  }
+
+  if (role === 'GuruPendamping') {
+    if (lowerTable === 'monitoring_5_tahap' && (verb === 'CREATE' || verb === 'UPDATE')) {
+      return true;
+    }
+    res.status(403).json({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Peran Guru Pendamping hanya berhak mengisi/memperbarui data Monitoring PKL.',
+    });
+    return false;
+  }
+
+  if (role === 'Kakomli') {
+    const allowedKakomliWrite =
+      (lowerTable === 'monitoring_5_tahap' && verb === 'UPDATE') ||
+      (lowerTable === 'data_pengajuan_pkl' && (verb === 'UPDATE' || verb === 'BULK_UPDATE')) ||
+      (lowerTable === 'master_siswa_xi' && (verb === 'UPDATE' || verb === 'BULK_UPDATE')) ||
+      (lowerTable === 'data_perizinan_pkl' && (verb === 'CREATE' || verb === 'IMPORT'));
+    if (allowedKakomliWrite) {
+      return true;
+    }
+    res.status(403).json({
+      success: false,
+      code: 'FORBIDDEN',
+      message: 'Peran Kakomli hanya berhak memverifikasi Pengajuan PKL dan Monitoring jurusan.',
+    });
+    return false;
+  }
+
+  res.status(403).json({
+    success: false,
+    code: 'FORBIDDEN',
+    message: 'Peran Anda tidak memiliki izin untuk mengubah data ini.',
+  });
+  return false;
+}
+
 export function registerRestApiRoutes(app: Express): void {
   // 1. Single-Request Admin Bootstrap (Batch-fetches all master & operational tables in 1 roundtrip)
   app.get('/api/v1/bootstrap', async (req: Request, res: Response) => {
@@ -73,7 +154,14 @@ export function registerRestApiRoutes(app: Express): void {
   // 2. Server-Side Relation Recalculation (Eliminates client-side N+1 sync waterfalls)
   app.post('/api/v1/relations/recalculate', async (req: Request, res: Response) => {
     try {
-      await requireAdminAuth(req);
+      const session = await requireAdminAuth(req);
+      if (session.role !== 'SuperAdmin' && session.role !== 'Hubin' && session.role !== 'Pokja') {
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN',
+          message: 'Sinkronisasi relasi data hanya diperbolehkan untuk SuperAdmin, Admin Hubin, atau Pokja.',
+        });
+      }
       const scope = String(req.body?.scope || 'all');
       const forceRefresh = Boolean(req.body?.forceRefresh);
       const summary = await recalculateAllRelations(scope, forceRefresh);
@@ -255,12 +343,8 @@ export function registerRestApiRoutes(app: Express): void {
           message: `Resource [${req.params.resource}] tidak ditemukan.`,
         });
       }
-      if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
-        return res.status(403).json({
-          success: false,
-          code: 'FORBIDDEN',
-          message: 'Hanya SuperAdmin yang berhak menambah akun.',
-        });
+      if (!ensureRestMutationAllowed(res, session.role, tableName, 'CREATE')) {
+        return;
       }
 
       const payload = req.body && typeof req.body === 'object' ? req.body : {};
@@ -294,18 +378,27 @@ export function registerRestApiRoutes(app: Express): void {
       if (!allowedBulk.has(normalizedAction)) {
         return res.status(400).json({ success: false, message: 'Aksi bulk tidak valid.' });
       }
-      if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
-        return res.status(403).json({
-          success: false,
-          code: 'FORBIDDEN',
-          message: 'Hanya SuperAdmin yang berhak mengubah data akun.',
-        });
+      if (
+        !ensureRestMutationAllowed(
+          res,
+          session.role,
+          tableName,
+          normalizedAction as MutationVerb
+        )
+      ) {
+        return;
       }
-      if (normalizedAction === 'SYNC_ALL' && session.role !== 'SuperAdmin' && session.role !== 'Hubin') {
+      if (
+        normalizedAction === 'SYNC_ALL' &&
+        session.role !== 'SuperAdmin' &&
+        session.role !== 'Hubin' &&
+        session.role !== 'Pokja'
+      ) {
         return res.status(403).json({
           success: false,
           code: 'FORBIDDEN',
-          message: 'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk SuperAdmin atau Admin Hubin.',
+          message:
+            'Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk SuperAdmin, Hubin, atau Pokja.',
         });
       }
 
@@ -332,12 +425,8 @@ export function registerRestApiRoutes(app: Express): void {
           message: `Resource [${req.params.resource}] tidak ditemukan.`,
         });
       }
-      if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
-        return res.status(403).json({
-          success: false,
-          code: 'FORBIDDEN',
-          message: 'Hanya SuperAdmin yang berhak mengubah data akun.',
-        });
+      if (!ensureRestMutationAllowed(res, session.role, tableName, 'UPDATE')) {
+        return;
       }
 
       const id = String(req.params.id || '').trim();
@@ -369,12 +458,8 @@ export function registerRestApiRoutes(app: Express): void {
           message: `Resource [${req.params.resource}] tidak ditemukan.`,
         });
       }
-      if (tableName.toLowerCase() === 'master_akun' && session.role !== 'SuperAdmin') {
-        return res.status(403).json({
-          success: false,
-          code: 'FORBIDDEN',
-          message: 'Hanya SuperAdmin yang berhak menghapus data akun.',
-        });
+      if (!ensureRestMutationAllowed(res, session.role, tableName, 'DELETE')) {
+        return;
       }
 
       const id = String(req.params.id || '').trim();

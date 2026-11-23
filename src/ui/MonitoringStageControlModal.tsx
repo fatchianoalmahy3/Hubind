@@ -32,6 +32,9 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
   const [requireSequential, setRequireSequential] = useState<boolean>(
     DEFAULT_MONITORING_STAGE_CONTROL.requireSequential
   );
+  const [requireIssuedLetter, setRequireIssuedLetter] = useState<boolean>(
+    DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true
+  );
   const [unlockedStages, setUnlockedStages] = useState<number[]>(
     DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages
   );
@@ -43,6 +46,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
     if (!isOpen) return;
     const current = GoogleSheetClient.getInstance().getMonitoringStageControl();
     setRequireSequential(current.requireSequential);
+    setRequireIssuedLetter(current.requireIssuedLetter ?? true);
     setUnlockedStages([...current.unlockedStages]);
     setLockedReason(current.lockedReason || '');
     setErrorMsg('');
@@ -79,6 +83,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
     try {
       const payload: MonitoringStageControl = {
         requireSequential,
+        requireIssuedLetter,
         unlockedStages: [...unlockedStages].sort((a, b) => a - b),
         lockedReason: lockedReason.trim().slice(0, 150),
       };
@@ -207,6 +212,35 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
               </button>
             </div>
 
+            {/* Layer 1B: Issued Letter Prerequisite Switch */}
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="font-bold text-slate-900">
+                  Wajib Surat Terbit per DUDI &amp; Tahap (1 – 8)
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  {requireIssuedLetter
+                    ? 'Aktif — Guru hanya dapat mengisi tahap yang surat tugas / pengantar / monitoring-nya sudah ditandai Terbit (cetak / PDF Drive) di Pusat Dokumen.'
+                    : 'Nonaktif — Guru dapat langsung mengisi seluruh tahap terbuka tanpa menunggu status penerbitan surat di Pusat Dokumen.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={requireIssuedLetter}
+                onClick={() => setRequireIssuedLetter((v) => !v)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
+                  requireIssuedLetter ? 'bg-blue-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition ${
+                    requireIssuedLetter ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
             {/* Layer 2: Per-Stage Open / Lock Grid */}
             <div className="space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -311,7 +345,8 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
           {/* Footer */}
           <div className="px-6 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-2 shrink-0 text-xs">
             <span className="text-[11px] text-slate-500">
-              {unlockedStages.length}/8 tahap terbuka · {requireSequential ? 'Berurutan' : 'Bebas (Transisi)'}
+              {unlockedStages.length}/8 tahap terbuka · {requireSequential ? 'Berurutan' : 'Transisi'} ·{' '}
+              {requireIssuedLetter ? 'Wajib Surat Terbit' : 'Tanpa Kunci Surat'}
             </span>
             <div className="flex items-center gap-2">
               <button

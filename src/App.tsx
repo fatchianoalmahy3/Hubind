@@ -6,7 +6,6 @@ import {
   Database,
   RefreshCw,
   Sparkles,
-  ExternalLink,
   Code2,
 } from 'lucide-react';
 import { Navbar } from './ui/Navbar';
@@ -23,9 +22,11 @@ import {
 
 import {
   CRUD_MODULE_NAMES,
+  getDefaultModuleForRole,
   getDocumentHubDependencies,
   getModuleEntry,
   getRepositoryForModule,
+  isModuleAllowedForRole,
 } from './core/moduleRegistry';
 
 import { AppleToastContainer } from './ui/AppleToastContainer';
@@ -75,6 +76,9 @@ const DocumentHubPage = lazy(() =>
 );
 const AccountManagementModal = lazy(() =>
   import('./ui/AccountManagementModal').then((m) => ({ default: m.AccountManagementModal }))
+);
+const DudiMonitoringRecapPage = lazy(() =>
+  import('./ui/DudiMonitoringRecapPage').then((m) => ({ default: m.DudiMonitoringRecapPage }))
 );
 
 const UI_SESSION_KEY = 'hubin_ui_session';
@@ -145,7 +149,7 @@ export default function App() {
   const [isAutoGenerateOpen, setIsAutoGenerateOpen] = useState(false);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [globalSyncing, setGlobalSyncing] = useState(false);
-  const [, setRefreshState] = useState(0);
+  const [refreshState, setRefreshState] = useState(0);
 
   const googleClient = GoogleSheetClient.getInstance();
   const [configSnapshot, setConfigSnapshot] = useState(() => googleClient.getConfig());
@@ -278,9 +282,21 @@ export default function App() {
     runConnectionVerification();
   }, [runConnectionVerification]);
 
+  // Enforce role-based module access when user switches roles or restores session
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!isModuleAllowedForRole(currentModule, userRole)) {
+      setCurrentModule(getDefaultModuleForRole(userRole));
+    }
+  }, [currentUser, currentModule, userRole]);
+
   const handleLoginSuccess = (user: AdminSessionUser) => {
+    const nextRole = user.role as UserRole;
     setCurrentUser(user);
-    setUserRole(user.role as UserRole);
+    setUserRole(nextRole);
+    setCurrentModule((prev) =>
+      isModuleAllowedForRole(prev, nextRole) ? prev : getDefaultModuleForRole(nextRole)
+    );
     setAppMode('admin');
     void googleClient.bootstrapAdminTables(false).catch(() => false);
   };
@@ -308,6 +324,12 @@ export default function App() {
       if (currentModule.startsWith('doc_')) {
         await Promise.all(
           getDocumentHubDependencies().map((repo) => repo.reloadFromSpreadsheet().catch(() => null))
+        );
+      } else if (currentModule === 'rekap_monitoring_dudi') {
+        await Promise.all(
+          ['dudi', 'siswa_pkl', 'siswa', 'jurusan', 'monitoring', 'sertifikat'].map((id) =>
+            getModuleEntry(id).getRepository().reloadFromSpreadsheet().catch(() => null)
+          )
         );
       } else if (currentModule !== 'workspace') {
         const repo = getRepositoryForModule(currentModule);
@@ -594,6 +616,8 @@ export default function App() {
             key={`${currentModule}_${configSnapshot.spreadsheetId}`}
             activeDocKey={currentModule as DocumentHubKey}
             onSelectDocKey={(k) => setCurrentModule(k)}
+            userRole={userRole}
+            currentUser={currentUser}
             onOpenTemplateManager={
               userRole === 'SuperAdmin' ? () => setIsTemplateManagerOpen(true) : undefined
             }
@@ -602,7 +626,29 @@ export default function App() {
       );
     }
 
-    const entry = getModuleEntry(currentModule);
+    if (currentModule === 'rekap_monitoring_dudi') {
+      return (
+        <Suspense
+          fallback={
+            <div className="py-12 flex items-center justify-center text-xs text-slate-500">
+              Memuat Rekap Monitoring Per DUDI...
+            </div>
+          }
+        >
+          <DudiMonitoringRecapPage
+            key={`rekap_${configSnapshot.spreadsheetId}`}
+            userRole={userRole}
+            currentUser={currentUser}
+            refreshSignal={refreshState}
+          />
+        </Suspense>
+      );
+    }
+
+    const safeModuleId = isModuleAllowedForRole(currentModule, userRole)
+      ? currentModule
+      : getDefaultModuleForRole(userRole);
+    const entry = getModuleEntry(safeModuleId);
     return (
       <Suspense
         fallback={
@@ -636,6 +682,7 @@ export default function App() {
 
   const moduleNames: Record<string, string> = {
     ...CRUD_MODULE_NAMES,
+    rekap_monitoring_dudi: 'Rekap Monitoring Per DUDI',
     doc_paket_monitoring: 'Paket Cetak Monitoring (1-Langkah)',
     doc_mou: 'Dokumen MOU DUDI',
     doc_surat_tugas: 'Dokumen Surat Tugas',
@@ -708,75 +755,7 @@ export default function App() {
 
             <main className="flex-1 min-w-0 h-full overflow-y-auto px-4 sm:px-6 py-4 lg:py-5">
               <div className="max-w-[1440px] mx-auto w-full">
-              {/* Compact Single-Line Cloud Server Context Strip (SuperAdmin Only) */}
-              {userRole === 'SuperAdmin' && (
-                <div className="mb-4 px-3.5 py-2 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {verification.connected ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                    )}
-                    <span className="truncate">
-                      {verification.connected ? (
-                        <>
-                          Cloud Server:{' '}
-                          <strong className="text-slate-900 font-semibold">
-                            {verification.spreadsheetTitle || configSnapshot.spreadsheetName || configSnapshot.spreadsheetId}
-                          </strong>
-                          <span className="text-slate-400 mx-1.5 hidden md:inline" aria-hidden="true">·</span>
-                          <span className="text-emerald-700 font-medium hidden md:inline">
-                            Tersinkron
-                          </span>
-                        </>
-                      ) : configSnapshot.spreadsheetId ? (
-                        <>
-                          Cloud Server:{' '}
-                          <span className="font-mono font-medium text-slate-900">{configSnapshot.spreadsheetId}</span>
-                          <span className="text-slate-400 mx-1.5" aria-hidden="true">·</span>
-                          <span className="text-amber-700 font-medium">
-                            {verification.checking ? 'Memeriksa koneksi...' : 'Menunggu koneksi Cloud Server'}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-amber-800 font-medium">
-                          Cloud Server belum dikonfigurasi
-                        </span>
-                      )}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
-                    {configSnapshot.spreadsheetUrl && (
-                      <a
-                        href={configSnapshot.spreadsheetUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                      >
-                        <span>Buka Database</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setIsTemplateManagerOpen(true)}
-                      className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-medium cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                    >
-                      Template Dokumen
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsSheetConfigOpen(true)}
-                      className="h-8 px-2.5 rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-semibold cursor-pointer transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                    >
-                      Konfigurasi Server
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {renderActiveModule()}
+                {renderActiveModule()}
               </div>
             </main>
           </div>

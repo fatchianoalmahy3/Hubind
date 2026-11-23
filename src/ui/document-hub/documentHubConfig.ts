@@ -95,6 +95,7 @@ export interface DudiBundleItem {
   guruNama: string;
   guruNip: string;
   guruJabatan: string;
+  dudiId: string;
   dudiKey: string;
   namaDudi: string;
   alamatDudi: string;
@@ -122,6 +123,7 @@ export interface BundlePrintPage {
 
 export interface FilteredDocItem {
   id: string;
+  dudiId?: string;
   title: string;
   badge: string;
   subtitle: string;
@@ -139,6 +141,7 @@ export interface DocFilterMeta {
 
 export interface SuratTugasDudiGroup {
   key: string;
+  dudiId: string;
   namaDudi: string;
   alamatDudi: string;
   pemimpinDudi: string;
@@ -157,6 +160,7 @@ export interface SuratTugasAuditResult {
 
 export interface BatchSuratTugasPage {
   id: string;
+  dudiId: string;
   guru: Guru;
   namaDudi: string;
   alamatDudi: string;

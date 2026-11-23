@@ -159,11 +159,11 @@ export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
   };
 
   return (
-    <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2.5">
+    <div className="p-3 sm:p-3.5 bg-white border border-slate-200 rounded-xl space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-          <PenTool className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>
+        <div className="flex items-start gap-1.5 text-xs font-bold text-slate-900 min-w-0">
+          <PenTool className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <span className="leading-snug">
             Tanda Tangan Siswa {studentName ? `(${studentName})` : ''} *
           </span>
         </div>

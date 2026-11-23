@@ -14,8 +14,16 @@ import {
   invalidateSheetCacheEntry,
   writeLiveSheetViaGas,
 } from '../services/sheetsTransport';
+import {
+  fetchIssuedLettersList,
+  recordIssuedLetters,
+  revokeIssuedLetter,
+  type IssuedLetterTargetInput,
+} from '../services/monitoringDomainService';
 import { PortalConfigError } from '../types';
 import { handlePortalError } from '../utils/httpHelpers';
+
+const ISSUED_LETTER_ADMIN_ROLES = new Set(['SuperAdmin', 'Hubin', 'Pokja']);
 
 function extractValidKepalaSekolahName(accounts: Array<{ role: string; status: string; namaLengkap: string }>): string {
   const kepsek =
@@ -210,7 +218,7 @@ export function registerDocumentRoutes(app: Express): void {
   // Generate bundled 1-step Monitoring Packet PDF in Google Drive from official Google Docs templates via GAS
   app.post('/api/documents/generate-monitoring-bundle', async (req: Request, res: Response) => {
     try {
-      await requireAdminAuth(req);
+      const actor = await requireAdminAuth(req);
       const body = req.body || {};
       const bundles = Array.isArray(body.bundles) ? body.bundles : [];
       if (bundles.length === 0) {
@@ -249,13 +257,176 @@ export function registerDocumentRoutes(app: Express): void {
         );
       }
 
+      const metaObj = body.meta || {};
+      const tahapNum = Number(metaObj.tahapNum || 0);
+      let issuedCount = 0;
+      if (
+        Number.isInteger(tahapNum) &&
+        tahapNum >= 1 &&
+        tahapNum <= 8 &&
+        ISSUED_LETTER_ADMIN_ROLES.has(actor.role)
+      ) {
+        const issuedTargets: IssuedLetterTargetInput[] = bundles
+          .filter((b: any) => b && (b.namaDudi || b.dudiId))
+          .map((b: any) => ({
+            dudiId: String(b.dudiId || '').trim(),
+            namaDudi: String(b.namaDudi || '').trim(),
+            tahap: tahapNum,
+            jenisDokumen: 'Paket PDF Drive',
+            nomorSurat: String(metaObj.nomorSurat || '').trim(),
+            tanggalTerbit: String(metaObj.tanggalSurat || '').trim(),
+            diterbitkanOleh: actor.name || actor.username || 'Admin Hubin',
+            guruPendamping: String(b.namaGuru || '').trim(),
+            linkPdf: pdfUrl,
+          }));
+        const recorded = await recordIssuedLetters(
+          issuedTargets,
+          actor.name || actor.username || 'Admin Hubin'
+        ).catch(() => []);
+        issuedCount = recorded.length;
+      }
+
       return res.json({
         success: true,
         pdfUrl,
         fileId: gasResult?.fileId || '',
         fileName: gasResult?.fileName || '',
         totalSheets: gasResult?.totalSheets || 0,
+        issuedRecorded: issuedCount > 0,
+        issuedCount,
         message: 'Paket dokumen monitoring PDF berhasil dibuat dari Template Google Docs.',
+      });
+    } catch (err: any) {
+      handlePortalError(res, err);
+    }
+  });
+
+  // Read issued-letter log rows (Log_Penerbitan_Surat)
+  app.get('/api/documents/issued-letters', async (req: Request, res: Response) => {
+    try {
+      await requireAdminAuth(req);
+      const fresh = String(req.query?.fresh || '') === '1';
+      const rows = await fetchIssuedLettersList(fresh);
+      return res.json({
+        success: true,
+        total: rows.length,
+        data: rows,
+      });
+    } catch (err: any) {
+      handlePortalError(res, err);
+    }
+  });
+
+  // Mark one or more (DUDI, Tahap 1..8) letters as issued ('Sudah Terbit')
+  app.post('/api/documents/mark-issued', async (req: Request, res: Response) => {
+    try {
+      const actor = await requireAdminAuth(req);
+      if (!ISSUED_LETTER_ADMIN_ROLES.has(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN_ROLE',
+          message: 'Hanya SuperAdmin, Admin Hubin, atau Pokja yang dapat menerbitkan status surat.',
+        });
+      }
+
+      const rawItems = Array.isArray(req.body?.items)
+        ? req.body.items
+        : req.body?.item
+        ? [req.body.item]
+        : [];
+      if (rawItems.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Daftar target DUDI & Tahap yang akan diterbitkan tidak boleh kosong.',
+        });
+      }
+
+      const sanitizedItems: IssuedLetterTargetInput[] = rawItems
+        .map((it: any) => ({
+          dudiId: String(it?.dudiId || '').trim().slice(0, 80),
+          namaDudi: String(it?.namaDudi || '').trim().slice(0, 180),
+          tahap: Number(it?.tahap),
+          jenisDokumen: String(it?.jenisDokumen || '').trim().slice(0, 120),
+          nomorSurat: String(it?.nomorSurat || '').trim().slice(0, 120),
+          tanggalTerbit: String(it?.tanggalTerbit || '').trim().slice(0, 40),
+          diterbitkanOleh: String(
+            it?.diterbitkanOleh || actor.name || actor.username || 'Admin Hubin'
+          )
+            .trim()
+            .slice(0, 120),
+          guruPendamping: String(it?.guruPendamping || '').trim().slice(0, 120),
+          linkPdf: String(it?.linkPdf || '').trim().slice(0, 500),
+        }))
+        .filter(
+          (it: IssuedLetterTargetInput) =>
+            Number.isInteger(it.tahap) &&
+            it.tahap >= 1 &&
+            it.tahap <= 8 &&
+            (Boolean(it.namaDudi) || Boolean(it.dudiId))
+        );
+
+      if (sanitizedItems.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Data DUDI atau nomor Tahap (1-8) tidak valid.',
+        });
+      }
+
+      const recorded = await recordIssuedLetters(
+        sanitizedItems,
+        actor.name || actor.username || 'Admin Hubin'
+      );
+
+      return res.json({
+        success: true,
+        count: recorded.length,
+        data: recorded,
+        message: `${recorded.length} status penerbitan surat berhasil disimpan ke Cloud Server.`,
+      });
+    } catch (err: any) {
+      handlePortalError(res, err);
+    }
+  });
+
+  // Revoke issued-letter status ('Dibatalkan') for a (DUDI, Tahap 1..8)
+  app.post('/api/documents/revoke-issued', async (req: Request, res: Response) => {
+    try {
+      const actor = await requireAdminAuth(req);
+      if (!ISSUED_LETTER_ADMIN_ROLES.has(actor.role)) {
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN_ROLE',
+          message: 'Hanya SuperAdmin, Admin Hubin, atau Pokja yang dapat membatalkan penerbitan surat.',
+        });
+      }
+
+      const tahap = Number(req.body?.tahap);
+      const idTerbit = String(req.body?.idTerbit || '').trim().slice(0, 100);
+      const dudiId = String(req.body?.dudiId || '').trim().slice(0, 80);
+      const namaDudi = String(req.body?.namaDudi || '').trim().slice(0, 180);
+
+      if (!Number.isInteger(tahap) || tahap < 1 || tahap > 8 || (!idTerbit && !dudiId && !namaDudi)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Parameter pembatalan penerbitan surat (DUDI & Tahap 1-8) tidak valid.',
+        });
+      }
+
+      const result = await revokeIssuedLetter({
+        idTerbit,
+        dudiId,
+        namaDudi,
+        tahap,
+        actorName: actor.name || actor.username || 'Admin Hubin',
+      });
+
+      return res.json({
+        success: true,
+        revoked: result.revoked,
+        idTerbit: result.idTerbit,
+        message: result.revoked
+          ? 'Status penerbitan surat berhasil dibatalkan.'
+          : 'Catatan terbit aktif untuk DUDI & Tahap tersebut tidak ditemukan.',
       });
     } catch (err: any) {
       handlePortalError(res, err);

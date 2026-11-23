@@ -12,6 +12,7 @@ import {
   Award,
 } from 'lucide-react';
 import type { ModuleMetadata } from './types/metadata';
+import type { UserRole } from './types/schema';
 import type { BaseRepository } from './BaseRepository';
 
 import { SiswaMetadata } from '../modules/siswa.meta.ts';
@@ -196,3 +197,71 @@ export function getDocumentHubDependencies(): BaseRepository<any>[] {
     .map((id) => MODULE_MAP[id]?.getRepository())
     .filter((repo): repo is BaseRepository<any> => Boolean(repo));
 }
+
+export const SPECIAL_MODULE_ALLOWED_ROLES: Record<string, UserRole[]> = {
+  rekap_monitoring_dudi: [
+    'SuperAdmin',
+    'Hubin',
+    'Pokja',
+    'Kakomli',
+    'Waka',
+    'Kepsek',
+    'GuruPendamping',
+  ],
+  workspace: ['SuperAdmin'],
+  doc_paket_monitoring: [
+    'SuperAdmin',
+    'Hubin',
+    'Pokja',
+    'Kakomli',
+    'Waka',
+    'Kepsek',
+    'GuruPendamping',
+  ],
+  doc_mou: ['SuperAdmin', 'Hubin', 'Pokja'],
+  doc_surat_tugas: ['SuperAdmin', 'Hubin', 'Pokja', 'Waka', 'Kepsek', 'GuruPendamping'],
+  doc_pengajuan: ['SuperAdmin', 'Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek'],
+  doc_pengantaran: ['SuperAdmin', 'Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
+  doc_monitoring: ['SuperAdmin', 'Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
+  doc_penarikan: ['SuperAdmin', 'Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
+};
+
+export function isModuleAllowedForRole(moduleId: string, userRole: UserRole): boolean {
+  if (userRole === 'SuperAdmin') return true;
+  if (moduleId in SPECIAL_MODULE_ALLOWED_ROLES) {
+    return SPECIAL_MODULE_ALLOWED_ROLES[moduleId].includes(userRole);
+  }
+  const entry = MODULE_MAP[moduleId];
+  if (!entry) return false;
+  return entry.allowedRoles.includes(userRole);
+}
+
+export function isModuleReadOnlyForRole(moduleId: string, userRole: UserRole): boolean {
+  if (userRole === 'SuperAdmin' || userRole === 'Hubin' || userRole === 'Pokja') {
+    return false;
+  }
+  if (userRole === 'Kepsek' || userRole === 'Waka') {
+    return true;
+  }
+  if (userRole === 'Kakomli') {
+    return moduleId !== 'pengajuan';
+  }
+  if (userRole === 'GuruPendamping') {
+    return moduleId === 'siswa_pkl';
+  }
+  return true;
+}
+
+export function getDefaultModuleForRole(userRole: UserRole): string {
+  if (userRole === 'Kepsek' || userRole === 'Waka') {
+    return 'rekap_monitoring_dudi';
+  }
+  if (userRole === 'Kakomli') {
+    return 'pengajuan';
+  }
+  if (userRole === 'GuruPendamping') {
+    return 'monitoring';
+  }
+  return 'pengajuan';
+}
+

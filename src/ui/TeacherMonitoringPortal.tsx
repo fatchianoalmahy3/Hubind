@@ -54,16 +54,17 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0 gap-2">
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
-              <Building2 className="w-5 h-5" />
+        <div className="px-3 sm:px-6 py-2.5 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0 gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate">
-                Portal Supervisi Guru Pembimbing
+                <span className="sm:hidden">Portal Supervisi</span>
+                <span className="hidden sm:inline">Portal Supervisi Guru Pembimbing</span>
               </h2>
-              <p className="text-[11px] text-slate-500 truncate">
+              <p className="text-[11px] text-slate-500">
                 Langkah {m.currentStep} dari 3 · Tersinkron ke Cloud Server
               </p>
             </div>
@@ -75,7 +76,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 type="button"
                 disabled={isSaveLocked}
                 onClick={m.handlePetugasLogout}
-                className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
               >
                 Ganti Petugas
               </button>
@@ -107,8 +108,8 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           </div>
         )}
 
-        {/* Step Progress Bar */}
-        <div className="px-3 sm:px-6 py-2 sm:py-2.5 bg-slate-100/70 border-b border-slate-200/70 flex items-center justify-between text-[11px] sm:text-xs font-semibold shrink-0 overflow-x-auto gap-1.5 sm:gap-2">
+        {/* Step Progress Bar (Desktop & Tablet) */}
+        <div className="hidden sm:flex px-6 py-2.5 bg-slate-100/70 border-b border-slate-200/70 items-center justify-between text-xs font-semibold shrink-0 gap-2">
           <div
             className={`flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
               m.currentStep === 1
@@ -179,7 +180,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         </div>
 
         {/* Body */}
-        <div className="p-3.5 sm:p-6 overflow-y-auto flex-1">
+        <div className="px-3 py-3 sm:p-6 overflow-y-auto flex-1">
           {m.currentStep === 1 && (
             <PinVerificationStep
               petugasList={m.petugasList}
@@ -226,9 +227,13 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               activeStudent={m.activeStudent}
               activeStageNum={m.activeStageNum}
               stageControl={m.stageControl}
+              issuedStages={m.issuedStages}
+              issuedStageDetails={m.issuedStageDetails}
+              isStageLetterIssued={m.isStageLetterIssued}
               isStageReadOnly={m.isStageReadOnly}
               isStageCompleted={m.isStageCompleted}
               activeDraft={m.activeDraft}
+              activeWorkshopDraft={m.activeWorkshopDraft}
               alreadyHasGrade={m.alreadyHasGrade}
               isEditingGrade={m.isEditingGrade}
               canInputGradeThisStage={m.canInputGradeThisStage}
@@ -250,7 +255,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               dudiJamMulai={m.dudiJamMulai}
               dudiJamSelesai={m.dudiJamSelesai}
               showDudiContactEditor={m.showDudiContactEditor}
-              canCopyInspectionFromPrevious={m.canCopyInspectionFromPrevious}
+              canCopyWorkshopFromPrevStage={m.canCopyWorkshopFromPrevStage}
               onChangeStepToDudiList={() => m.setCurrentStep(2)}
               onSelectStudentIndex={(idx) => {
                 m.setSelectedStudentIndex(idx);
@@ -258,7 +263,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               }}
               onSelectStage={m.setStudentStage}
               onUpdateDraft={m.updateActiveDraft}
-              onCopyInspectionFromPrevious={m.copyInspectionFromPreviousStudent}
+              onUpdateWorkshopDraft={m.updateActiveWorkshopDraft}
+              onCopyWorkshopFromPrevStage={m.copyWorkshopFromPrevStage}
+              onMarkAllBengkelBaik={m.markAllBengkelBaik}
+              onApplyStandardChecklist={m.applyStandardStudentChecklist}
               onChangeDudiPemimpin={(val) => {
                 m.setDudiPemimpin(val);
                 m.setFormError('');
@@ -309,8 +317,12 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 sm:px-6 py-2.5 sm:py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between shrink-0">
+        {/* Footer (Hidden on mobile during Step 3 to preserve viewport space for form & save CTA) */}
+        <div
+          className={`px-4 sm:px-6 py-2 sm:py-3 border-t border-slate-100 bg-slate-50/60 items-center justify-between shrink-0 ${
+            m.currentStep === 3 ? 'hidden sm:flex' : 'flex'
+          }`}
+        >
           <div className="text-[11px] text-slate-500">
             {m.currentStep === 3 && m.dudiStudents.length > 0 && (
               <span>

@@ -7,7 +7,7 @@ export const SiswaPklMetadata: ModuleMetadata<PenempatanPKL> = {
   subtitle: 'Daftar resmi siswa aktif PKL, penempatan DUDI, guru pendamping, dan jadwal penarikan',
   tableName: 'Plotting_Pemberangkatan',
   icon: 'Briefcase',
-  allowedRoles: ['Hubin', 'Kakomli', 'GuruPendamping'],
+  allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
   statCards: [
     {
       title: 'Total Siswa Terplot',

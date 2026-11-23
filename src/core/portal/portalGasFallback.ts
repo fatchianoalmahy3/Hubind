@@ -9,12 +9,13 @@ import {
   getStageValueByNumber,
   parseKompetensiList,
   parseKondisiBengkel,
+  resolveIssuedStagesForDudi,
   serializeFormat0701Tag,
   serializeKompetensiList,
   serializeKondisiBengkel,
   stripStructuredTagsFromNote,
 } from '../utils/monitoringHelpers';
-import { type MonitoringStageControl } from '../types/schema';
+import { type IssuedStageDetail, type MonitoringStageControl } from '../types/schema';
 import {
   getTodayWibDateTime,
   getTodayWibIsoDate,
@@ -129,7 +130,9 @@ async function syncDudiContactFallback(params: {
     const hasBlankContact =
       !pickField(r, 'Nama_Pemimpin', 'namaPemimpin') ||
       !pickField(r, 'Nama_PIC', 'namaPic') ||
-      !pickField(r, 'No_Telp_DUDI', 'noTelpDudi');
+      !pickField(r, 'No_Telp_DUDI', 'noTelpDudi') ||
+      (inputHariKerja && !pickField(r, 'Hari_Kerja', 'hariKerja')) ||
+      (inputJamKerja && !pickField(r, 'Jam_Kerja', 'jamKerja'));
     return isTarget && hasBlankContact;
   });
 
@@ -144,6 +147,8 @@ async function syncDudiContactFallback(params: {
       Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || pic,
       No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || telp,
       Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || telp,
+      Hari_Kerja: pickField(mr, 'Hari_Kerja', 'hariKerja') || inputHariKerja,
+      Jam_Kerja: pickField(mr, 'Jam_Kerja', 'jamKerja') || inputJamKerja,
     }).catch(() => {});
   }
 
@@ -375,6 +380,8 @@ export async function directSubmitApplication(payload: any) {
     if (existingApp) {
       const existingId = pickField(existingApp, 'No_Pengajuan', 'noPengajuan', 'id');
       const existingMaps = pickField(existingApp, 'Link_Maps', 'linkMaps', 'link_maps');
+      const existingHari = pickField(existingApp, 'Hari_Kerja', 'hariKerja', 'hari_kerja');
+      const existingJam = pickField(existingApp, 'Jam_Kerja', 'jamKerja', 'jam_kerja');
       return {
         success: true,
         deduplicated: true,
@@ -391,6 +398,10 @@ export async function directSubmitApplication(payload: any) {
           kelas: pickField(existingApp, 'Kelas', 'kelas') || canonicalKelas,
           jurusan: pickField(existingApp, 'Jurusan', 'jurusan') || canonicalJurusan,
           nama_dudi: pickField(existingApp, 'DUDI_Tujuan', 'dudiTujuan', 'nama_dudi') || resolvedDudiNama,
+          Hari_Kerja: existingHari || String(payload.hari_kerja || '').trim(),
+          hari_kerja: existingHari || String(payload.hari_kerja || '').trim(),
+          Jam_Kerja: existingJam || String(payload.jam_kerja || '').trim(),
+          jam_kerja: existingJam || String(payload.jam_kerja || '').trim(),
           Link_Maps: existingMaps || mapsCheck.normalizedUrl,
           link_maps: existingMaps || mapsCheck.normalizedUrl,
           status: pickField(existingApp, 'Status_Hubin', 'statusHubin', 'status') || 'Menunggu ACC Kakomli',
@@ -445,6 +456,12 @@ export async function directSubmitApplication(payload: any) {
     noTelpDudi: '',
     Kontak_PIC: '',
     kontakPic: '',
+    Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+    hariKerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+    hari_kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+    Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
+    jamKerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
+    jam_kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
     Link_Maps: mapsCheck.normalizedUrl,
     linkMaps: mapsCheck.normalizedUrl,
     link_maps: mapsCheck.normalizedUrl,
@@ -508,24 +525,36 @@ export async function directSubmitApplication(payload: any) {
     }
   }
 
-  if (
-    matchedDudiRow &&
-    mapsCheck.normalizedUrl &&
-    !pickField(matchedDudiRow, 'Link_Maps', 'linkMaps', 'link_maps')
-  ) {
-    try {
-      const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
-      if (targetDudiId) {
-        await writeSheetDirect('Master_DUDI', 'UPDATE', {
-          id: targetDudiId,
-          ID: targetDudiId,
-          _sheetRowNumber: matchedDudiRow._sheetRowNumber,
-          Link_Maps: mapsCheck.normalizedUrl,
-          linkMaps: mapsCheck.normalizedUrl,
-        });
+  if (matchedDudiRow) {
+    const inputHari = String(payload.hari_kerja || payload.Hari_Kerja || '').trim();
+    const inputJam = String(payload.jam_kerja || payload.Jam_Kerja || '').trim();
+    const dudiUpdates: Record<string, any> = {};
+    if (mapsCheck.normalizedUrl && !pickField(matchedDudiRow, 'Link_Maps', 'linkMaps', 'link_maps')) {
+      dudiUpdates.Link_Maps = mapsCheck.normalizedUrl;
+      dudiUpdates.linkMaps = mapsCheck.normalizedUrl;
+    }
+    if (inputHari && !pickField(matchedDudiRow, 'Hari_Kerja', 'hariKerja', 'hari_kerja')) {
+      dudiUpdates.Hari_Kerja = inputHari;
+      dudiUpdates.hariKerja = inputHari;
+    }
+    if (inputJam && !pickField(matchedDudiRow, 'Jam_Kerja', 'jamKerja', 'jam_kerja')) {
+      dudiUpdates.Jam_Kerja = inputJam;
+      dudiUpdates.jamKerja = inputJam;
+    }
+    if (Object.keys(dudiUpdates).length > 0) {
+      try {
+        const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
+        if (targetDudiId) {
+          await writeSheetDirect('Master_DUDI', 'UPDATE', {
+            id: targetDudiId,
+            ID: targetDudiId,
+            _sheetRowNumber: matchedDudiRow._sheetRowNumber,
+            ...dudiUpdates,
+          });
+        }
+      } catch {
+        // non-blocking backfill
       }
-    } catch {
-      // non-blocking backfill
     }
   }
 
@@ -680,17 +709,26 @@ export async function directFetchDudiStudents(
   success: boolean;
   total: number;
   stageControl: MonitoringStageControl;
+  issuedStages: number[];
+  issuedStageDetails: Record<number, IssuedStageDetail>;
   data: any[];
 }> {
-  const [plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows] = await Promise.all([
-    readSheetDirect('Plotting_Pemberangkatan', true),
-    readSheetDirect('Data_Pengajuan_PKL', true),
-    readMasterSiswaDirect().catch(() => [] as any[]),
-    readSheetDirect('Monitoring_5_Tahap', true),
-    readSheetDirect('Nilai_Dan_Sertifikat', true),
-  ]);
+  const [plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows, logSuratRows] =
+    await Promise.all([
+      readSheetDirect('Plotting_Pemberangkatan', true),
+      readSheetDirect('Data_Pengajuan_PKL', true),
+      readMasterSiswaDirect().catch(() => [] as any[]),
+      readSheetDirect('Monitoring_5_Tahap', true),
+      readSheetDirect('Nilai_Dan_Sertifikat', true),
+      readSheetDirect('Log_Penerbitan_Surat', true).catch(() => [] as any[]),
+    ]);
 
   const stageControl = GoogleSheetClient.getInstance().getMonitoringStageControl();
+  const { issuedStages, issuedStageDetails } = resolveIssuedStagesForDudi(
+    logSuratRows,
+    dudiId,
+    dudiNama
+  );
   const result = buildDudiStudentsWithSummary({
     dudiNama,
     dudiId,
@@ -701,9 +739,17 @@ export async function directFetchDudiStudents(
     monitoringRows,
     nilaiRows,
     stageControl,
+    issuedStages,
   });
 
-  return { success: true, total: result.length, stageControl, data: result };
+  return {
+    success: true,
+    total: result.length,
+    stageControl,
+    issuedStages,
+    issuedStageDetails,
+    data: result,
+  };
 }
 
 export async function directSubmitMonitoring(payload: any) {
@@ -753,6 +799,22 @@ export async function directSubmitMonitoring(payload: any) {
         ? `${stageStr} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).`
         : `${stageStr} sedang dikunci sementara oleh SuperAdmin. Riwayat yang sudah tersimpan hanya dapat dilihat (Read-Only).`
     );
+  }
+
+  if (stageControl.requireIssuedLetter !== false) {
+    const logRows = await readSheetDirect('Log_Penerbitan_Surat', true, true).catch(
+      () => [] as any[]
+    );
+    const { issuedStages } = resolveIssuedStagesForDudi(
+      logRows,
+      String(payload.dudi_id || ''),
+      String(payload.nama_dudi || '')
+    );
+    if (!issuedStages.includes(stageNum)) {
+      throw new Error(
+        `Surat ${stageStr} untuk DUDI "${String(payload.nama_dudi || 'ini').trim()}" belum diterbitkan Admin Hubin di Pusat Dokumen.`
+      );
+    }
   }
 
   const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true).catch(() => [] as any[]);

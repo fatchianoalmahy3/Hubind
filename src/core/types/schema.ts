@@ -22,12 +22,14 @@ export interface MonitoringStageControl {
   requireSequential: boolean;
   unlockedStages: number[];
   lockedReason?: string;
+  requireIssuedLetter?: boolean;
 }
 
 export const DEFAULT_MONITORING_STAGE_CONTROL: MonitoringStageControl = {
   requireSequential: true,
   unlockedStages: [1, 2, 3, 4, 5, 6, 7, 8],
   lockedReason: '',
+  requireIssuedLetter: true,
 };
 
 export interface Siswa {
@@ -115,6 +117,8 @@ export interface Pengajuan {
   namaPemimpin?: string;
   namaPic?: string;
   noTelpDudi?: string;
+  hariKerja?: string;
+  jamKerja?: string;
   linkMaps?: string;
   noWa: string;
   alamatDomisili?: string;
@@ -222,7 +226,7 @@ export interface Monitoring {
   fotoBuktiUrl?: string;
   nilaiDudiTerkumpul?: boolean;
   blangkoSertifikatBawa?: boolean;
-  statusTahap: 'Belum Terlaksana' | 'Terlaksana' | 'Tervalidasi Hubin';
+  statusTahap: 'Belum Terlaksana' | 'Terlaksana' | 'Tervalidasi Kakomli' | 'Tervalidasi Hubin';
 }
 
 export interface Sertifikat {
@@ -245,3 +249,31 @@ export interface Sertifikat {
   statusRaport: 'Belum Diproses' | 'Siap Cetak' | 'Sudah Diterbitkan';
   tanggalTerbit?: string;
 }
+
+export interface LogPenerbitanSurat {
+  id: string;
+  idTerbit?: string;
+  idDudi: string;
+  namaDudi: string;
+  tahap: number;
+  namaTahap: string;
+  statusTerbit: 'Sudah Terbit' | 'Dibatalkan' | string;
+  jenisDokumen?: string;
+  nomorSurat?: string;
+  tanggalTerbit?: string;
+  diterbitkanOleh?: string;
+  guruPendamping?: string;
+  linkPdf?: string;
+  updatedAt?: string;
+}
+
+export interface IssuedStageDetail {
+  tahap: number;
+  statusTerbit: string;
+  jenisDokumen?: string;
+  nomorSurat?: string;
+  tanggalTerbit?: string;
+  diterbitkanOleh?: string;
+  linkPdf?: string;
+}
+

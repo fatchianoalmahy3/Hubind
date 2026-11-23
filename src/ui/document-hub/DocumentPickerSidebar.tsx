@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  CheckCircle2,
   CheckSquare,
   ExternalLink,
   Filter,
@@ -43,6 +44,7 @@ interface DocumentPickerSidebarProps {
   isMultiCheckedMode: boolean;
   batchSuratTugasPages: BatchSuratTugasPage[];
   bundleStageNum: number;
+  suratTugasStageNum: number;
   bundleGuruFilter: string;
   bundleIncludeSt: boolean;
   bundleIncludeMon: boolean;
@@ -53,6 +55,7 @@ interface DocumentPickerSidebarProps {
   bundlePrintPages: BundlePrintPage[];
   missingBundleTemplates: string[];
   generatedBundlePdf: { pdfUrl: string; fileName: string; totalSheets: number } | null;
+  isTargetIssued?: (dudiId: string | undefined, namaDudi: string, tahap: number) => boolean;
   onChangeSearchQuery: (q: string) => void;
   onChangeGuruFilter: (v: string) => void;
   onChangeJurusanFilter: (v: string) => void;
@@ -96,6 +99,7 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
     isMultiCheckedMode,
     batchSuratTugasPages,
     bundleStageNum,
+    suratTugasStageNum,
     bundleGuruFilter,
     bundleIncludeSt,
     bundleIncludeMon,
@@ -106,6 +110,7 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
     bundlePrintPages,
     missingBundleTemplates,
     generatedBundlePdf,
+    isTargetIssued,
     onChangeSearchQuery,
     onChangeGuruFilter,
     onChangeJurusanFilter,
@@ -347,6 +352,7 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
             ) : (
               bundleDudiItems.map((b) => {
                 const isChecked = !b.isLocked && Boolean(checkedBundleKeys[b.bundleKey]);
+                const isIssued = Boolean(isTargetIssued?.(b.dudiId, b.namaDudi, bundleStageNum));
                 const sheetCountForDudi =
                   (bundleIncludeSt ? 1 : 0) +
                   (bundleIncludeMon ? 1 : 0) +
@@ -359,7 +365,7 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
                     title={
                       b.isLocked
                         ? `Terkunci: ${b.pendingStudents.join(', ')} belum selesai Tahap ${bundleStageNum - 1}`
-                        : `${b.namaDudi} · Guru: ${b.guruNama}`
+                        : `${b.namaDudi} · Guru: ${b.guruNama}${isIssued ? ` · Surat Tahap ${bundleStageNum} Sudah Terbit` : ''}`
                     }
                     onClick={() =>
                       onSetCheckedBundleKeys((prev) => ({
@@ -387,6 +393,15 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
                     <div className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-900">
                       {b.namaDudi}
                     </div>
+                    {isIssued && (
+                      <span
+                        title={`Surat Tahap ${bundleStageNum} sudah terbit`}
+                        className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700"
+                      >
+                        <CheckCircle2 className="w-3 h-3 shrink-0" />
+                        <span>Terbit</span>
+                      </span>
+                    )}
                     <span className="shrink-0 text-[10.5px] font-medium text-slate-500 tabular-nums">
                       {b.isLocked
                         ? `Kunci T${bundleStageNum - 1}`
@@ -585,6 +600,17 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
             filteredItems.map((item, idx) => {
               const isChecked = Boolean(checkedItemIds[item.id]);
               const isFocused = !isMultiCheckedMode && activeItem?.id === item.id;
+              const targetStageForDoc =
+                activeDocKey === 'doc_pengantaran'
+                  ? 1
+                  : activeDocKey === 'doc_penarikan'
+                  ? 8
+                  : activeDocKey === 'doc_monitoring'
+                  ? suratTugasStageNum
+                  : 0;
+              const isIssued =
+                targetStageForDoc > 0 &&
+                Boolean(isTargetIssued?.(item.dudiId, item.title, targetStageForDoc));
               return (
                 <div
                   key={`${item.id || 'doc'}_${idx}`}
@@ -637,9 +663,20 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
                     <span className="text-xs font-semibold text-slate-900 truncate">
                       {item.title}
                     </span>
-                    <span className="shrink-0 text-[10.5px] font-medium text-slate-500 tabular-nums">
-                      {item.badge}
-                    </span>
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {isIssued && (
+                        <span
+                          title={`Surat Tahap ${targetStageForDoc} sudah terbit`}
+                          className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700"
+                        >
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          <span>Terbit</span>
+                        </span>
+                      )}
+                      <span className="text-[10.5px] font-medium text-slate-500 tabular-nums">
+                        {item.badge}
+                      </span>
+                    </div>
                   </button>
                 </div>
               );
