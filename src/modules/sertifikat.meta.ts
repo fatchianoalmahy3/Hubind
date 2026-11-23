@@ -120,6 +120,16 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       relationSource: 'kelas',
     },
     {
+      key: 'idDudi',
+      label: 'ID DUDI',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis dari Master DUDI',
+      helperText: 'Terisi otomatis saat memilih Mitra DUDI',
+    },
+    {
       key: 'dudiTujuan',
       label: 'Mitra DUDI',
       type: 'text',
@@ -186,6 +196,8 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isTableColumn: true,
       isFormInput: true,
       isFilterable: true,
+      disabled: true,
+      helperText: 'Otomatis terhitung dari rata-rata nilai',
       options: [
         { label: 'Sangat Baik (A)', value: 'Sangat Baik (A)', badgeColor: 'bg-emerald-100 text-emerald-800' },
         { label: 'Baik (B)', value: 'Baik (B)', badgeColor: 'bg-blue-100 text-blue-800' },

@@ -1,7 +1,21 @@
+import type {
+  AktivitasSikapRating,
+  BukuLaporanStatus,
+  KondisiBengkelCheck,
+} from '../../core/types/schema';
+import { EMPTY_KONDISI_BENGKEL } from '../../core/utils/monitoringHelpers';
+
 export interface StudentStageDraft {
   sakit: number;
   izin: number;
   alpha: number;
+  bukuLaporan: BukuLaporanStatus | '';
+  aktivitasDp: AktivitasSikapRating | '';
+  aktivitasMt: AktivitasSikapRating | '';
+  aktivitasKrt: AktivitasSikapRating | '';
+  kompetensiList: string[];
+  kondisiBengkel: KondisiBengkelCheck;
+  ttdSiswa: string;
   nilaiPklMuncul: boolean | null;
   nilaiK3lh: number;
   nilaiSoftskill: number;
@@ -21,6 +35,13 @@ export const DEFAULT_DRAFT: StudentStageDraft = {
   sakit: 0,
   izin: 0,
   alpha: 0,
+  bukuLaporan: '',
+  aktivitasDp: '',
+  aktivitasMt: '',
+  aktivitasKrt: '',
+  kompetensiList: ['', ''],
+  kondisiBengkel: { ...EMPTY_KONDISI_BENGKEL },
+  ttdSiswa: '',
   nilaiPklMuncul: null,
   nilaiK3lh: 0,
   nilaiSoftskill: 0,
@@ -69,3 +90,26 @@ export function getStudentKey(student: any, fallbackIdx = 0): string {
   if (!student) return `stu_${fallbackIdx}`;
   return String(student.nis && student.nis !== '-' ? student.nis : student.id || `stu_${fallbackIdx}`);
 }
+
+export interface MonitoringSaveReceipt {
+  idMonitoring: string;
+  studentName: string;
+  studentNis: string;
+  dudiName: string;
+  stageNum: number;
+  stageLabel: string;
+  sakit: number;
+  izin: number;
+  alpha: number;
+  bukuLaporan: string;
+  ttdSigned: boolean;
+  gradeAvg?: number;
+  gradePredikat?: string;
+  gradeSynced?: boolean;
+  verifiedInSpreadsheet: boolean;
+  sheetRowNumber?: number;
+  savedAt: string;
+  nextStudentIndex?: number;
+  nextStudentName?: string;
+}
+

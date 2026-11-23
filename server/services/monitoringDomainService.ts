@@ -1,4 +1,3 @@
-import { getPredikatFromScore } from '../../src/core/utils/monitoringHelpers';
 import { stripNisSymbols } from '../../src/core/utils/nisHelpers';
 import { normalizeStr, pickField } from '../../src/core/utils/rowFieldHelpers';
 import { fetchLiveSheetViaGas, writeLiveSheetViaGas } from './sheetsTransport';
@@ -10,6 +9,8 @@ export interface SyncDudiContactInput {
   namaPemimpin: string;
   namaPic: string;
   noTelpDudi: string;
+  hariKerja?: string;
+  jamKerja?: string;
   createIfMissing?: boolean;
   overwriteExisting?: boolean;
 }
@@ -23,9 +24,11 @@ export async function syncDudiContactToMasterAndPengajuan(
   const inputPemimpin = String(input.namaPemimpin || '').trim();
   const inputPic = String(input.namaPic || '').trim();
   const inputTelpDudi = String(input.noTelpDudi || '').trim();
+  const inputHariKerja = String(input.hariKerja || '').trim();
+  const inputJamKerja = String(input.jamKerja || '').trim();
   const overwrite = input.overwriteExisting !== false;
 
-  if (!inputPemimpin && !inputPic && !inputTelpDudi) {
+  if (!inputPemimpin && !inputPic && !inputTelpDudi && !inputHariKerja && !inputJamKerja) {
     return false;
   }
 
@@ -51,6 +54,12 @@ export async function syncDudiContactToMasterAndPengajuan(
     const nextTelp = overwrite
       ? inputTelpDudi || pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic')
       : pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') || inputTelpDudi;
+    const nextHariKerja = overwrite
+      ? inputHariKerja || pickField(existingDudi, 'Hari_Kerja', 'hariKerja')
+      : pickField(existingDudi, 'Hari_Kerja', 'hariKerja') || inputHariKerja;
+    const nextJamKerja = overwrite
+      ? inputJamKerja || pickField(existingDudi, 'Jam_Kerja', 'jamKerja')
+      : pickField(existingDudi, 'Jam_Kerja', 'jamKerja') || inputJamKerja;
 
     await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
       ...existingDudi,
@@ -64,6 +73,10 @@ export async function syncDudiContactToMasterAndPengajuan(
       kontakPic: nextTelp,
       No_Telp_DUDI: nextTelp,
       noTelpDudi: nextTelp,
+      Hari_Kerja: nextHariKerja,
+      hariKerja: nextHariKerja,
+      Jam_Kerja: nextJamKerja,
+      jamKerja: nextJamKerja,
     });
     synced = true;
   } else if (input.createIfMissing !== false && targetDudiNameRaw) {
@@ -82,8 +95,9 @@ export async function syncDudiContactToMasterAndPengajuan(
       Nama_PIC: inputPic,
       Kontak_PIC: inputTelpDudi,
       No_Telp_DUDI: inputTelpDudi,
+      Hari_Kerja: inputHariKerja,
+      Jam_Kerja: inputJamKerja,
       Kuota_Maksimal: 4,
-      Terisi: 1,
       Status_Kerjasama: 'Mitra Baru',
     });
     synced = true;
@@ -104,10 +118,11 @@ export async function syncDudiContactToMasterAndPengajuan(
     return isTarget && hasBlankContact;
   });
 
+  const pengajuanUpdates: any[] = [];
   for (const mr of matchingReqs.slice(0, 10)) {
     const mrId = pickField(mr, 'No_Pengajuan', 'noPengajuan', 'id');
     if (!mrId) continue;
-    await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'UPDATE', {
+    pengajuanUpdates.push({
       ...mr,
       id: mrId,
       No_Pengajuan: mrId,
@@ -115,6 +130,13 @@ export async function syncDudiContactToMasterAndPengajuan(
       Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || inputPic,
       No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || inputTelpDudi,
       Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || inputTelpDudi,
+    });
+  }
+
+  if (pengajuanUpdates.length > 0) {
+    await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'BULK_UPDATE', {
+      ids: pengajuanUpdates.map((r) => r.id),
+      updatedRows: pengajuanUpdates,
     }).catch(() => {});
   }
 
@@ -124,6 +146,7 @@ export async function syncDudiContactToMasterAndPengajuan(
 export interface UpsertNilaiSertifikatInput {
   nis: string;
   idPenempatan: string;
+  idDudi?: string;
   namaSiswa: string;
   jurusan: string;
   kelas: string;
@@ -136,10 +159,28 @@ export interface UpsertNilaiSertifikatInput {
   tglTerbit: string;
 }
 
+/**
+ * Grade SSOT: Monitoring_5_Tahap owns the 4 PKL score components.
+ * Nilai_Dan_Sertifikat persists only FK + administrative/certificate metadata
+ * (ID_Penempatan, NIS, ID_DUDI, No_Seri_Blangko, Status_Blangko, Status_Raport, Tgl_Terbit);
+ * student/DUDI display & grade columns are populated via Row-1 ARRAYFORMULA.
+ */
 export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput): Promise<void> {
   const nilaiRes = await fetchLiveSheetViaGas('Nilai_Dan_Sertifikat', true).catch(() => ({ rows: [] as any[] }));
   const cleanNis = stripNisSymbols(input.nis) || String(input.nis || '').trim();
   const idPenempatan = String(input.idPenempatan || `PLT-${cleanNis}`).trim();
+
+  let resolvedDudiId = String(input.idDudi || '').trim();
+  if (!resolvedDudiId && input.namaDudi) {
+    const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', false).catch(() => ({ rows: [] as any[] }));
+    const targetDudiNorm = normalizeStr(input.namaDudi);
+    const matchedDudi = dudiRes.rows.find(
+      (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === targetDudiNorm
+    );
+    if (matchedDudi) {
+      resolvedDudiId = pickField(matchedDudi, 'ID', 'id');
+    }
+  }
 
   const existingNilai = nilaiRes.rows.find((n: any) => {
     const rowNis = pickField(n, 'NIS', 'nis');
@@ -148,35 +189,26 @@ export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput
     return (cleanNis && (rowNisDigits === cleanNis || rowNis === cleanNis)) || (idPenempatan && rowPlt === idPenempatan);
   });
 
-  const roundedDudi = Math.round(input.avgScore * 10) / 10;
-  const finalPredikat = getPredikatFromScore(roundedDudi);
-
   if (existingNilai) {
     const existingId = pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
+    const existingDudiId = pickField(existingNilai, 'ID_DUDI', 'idDudi') || resolvedDudiId;
     await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'UPDATE', {
-      ...existingNilai,
       id: existingId,
       ID_Penempatan: existingId,
-      Nilai_K3LH: input.k3lh,
-      nilaiK3lh: input.k3lh,
-      Nilai_Softskills: input.softskill,
-      Nilai_Softskill: input.softskill,
-      nilaiSoftskill: input.softskill,
-      Nilai_Hardskills: input.teknis,
-      Nilai_Kompetensi_Teknis: input.teknis,
-      nilaiKompetensiTeknis: input.teknis,
-      Nilai_Alur_Bisnis_Dunia_Kerja: input.alurBisnis,
-      Nilai_Alur_Bisnis: input.alurBisnis,
-      nilaiAlurBisnis: input.alurBisnis,
-      Nilai_rata_rata: roundedDudi,
-      Nilai_Rata_Rata: roundedDudi,
-      nilaiRataRata: roundedDudi,
-      Nilai_DUDI: roundedDudi,
-      nilaiDudi: roundedDudi,
-      Predikat: finalPredikat,
-      predikat: finalPredikat,
+      idPenempatan: existingId,
+      _sheetRowNumber: existingNilai._sheetRowNumber,
+      NIS: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
+      nis: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
+      ID_DUDI: existingDudiId,
+      idDudi: existingDudiId,
+      No_Seri_Blangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
+      noSeriBlangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
+      Status_Blangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
+      statusBlangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
       Status_Raport: 'Siap Cetak',
       statusRaport: 'Siap Cetak',
+      Tgl_Terbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || input.tglTerbit,
+      tanggalTerbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || input.tglTerbit,
     });
     return;
   }
@@ -187,32 +219,8 @@ export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput
     idPenempatan,
     NIS: cleanNis,
     nis: cleanNis,
-    Nama_Siswa: input.namaSiswa,
-    namaSiswa: input.namaSiswa,
-    Jurusan: input.jurusan,
-    jurusan: input.jurusan,
-    Kelas: input.kelas || '-',
-    kelas: input.kelas || '-',
-    DUDI_Tujuan: input.namaDudi,
-    dudiTujuan: input.namaDudi,
-    Nilai_K3LH: input.k3lh,
-    nilaiK3lh: input.k3lh,
-    Nilai_Softskills: input.softskill,
-    Nilai_Softskill: input.softskill,
-    nilaiSoftskill: input.softskill,
-    Nilai_Hardskills: input.teknis,
-    Nilai_Kompetensi_Teknis: input.teknis,
-    nilaiKompetensiTeknis: input.teknis,
-    Nilai_Alur_Bisnis_Dunia_Kerja: input.alurBisnis,
-    Nilai_Alur_Bisnis: input.alurBisnis,
-    nilaiAlurBisnis: input.alurBisnis,
-    Nilai_rata_rata: roundedDudi,
-    Nilai_Rata_Rata: roundedDudi,
-    nilaiRataRata: roundedDudi,
-    Nilai_DUDI: roundedDudi,
-    nilaiDudi: roundedDudi,
-    Predikat: finalPredikat,
-    predikat: finalPredikat,
+    ID_DUDI: resolvedDudiId,
+    idDudi: resolvedDudiId,
     No_Seri_Blangko: '',
     noSeriBlangko: '',
     Status_Blangko: 'Tersedia',

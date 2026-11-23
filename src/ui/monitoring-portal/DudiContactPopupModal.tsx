@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle, Building2, Loader2, Save } from 'lucide-react';
+import { WorkScheduleRangeInputs } from './WorkScheduleRangeInputs';
 
 interface DudiContactPopupModalProps {
   isOpen: boolean;
@@ -7,12 +8,20 @@ interface DudiContactPopupModalProps {
   pemimpin: string;
   pic: string;
   telp: string;
+  hariMulai: string;
+  hariSelesai: string;
+  jamMulai: string;
+  jamSelesai: string;
   spellingConfirmed: boolean;
   error: string;
   saving: boolean;
   onChangePemimpin: (v: string) => void;
   onChangePic: (v: string) => void;
   onChangeTelp: (v: string) => void;
+  onChangeHariMulai: (v: string) => void;
+  onChangeHariSelesai: (v: string) => void;
+  onChangeJamMulai: (v: string) => void;
+  onChangeJamSelesai: (v: string) => void;
   onChangeSpellingConfirmed: (v: boolean) => void;
   onBackToDudiList: () => void;
   onSubmit: (e: React.FormEvent) => void;
@@ -24,12 +33,20 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
   pemimpin,
   pic,
   telp,
+  hariMulai,
+  hariSelesai,
+  jamMulai,
+  jamSelesai,
   spellingConfirmed,
   error,
   saving,
   onChangePemimpin,
   onChangePic,
   onChangeTelp,
+  onChangeHariMulai,
+  onChangeHariSelesai,
+  onChangeJamMulai,
+  onChangeJamSelesai,
   onChangeSpellingConfirmed,
   onBackToDudiList,
   onSubmit,
@@ -38,11 +55,11 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-xs"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-slate-950/65 backdrop-blur-xs"
       onClick={(e) => e.stopPropagation()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[94dvh] sm:max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-slate-200 bg-amber-50/80 flex items-start gap-3">
@@ -105,6 +122,18 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
               className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
+
+          <WorkScheduleRangeInputs
+            hariMulai={hariMulai}
+            hariSelesai={hariSelesai}
+            jamMulai={jamMulai}
+            jamSelesai={jamSelesai}
+            disabled={saving}
+            onChangeHariMulai={onChangeHariMulai}
+            onChangeHariSelesai={onChangeHariSelesai}
+            onChangeJamMulai={onChangeJamMulai}
+            onChangeJamSelesai={onChangeJamSelesai}
+          />
 
           <label className="p-3 rounded-xl border border-blue-200 bg-blue-50/70 flex items-start gap-2.5 cursor-pointer select-none">
             <input

@@ -102,6 +102,10 @@ export const PublicPortalClient = {
 
   async submitApplication(payload: any): Promise<{
     success: boolean;
+    verifiedInSpreadsheet?: boolean;
+    sheetRowNumber?: number;
+    savedAt?: string;
+    deduplicated?: boolean;
     message: string;
     application: any;
   }> {
@@ -186,11 +190,13 @@ export const PublicPortalClient = {
     nama_pemimpin: string;
     nama_pic: string;
     no_telp_dudi: string;
+    hari_kerja?: string;
+    jam_kerja?: string;
     spelling_confirmed: boolean;
   }): Promise<{
     success: boolean;
     message: string;
-    dudiContact: { namaPemimpin: string; pic: string; kontak: string };
+    dudiContact: { namaPemimpin: string; pic: string; kontak: string; hariKerja?: string; jamKerja?: string };
   }> {
     const inputPemimpin = String(payload.nama_pemimpin || '').trim();
     const inputPic = String(payload.nama_pic || '').trim();
@@ -374,9 +380,12 @@ export const PublicPortalClient = {
 
   async submitMonitoring(payload: any): Promise<{
     success: boolean;
+    verifiedInSpreadsheet?: boolean;
+    sheetRowNumber?: number;
+    savedAt?: string;
     gradeSynced?: boolean;
     dudiContactSynced?: boolean;
-    dudiContact?: { namaPemimpin: string; pic: string; kontak: string };
+    dudiContact?: { namaPemimpin: string; pic: string; kontak: string; hariKerja?: string; jamKerja?: string };
     message: string;
     monitoring: any;
   }> {

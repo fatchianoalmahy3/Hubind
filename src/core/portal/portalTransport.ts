@@ -1,5 +1,6 @@
 import { GoogleSheetClient } from '../GoogleSheetClient';
 import { GoogleDriveSheetService } from '../GoogleDriveSheetService';
+import { getDependentSheets } from '../types/sheetBlueprint';
 import { getFirebaseIdToken } from '../auth/GoogleAuthService';
 import { getAdminSessionToken } from '../auth/LocalAccountAuthService';
 import {
@@ -98,19 +99,27 @@ export async function fetchGasGet(
   }
 }
 
+export interface GasWriteReceipt {
+  verified: boolean;
+  savedId?: string;
+  sheetRowNumber?: number;
+  savedAt: string;
+}
+
 export async function fetchGasPost(
   sheetName: string,
   action: 'CREATE' | 'UPDATE',
   payload: any,
   cfg: Awaited<ReturnType<typeof ensureHydratedConfig>>
-): Promise<void> {
+): Promise<GasWriteReceipt> {
   const gasUrl = assertValidGasConfig(
     cfg,
     'Layanan Cloud Server untuk portal publik belum dikonfigurasi oleh Admin Hubin.'
   );
-  const preparedPayload = GoogleDriveSheetService.getInstance().prepareOutgoingRecord(
+  const sheetSvc = GoogleDriveSheetService.getInstance();
+  const preparedPayload = sheetSvc.stripFormulaManagedFields(
     sheetName,
-    payload
+    sheetSvc.prepareOutgoingRecord(sheetName, payload)
   );
   const rawId =
     preparedPayload?.id || preparedPayload?.ID_Monitoring || preparedPayload?.ID_Penempatan || '';
@@ -137,6 +146,15 @@ export async function fetchGasPost(
     if (!ok || json?.error) {
       throw new Error(json?.error || `Gagal menyimpan data ke Cloud Server (HTTP ${status}).`);
     }
+    return {
+      verified: json?.verified !== false,
+      savedId: typeof json?.savedId === 'string' ? json.savedId : String(cleanId || rawId || ''),
+      sheetRowNumber:
+        typeof json?.sheetRowNumber === 'number' && json.sheetRowNumber >= 2
+          ? json.sheetRowNumber
+          : undefined,
+      savedAt: typeof json?.savedAt === 'string' && json.savedAt ? json.savedAt : new Date().toISOString(),
+    };
   } catch (err: any) {
     if (err instanceof HtmlResponseError && err.isGoogleAuth) {
       throw new Error(
@@ -212,15 +230,25 @@ export async function writeSheetDirect(
   sheetName: string,
   action: 'CREATE' | 'UPDATE',
   payload: any
-): Promise<void> {
+): Promise<GasWriteReceipt> {
   const cfg = await ensureHydratedConfig();
-  await fetchGasPost(sheetName, action, payload, cfg);
+  const receipt = await fetchGasPost(sheetName, action, payload, cfg);
   directSheetCache.delete(`${cfg.spreadsheetId}::${sheetName}`);
-  GoogleSheetClient.getInstance().invalidateClientSheetCache(sheetName);
-  await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
-    method: 'POST',
-    timeoutMs: 2_500,
-  }).catch(() => {});
+  const sheetClient = GoogleSheetClient.getInstance();
+  sheetClient.invalidateClientSheetCache(sheetName);
+  for (const dep of getDependentSheets(sheetName)) {
+    directSheetCache.delete(`${cfg.spreadsheetId}::${dep}`);
+    sheetClient.invalidateClientSheetCache(dep);
+  }
+  const token = await resolveAuthToken().catch(() => null);
+  if (token) {
+    await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 2_500,
+    }).catch(() => {});
+  }
+  return receipt;
 }
 
 /**

@@ -231,6 +231,16 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
       helperText: 'Terisi otomatis berurutan saat membuat berkas baru',
     },
     {
+      key: 'idDudi',
+      label: 'ID DUDI',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis dari Master DUDI',
+      helperText: 'Terisi otomatis saat memilih mitra DUDI',
+    },
+    {
       key: 'dudiTujuan',
       label: 'Tujuan DUDI',
       type: 'text',

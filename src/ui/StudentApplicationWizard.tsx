@@ -1,30 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-  X,
-  Search,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
-  ArrowLeft,
-  FileText,
-  Printer,
-  ShieldCheck,
-  Building2,
-  UserCheck,
-  MapPin,
-  Loader2,
-  ExternalLink,
-} from 'lucide-react';
-import { GoogleSheetClient } from '../core/GoogleSheetClient';
-import { PublicPortalClient } from '../core/PublicPortalClient';
-import { ToastManager } from '../core/ToastManager';
-import {
-  formatNisVisual,
-  handleNisKeyDown,
-  processNisInputChange,
-  stripNisSymbols,
-} from '../core/utils/nisHelpers';
-import { validateGoogleMapsUrl } from '../core/utils/mapsHelpers';
+import React, { useEffect } from 'react';
+import { FileText, Loader2, X } from 'lucide-react';
+import { useStudentWizard } from './student-wizard/useStudentWizard';
+import { WizardSuccessView } from './student-wizard/WizardSuccessView';
+import { WizardStep1Identity } from './student-wizard/WizardStep1Identity';
+import { WizardStep2Bio } from './student-wizard/WizardStep2Bio';
+import { WizardStep3DudiMap } from './student-wizard/WizardStep3DudiMap';
 
 interface StudentApplicationWizardProps {
   isOpen: boolean;
@@ -37,295 +17,43 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
   onClose,
   onSuccessOpenDocs,
 }) => {
-  const activeYear = GoogleSheetClient.getInstance().getActiveYear();
-
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-
-  // Step 1: NIS Search & Identity Confirmation
-  const [nisInput, setNisInput] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [studentData, setStudentData] = useState<any>(null);
-  const [searchError, setSearchError] = useState('');
-  const [identityStatus, setIdentityStatus] = useState<'pending' | 'confirmed' | 'mismatch'>('pending');
-
-  // Step 2: Student & Parent Bio
-  const [telepon, setTelepon] = useState('');
-  const [alamatDomisili, setAlamatDomisili] = useState('');
-  const [namaOrtu, setNamaOrtu] = useState('');
-  const [teleponOrtu, setTeleponOrtu] = useState('');
-  const [bioError, setBioError] = useState('');
-
-  // Step 3: DUDI Selection + Bio DUDI + Link Google Maps
-  const [dudiList, setDudiList] = useState<any[]>([]);
-  const [loadingDudi, setLoadingDudi] = useState(false);
-  const [dudiLoadError, setDudiLoadError] = useState('');
-  const [selectedDudiId, setSelectedDudiId] = useState('');
-  const [isDudiUnregistered, setIsDudiUnregistered] = useState(false);
-  const [selectedDudiMeta, setSelectedDudiMeta] = useState<any>(null);
-  const [customDudiName, setCustomDudiName] = useState('');
-  const [customDudiAddress, setCustomDudiAddress] = useState('');
-  const [customDudiField, setCustomDudiField] = useState('');
-  const [linkMaps, setLinkMaps] = useState('');
-
-  const mapsValidation = useMemo(
-    () => (linkMaps.trim() ? validateGoogleMapsUrl(linkMaps) : null),
-    [linkMaps]
-  );
-
-  // Submission State
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [submissionResult, setSubmissionResult] = useState<any>(null);
+  const wizard = useStudentWizard(isOpen);
 
   useEffect(() => {
-    if (isOpen) {
-      loadDudiList();
-    }
-  }, [isOpen]);
-
-  const loadDudiList = async () => {
-    setLoadingDudi(true);
-    setDudiLoadError('');
-    try {
-      const json = await PublicPortalClient.getDudiList({
-        onUpdate: (freshJson) => {
-          if (freshJson?.success && Array.isArray(freshJson.data)) {
-            setDudiList(freshJson.data);
-          }
-        },
-      });
-      if (!json.success) {
-        const msg = 'Gagal membaca daftar DUDI dari Cloud Server.';
-        setDudiList([]);
-        setDudiLoadError(msg);
-        ToastManager.getInstance().show('Gagal Memuat DUDI', 'error', msg);
-        return;
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (wizard.submitting) {
+          e.preventDefault();
+          return;
+        }
+        onClose();
       }
-      setDudiList(Array.isArray(json.data) ? json.data : []);
-    } catch (e: any) {
-      const msg = e?.message || 'Tidak dapat terhubung ke Cloud Server.';
-      setDudiList([]);
-      setDudiLoadError(msg);
-      ToastManager.getInstance().show('Gagal Memuat DUDI', 'error', msg);
-    } finally {
-      setLoadingDudi(false);
-    }
-  };
-
-  const resetForm = () => {
-    setCurrentStep(1);
-    setNisInput('');
-    setStudentData(null);
-    setSearchError('');
-    setIdentityStatus('pending');
-    setTelepon('');
-    setAlamatDomisili('');
-    setNamaOrtu('');
-    setTeleponOrtu('');
-    setBioError('');
-    setSelectedDudiId('');
-    setIsDudiUnregistered(false);
-    setSelectedDudiMeta(null);
-    setCustomDudiName('');
-    setCustomDudiAddress('');
-    setCustomDudiField('');
-    setLinkMaps('');
-    setSubmitError('');
-    setSubmissionResult(null);
-  };
-
-  const handleLookupNis = async (nisToSearch?: string) => {
-    const nis = stripNisSymbols(nisToSearch ?? nisInput);
-    if (!nis) {
-      setSearchError('Silakan masukkan NIS (angka saja) terlebih dahulu.');
-      return;
-    }
-
-    setSearching(true);
-    setSearchError('');
-    setStudentData(null);
-    setIdentityStatus('pending');
-
-    try {
-      const json = await PublicPortalClient.lookupStudentByNis(nis);
-
-      if (!json.success) {
-        const msg = json.message || 'Gagal mengakses data siswa di Cloud Server.';
-        setSearchError(msg);
-        ToastManager.getInstance().show('Gagal Mencari NIS', 'error', msg);
-        return;
-      }
-
-      if (json.found && json.student) {
-        setStudentData(json.student);
-        setTelepon(json.student.telepon || '');
-        setAlamatDomisili(json.student.alamat_domisili || '');
-        setNamaOrtu(json.student.nama_wali || '');
-        setTeleponOrtu(json.student.telepon_wali || '');
-      } else {
-        setSearchError(
-          json.message ||
-            `Siswa dengan NIS [${formatNisVisual(nis)}] tidak ditemukan di Database Sekolah.`
-        );
-      }
-    } catch (e: any) {
-      const msg = e?.message || 'Gagal mencari NIS. Periksa koneksi internet Anda.';
-      setSearchError(msg);
-      ToastManager.getInstance().show('Gagal Mencari NIS', 'error', msg);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleConfirmIdentity = (isMatch: boolean) => {
-    if (isMatch) {
-      setIdentityStatus('confirmed');
-      setCurrentStep(2);
-    } else {
-      setIdentityStatus('mismatch');
-    }
-  };
-
-  const handleValidateBioAndNext = () => {
-    setBioError('');
-    const waDigits = telepon.replace(/\D/g, '');
-    const parentWaDigits = teleponOrtu.replace(/\D/g, '');
-
-    if (!telepon.trim() || waDigits.length < 9) {
-      setBioError('Nomor WhatsApp Siswa wajib diisi dengan benar (minimal 9 digit angka).');
-      return;
-    }
-    if (!namaOrtu.trim()) {
-      setBioError('Nama Orang Tua / Wali wajib diisi.');
-      return;
-    }
-    if (!alamatDomisili.trim()) {
-      setBioError('Alamat Domisili Siswa wajib diisi lengkap.');
-      return;
-    }
-    if (!teleponOrtu.trim() || parentWaDigits.length < 9) {
-      setBioError('Nomor Telepon / WhatsApp Orang Tua wajib diisi dengan benar (minimal 9 digit angka).');
-      return;
-    }
-
-    setCurrentStep(3);
-  };
-
-  const handleDudiChange = (val: string) => {
-    setSelectedDudiId(val);
-    setSubmitError('');
-
-    if (!val) {
-      setIsDudiUnregistered(false);
-      setSelectedDudiMeta(null);
-      setCustomDudiName('');
-      setCustomDudiAddress('');
-      setCustomDudiField('');
-      setLinkMaps('');
-      return;
-    }
-
-    if (val === 'unregistered') {
-      setIsDudiUnregistered(true);
-      setSelectedDudiMeta(null);
-      setCustomDudiName('');
-      setCustomDudiAddress('');
-      setCustomDudiField('');
-      setLinkMaps('');
-    } else {
-      setIsDudiUnregistered(false);
-      const chosen = dudiList.find((d) => d.id === val);
-      setSelectedDudiMeta(chosen || null);
-      if (chosen) {
-        setCustomDudiName(chosen.nama_dudi || '');
-        setCustomDudiAddress(chosen.alamat || chosen.kota || '');
-        setCustomDudiField(chosen.bidang_usaha || '');
-        setLinkMaps(chosen.link_maps || '');
-      }
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitError('');
-
-    if (!studentData || identityStatus !== 'confirmed') {
-      setCurrentStep(1);
-      setSearchError('Harap cari NIS dan konfirmasi kesesuaian data terlebih dahulu.');
-      return;
-    }
-
-    if (!selectedDudiId) {
-      setSubmitError('Silakan pilih DUDI tujuan Anda.');
-      return;
-    }
-
-    if (isDudiUnregistered && !customDudiName.trim()) {
-      setSubmitError('Silakan ketik nama perusahaan / DUDI yang dituju.');
-      return;
-    }
-
-    if (isDudiUnregistered && !customDudiAddress.trim()) {
-      setSubmitError('Silakan ketik alamat lengkap perusahaan / DUDI.');
-      return;
-    }
-
-    const mapsCheck = validateGoogleMapsUrl(linkMaps);
-    if (!mapsCheck.valid) {
-      setSubmitError(mapsCheck.error || 'Link Google Maps lokasi tempat PKL tidak valid.');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const payload = {
-        nis: stripNisSymbols(studentData.nis) || studentData.nis,
-        nama: studentData.nama,
-        kelas: studentData.kelas,
-        jurusan: studentData.jurusan,
-        telepon: telepon.trim(),
-        alamat_domisili: alamatDomisili.trim(),
-        nama_orang_tua: namaOrtu.trim(),
-        telepon_orang_tua: teleponOrtu.trim(),
-        dudi_id: isDudiUnregistered ? 'custom_hubin' : selectedDudiId,
-        nama_dudi: customDudiName.trim(),
-        alamat_dudi: customDudiAddress.trim(),
-        bidang_dudi: customDudiField.trim() || '-',
-        link_maps: mapsCheck.normalizedUrl,
-        is_dudi_unregistered: isDudiUnregistered,
-      };
-
-      const json = await PublicPortalClient.submitApplication(payload);
-
-      if (json.success && json.application) {
-        setSubmissionResult(json.application);
-      } else {
-        setSubmitError(
-          json.message || 'Gagal mengirim pengajuan ke Cloud Server. Hubungi Admin Hubin.'
-        );
-      }
-    } catch (e: any) {
-      setSubmitError(e?.message || 'Gagal mengirim pengajuan. Periksa koneksi internet Anda.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, wizard.submitting, onClose]);
 
   if (!isOpen) return null;
 
+  const handleSafeClose = () => {
+    if (wizard.submitting) return;
+    onClose();
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={handleSafeClose}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl border border-slate-200/90 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden"
+        className="relative bg-white rounded-none sm:rounded-3xl shadow-2xl border border-slate-200/90 w-full max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
               <FileText className="w-5 h-5" />
             </div>
             <div className="min-w-0">
@@ -333,48 +61,53 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
                 Portal Pengajuan PKL Siswa Mandiri
               </h2>
               <p className="text-xs text-slate-500 truncate">
-                Tahun Ajaran {activeYear} · Terhubung Cloud Server Sekolah
+                Tahun Ajaran {wizard.activeYear} · Terhubung Cloud Server Sekolah
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            disabled={wizard.submitting}
+            onClick={handleSafeClose}
             aria-label="Tutup portal pengajuan"
-            className="min-w-[40px] min-h-[40px] rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer shrink-0"
+            className="min-w-[40px] min-h-[40px] rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {(searching || loadingDudi || submitting) && (
-          <div className="progress-sweep-track shrink-0" role="progressbar" aria-label="Memproses data Cloud Server">
+        {(wizard.searching || wizard.loadingDudi || wizard.submitting) && (
+          <div
+            className="progress-sweep-track shrink-0"
+            role="progressbar"
+            aria-label="Memproses data Cloud Server"
+          >
             <div className="progress-sweep-bar" />
           </div>
         )}
 
         {/* Step Indicator */}
-        {!submissionResult && (
+        {!wizard.submissionResult && (
           <div className="px-5 sm:px-6 py-3 bg-slate-50 border-b border-slate-200/70 flex items-center justify-between gap-2 text-xs font-semibold shrink-0 overflow-x-auto">
             <div
               className={`flex items-center gap-2 whitespace-nowrap ${
-                currentStep === 1
+                wizard.currentStep === 1
                   ? 'text-blue-700 font-bold'
-                  : identityStatus === 'confirmed'
+                  : wizard.identityStatus === 'confirmed'
                   ? 'text-emerald-700'
                   : 'text-slate-500'
               }`}
             >
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-                  currentStep > 1 && identityStatus === 'confirmed'
+                  wizard.currentStep > 1 && wizard.identityStatus === 'confirmed'
                     ? 'bg-emerald-600 text-white'
-                    : currentStep === 1
+                    : wizard.currentStep === 1
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-200 text-slate-600'
                 }`}
               >
-                {currentStep > 1 && identityStatus === 'confirmed' ? '✓' : '1'}
+                {wizard.currentStep > 1 && wizard.identityStatus === 'confirmed' ? '✓' : '1'}
               </span>
               <span>Cek &amp; Konfirmasi NIS</span>
             </div>
@@ -385,23 +118,23 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
 
             <div
               className={`flex items-center gap-2 whitespace-nowrap ${
-                currentStep === 2
+                wizard.currentStep === 2
                   ? 'text-blue-700 font-bold'
-                  : currentStep > 2
+                  : wizard.currentStep > 2
                   ? 'text-emerald-700'
                   : 'text-slate-400'
               }`}
             >
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-                  currentStep > 2
+                  wizard.currentStep > 2
                     ? 'bg-emerald-600 text-white'
-                    : currentStep === 2
+                    : wizard.currentStep === 2
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-200 text-slate-600'
                 }`}
               >
-                {currentStep > 2 ? '✓' : '2'}
+                {wizard.currentStep > 2 ? '✓' : '2'}
               </span>
               <span>Bio Siswa &amp; Ortu</span>
             </div>
@@ -412,12 +145,12 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
 
             <div
               className={`flex items-center gap-2 whitespace-nowrap ${
-                currentStep === 3 ? 'text-blue-700 font-bold' : 'text-slate-400'
+                wizard.currentStep === 3 ? 'text-blue-700 font-bold' : 'text-slate-400'
               }`}
             >
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-                  currentStep === 3
+                  wizard.currentStep === 3
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-200 text-slate-600'
                 }`}
@@ -431,655 +164,113 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
 
         {/* Body */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
-          {submissionResult ? (
-            <div className="py-4 text-center space-y-5 animate-in zoom-in-95 duration-200">
-              <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
-                <CheckCircle2 className="w-9 h-9" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-xl font-bold text-slate-900">
-                  Pengajuan PKL Berhasil Dikirim!
-                </h3>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Data pengajuan Anda beserta bio DUDI telah tercatat langsung di Cloud Server Pokja Hubin SMK PGRI 2 Ponorogo.
-                </p>
-              </div>
-
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-left max-w-lg mx-auto space-y-2 text-xs">
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Nomor Registrasi</span>
-                  <span className="font-mono font-bold text-blue-600">{submissionResult.id}</span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Nama Siswa</span>
-                  <span className="font-bold text-slate-800 text-right">
-                    {submissionResult.nama_siswa} ({formatNisVisual(submissionResult.nis)})
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">Kelas / Jurusan</span>
-                  <span className="font-semibold text-slate-700 text-right">
-                    {submissionResult.kelas} - {submissionResult.jurusan}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500">DUDI Pilihan</span>
-                  <span className="font-bold text-indigo-700 text-right">{submissionResult.nama_dudi}</span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-slate-200/60">
-                  <span className="text-slate-500 shrink-0">Link Google Maps</span>
-                  {submissionResult.Link_Maps || submissionResult.link_maps ? (
-                    <a
-                      href={submissionResult.Link_Maps || submissionResult.link_maps}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-blue-600 hover:underline truncate max-w-[240px] inline-flex items-center gap-1"
-                    >
-                      <span className="truncate">{submissionResult.Link_Maps || submissionResult.link_maps}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                  ) : (
-                    <span className="text-slate-500">-</span>
-                  )}
-                </div>
-                <div className="flex justify-between gap-3 py-1">
-                  <span className="text-slate-500">Status Saat Ini</span>
-                  <span className="font-semibold text-amber-600">{submissionResult.status}</span>
-                </div>
-              </div>
-
-              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl text-xs text-blue-900 max-w-lg mx-auto text-left flex items-start gap-3">
-                <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <b>Langkah Selanjutnya:</b> Cetak berkas rekomendasi dan mintakan persetujuan Ketua Konsentrasi Keahlian (Kakomli) jurusan Anda.
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                {onSuccessOpenDocs && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSuccessOpenDocs(submissionResult);
-                      onClose();
-                    }}
-                    className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Cetak Lembar Rekomendasi Kakomli</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-                >
-                  Ajukan untuk Siswa Lain
-                </button>
-              </div>
-            </div>
+          {wizard.submissionResult ? (
+            <WizardSuccessView
+              submissionResult={wizard.submissionResult}
+              onSuccessOpenDocs={onSuccessOpenDocs}
+              onClose={onClose}
+              onResetForm={wizard.resetForm}
+            />
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* STEP 1: CARI NIS & KONFIRMASI KESESUAIAN DATA */}
-              {currentStep === 1 && (
-                <div className="space-y-4 animate-in fade-in duration-150">
-                  <div className="bg-slate-50/90 rounded-2xl p-4 sm:p-5 border border-slate-200/80 space-y-3">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Langkah 1: Cari &amp; Verifikasi Data NIS
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Masukkan Nomor Induk Siswa (NIS) Anda yang terdaftar di sekolah untuk memeriksa kecocokan data.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                      <div className="relative flex-1">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          value={formatNisVisual(nisInput, '')}
-                          onChange={(e) => {
-                            processNisInputChange(e, (nextDigits) => {
-                              setNisInput(nextDigits);
-                              setSearchError('');
-                            });
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleLookupNis();
-                              return;
-                            }
-                            handleNisKeyDown(e, nisInput, (nextDigits, nextPos) => {
-                              const inputEl = e.currentTarget;
-                              setNisInput(nextDigits);
-                              setSearchError('');
-                              if (nextPos !== undefined) {
-                                requestAnimationFrame(() => {
-                                  try {
-                                    inputEl.setSelectionRange(nextPos, nextPos);
-                                  } catch {
-                                    // ignore
-                                  }
-                                });
-                              }
-                            });
-                          }}
-                          placeholder="Masukkan angka NIS Anda (cth: 23241/001/001)..."
-                          className="w-full min-h-[44px] pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white font-mono tabular-nums"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleLookupNis()}
-                        disabled={searching}
-                        className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors shrink-0 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                      >
-                        {searching ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Mencari di Server...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Search className="w-3.5 h-3.5" />
-                            <span>Cari Data NIS</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {searchError && (
-                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                        <span>{searchError}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {searching && (
-                    <div
-                      className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl space-y-4"
-                      aria-busy="true"
-                      aria-live="polite"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 pb-2.5 border-b border-slate-100">
-                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                        <span>Mencocokkan NIS dengan Database Siswa di Cloud Server...</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
-                          <div className="h-3 skeleton-shimmer rounded w-20" />
-                          <div className="h-4 skeleton-shimmer rounded w-40" />
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
-                          <div className="h-3 skeleton-shimmer rounded w-14" />
-                          <div className="h-4 skeleton-shimmer rounded w-32" />
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
-                          <div className="h-3 skeleton-shimmer rounded w-16" />
-                          <div className="h-4 skeleton-shimmer rounded w-24" />
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-50 space-y-2">
-                          <div className="h-3 skeleton-shimmer rounded w-28" />
-                          <div className="h-4 skeleton-shimmer rounded w-36" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {studentData && (
-                    <div className="p-4 sm:p-5 bg-white border border-slate-200 rounded-2xl space-y-4 shadow-2xs animate-in fade-in duration-150">
-                      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                        <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                          <UserCheck className="w-4 h-4 text-blue-600" />
-                          <span>Data Siswa Terverifikasi di Server</span>
-                        </div>
-                        <span className="text-xs font-mono font-semibold text-slate-500">
-                          NIS: {formatNisVisual(studentData.nis)}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        <div className="p-3 rounded-xl bg-slate-50">
-                          <span className="text-slate-500 block text-[11px]">Nama Lengkap</span>
-                          <span className="font-bold text-slate-900 text-sm">{studentData.nama}</span>
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-50">
-                          <span className="text-slate-500 block text-[11px]">NIK</span>
-                          <span className="font-mono font-semibold text-slate-800">{studentData.nik || '-'}</span>
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-50">
-                          <span className="text-slate-500 block text-[11px]">Kelas</span>
-                          <span className="font-bold text-slate-800">{studentData.kelas}</span>
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-50">
-                          <span className="text-slate-500 block text-[11px]">Kompetensi Keahlian</span>
-                          <span className="font-bold text-slate-800">{studentData.jurusan}</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-slate-100 space-y-3">
-                        <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-950 flex items-start gap-2.5">
-                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <div className="space-y-1 leading-relaxed">
-                            <p className="font-bold text-amber-900">
-                              Periksa Data Anda Dengan Teliti Sebelum Konfirmasi
-                            </p>
-                            <p>
-                              Pastikan seluruh biodata di atas (<b>Nama Lengkap, NIS, NIK, Kelas, dan Kompetensi Keahlian</b>) telah sesuai. Data yang sudah dikonfirmasi dan dikirim <b>tidak dapat diubah secara mandiri</b> karena akan dicetak pada surat resmi PKL serta sertifikat. Apabila terdapat kekeliruan sekecil apa pun, klik tombol <b>&ldquo;Belum Sesuai&rdquo;</b> dan segera laporkan kepada Wali Kelas atau Admin Pokja Hubin sebelum melanjutkan.
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-xs font-bold text-slate-800">
-                          Apakah data identitas Anda di atas sudah sesuai?
-                        </p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleConfirmIdentity(false)}
-                            className={`min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                              identityStatus === 'mismatch'
-                                ? 'border-rose-400 bg-rose-50 text-rose-800'
-                                : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
-                            }`}
-                          >
-                            Belum Sesuai
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleConfirmIdentity(true)}
-                            className="min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>Ya, Data Sudah Sesuai &amp; Lanjut</span>
-                          </button>
-                        </div>
-
-                        {identityStatus === 'mismatch' && (
-                          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2">
-                            <p className="font-bold">Data Belum Sesuai?</p>
-                            <p className="leading-relaxed">
-                              Silakan hubungi Wali Kelas atau Admin Pokja Hubin untuk memperbarui data Anda di{' '}
-                              <span className="font-semibold">Database Siswa Sekolah</span> sebelum melanjutkan pengajuan PKL, atau periksa kembali NIS yang Anda ketik.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setStudentData(null);
-                                setIdentityStatus('pending');
-                                setNisInput('');
-                              }}
-                              className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-semibold hover:bg-amber-100 cursor-pointer"
-                            >
-                              Cari Ulang NIS
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+            <form onSubmit={wizard.handleSubmit} className="space-y-5">
+              {wizard.currentStep === 1 && (
+                <WizardStep1Identity
+                  nisInput={wizard.nisInput}
+                  searching={wizard.searching}
+                  studentData={wizard.studentData}
+                  searchError={wizard.searchError}
+                  identityStatus={wizard.identityStatus}
+                  onChangeNis={(nextDigits) => {
+                    wizard.setNisInput(nextDigits);
+                    wizard.setSearchError('');
+                  }}
+                  onLookupNis={() => wizard.handleLookupNis()}
+                  onConfirmIdentity={wizard.handleConfirmIdentity}
+                  onResetSearch={() => {
+                    wizard.setStudentData(null);
+                    wizard.setIdentityStatus('pending');
+                    wizard.setNisInput('');
+                  }}
+                />
               )}
 
-              {/* STEP 2: INPUT BIO SISWA & ORANG TUA */}
-              {currentStep === 2 && studentData && (
-                <div className="space-y-4 animate-in fade-in duration-150">
-                  <div className="p-3.5 bg-blue-50/80 border border-blue-200/80 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900">
-                    <div>
-                      <span className="font-bold">{studentData.nama}</span>
-                      <span className="text-blue-700">
-                        {' '}· NIS {formatNisVisual(studentData.nis)} · {studentData.kelas}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(1)}
-                      className="text-blue-700 font-semibold hover:underline cursor-pointer"
-                    >
-                      Ganti Siswa
-                    </button>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Langkah 2: Lengkapi Bio Siswa &amp; Orang Tua / Wali
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Lengkapi seluruh data kontak dan domisili berikut untuk keperluan surat izin orang tua dan komunikasi pembimbing.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
-                    <div>
-                      <label className="block text-slate-700 font-semibold mb-1.5">
-                        Nomor WhatsApp Siswa *
-                      </label>
-                      <input
-                        type="tel"
-                        inputMode="tel"
-                        value={telepon}
-                        onChange={(e) => {
-                          setTelepon(e.target.value);
-                          setBioError('');
-                        }}
-                        placeholder="08xxxxxxxxxx"
-                        required
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-slate-700 font-semibold mb-1.5">
-                        Nama Orang Tua / Wali *
-                      </label>
-                      <input
-                        type="text"
-                        value={namaOrtu}
-                        onChange={(e) => {
-                          setNamaOrtu(e.target.value);
-                          setBioError('');
-                        }}
-                        placeholder="Nama lengkap orang tua / wali"
-                        required
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-slate-700 font-semibold mb-1.5">
-                        Alamat Domisili Siswa *
-                      </label>
-                      <input
-                        type="text"
-                        value={alamatDomisili}
-                        onChange={(e) => {
-                          setAlamatDomisili(e.target.value);
-                          setBioError('');
-                        }}
-                        placeholder="Jalan, RT/RW, Desa/Kelurahan, Kecamatan, Kabupaten"
-                        required
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-slate-700 font-semibold mb-1.5">
-                        Nomor Telepon / WhatsApp Orang Tua (Kontak Darurat) *
-                      </label>
-                      <input
-                        type="tel"
-                        inputMode="tel"
-                        value={teleponOrtu}
-                        onChange={(e) => {
-                          setTeleponOrtu(e.target.value);
-                          setBioError('');
-                        }}
-                        placeholder="08xxxxxxxxxx"
-                        required
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                    </div>
-                  </div>
-
-                  {bioError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                      <span>{bioError}</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(1)}
-                      className="min-h-[44px] px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <ArrowLeft className="w-4 h-4" />
-                      <span>Kembali</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleValidateBioAndNext}
-                      className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs flex items-center gap-2 cursor-pointer"
-                    >
-                      <span>Lanjut Pilih DUDI</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+              {wizard.currentStep === 2 && wizard.studentData && (
+                <WizardStep2Bio
+                  studentData={wizard.studentData}
+                  telepon={wizard.telepon}
+                  alamatDomisili={wizard.alamatDomisili}
+                  namaOrtu={wizard.namaOrtu}
+                  teleponOrtu={wizard.teleponOrtu}
+                  bioError={wizard.bioError}
+                  onChangeTelepon={(val) => {
+                    wizard.setTelepon(val);
+                    wizard.setBioError('');
+                  }}
+                  onChangeAlamatDomisili={(val) => {
+                    wizard.setAlamatDomisili(val);
+                    wizard.setBioError('');
+                  }}
+                  onChangeNamaOrtu={(val) => {
+                    wizard.setNamaOrtu(val);
+                    wizard.setBioError('');
+                  }}
+                  onChangeTeleponOrtu={(val) => {
+                    wizard.setTeleponOrtu(val);
+                    wizard.setBioError('');
+                  }}
+                  onBackToStep1={() => wizard.setCurrentStep(1)}
+                  onNextStep={wizard.handleValidateBioAndNext}
+                />
               )}
 
-              {/* STEP 3: PILIH DUDI & SEMATKAN LINK GOOGLE MAPS */}
-              {currentStep === 3 && studentData && (
-                <div className="space-y-4 animate-in fade-in duration-150">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Langkah 3: Pilih DUDI &amp; Sematkan Link Google Maps
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Pilih lokasi DUDI tujuan Anda, periksa bio tempat PKL, lalu masukkan tautan Google Maps lokasi tempat PKL yang valid.
-                    </p>
-                  </div>
-
-                  {dudiLoadError && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                      {dudiLoadError}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Pilih Mitra DUDI Tujuan *
-                    </label>
-                    {loadingDudi ? (
-                      <div className="space-y-2" aria-busy="true" aria-live="polite">
-                        <div className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center gap-2.5 text-xs text-slate-600">
-                          <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-                          <span>Memuat daftar mitra DUDI dari Cloud Server...</span>
-                        </div>
-                        <div className="h-3 skeleton-shimmer rounded w-2/3" />
-                      </div>
-                    ) : (
-                      <select
-                        value={selectedDudiId}
-                        onChange={(e) => handleDudiChange(e.target.value)}
-                        required
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white"
-                      >
-                        <option value="">-- Pilih DUDI Mitra --</option>
-                        {dudiList.map((d, idx) => (
-                          <option key={`${d.id || 'dudi'}_${idx}`} value={d.id}>
-                            {d.nama_dudi} ({d.bidang_usaha} - {d.kota})
-                          </option>
-                        ))}
-                        <option value="unregistered" className="font-bold text-amber-700 bg-amber-50">
-                          DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)
-                        </option>
-                      </select>
-                    )}
-                  </div>
-
-                  {/* Muncul Bio DUDI + Input Pemimpin, PIC, & No. Telp setelah memilih DUDI */}
-                  {selectedDudiId && (
-                    <div className="space-y-4 p-4 rounded-2xl border border-slate-200 bg-slate-50/70 animate-in fade-in duration-150">
-                      {isDudiUnregistered ? (
-                        <div className="space-y-3">
-                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-900">
-                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                            <span>
-                              <b>DUDI Belum Terdaftar:</b> Lengkapi profil tempat PKL baru di bawah ini agar dapat diverifikasi Pokja Hubin dan Kakomli.
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                            <div className="sm:col-span-2">
-                              <label className="block font-semibold text-slate-700 mb-1">
-                                Nama Perusahaan / Bengkel / Instansi *
-                              </label>
-                              <input
-                                type="text"
-                                value={customDudiName}
-                                onChange={(e) => setCustomDudiName(e.target.value)}
-                                placeholder="Contoh: PT Maju Teknik Ponorogo"
-                                required
-                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-                              />
-                            </div>
-                            <div className="sm:col-span-2">
-                              <label className="block font-semibold text-slate-700 mb-1">
-                                Alamat Lengkap DUDI *
-                              </label>
-                              <input
-                                type="text"
-                                value={customDudiAddress}
-                                onChange={(e) => setCustomDudiAddress(e.target.value)}
-                                placeholder="Jalan, Kecamatan, Kota/Kabupaten"
-                                required
-                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-                              />
-                            </div>
-                            <div className="sm:col-span-2">
-                              <label className="block font-semibold text-slate-700 mb-1">
-                                Bidang Usaha / Keahlian
-                              </label>
-                              <input
-                                type="text"
-                                value={customDudiField}
-                                onChange={(e) => setCustomDudiField(e.target.value)}
-                                placeholder="Contoh: Servis Mobil, Jaringan Komputer, Desain Grafis"
-                                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        selectedDudiMeta && (
-                          <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-2 text-xs">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2 font-bold text-slate-900">
-                                <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
-                                <span>Bio DUDI: {selectedDudiMeta.nama_dudi}</span>
-                              </div>
-                              <span className="font-mono text-[11px] font-semibold text-slate-600 shrink-0">
-                                Kuota: {selectedDudiMeta.terisi ?? 0}/{selectedDudiMeta.kuota_maksimal || '-'}
-                              </span>
-                            </div>
-                            <div className="text-slate-600 flex items-start gap-1.5">
-                              <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                              <span>
-                                {selectedDudiMeta.alamat || '-'}
-                                {selectedDudiMeta.kota ? ` · ${selectedDudiMeta.kota}` : ''}
-                              </span>
-                            </div>
-                            <div className="text-slate-500">
-                              Bidang Usaha: <b className="text-slate-700">{selectedDudiMeta.bidang_usaha || '-'}</b>
-                              {' · '}
-                              Status: <b className="text-slate-700">{selectedDudiMeta.status || 'Aktif'}</b>
-                            </div>
-                          </div>
-                        )
-                      )}
-
-                      {/* Input Link Google Maps Tempat PKL (Wajib Valid) */}
-                      <div className="pt-3 border-t border-slate-200/80 space-y-2.5 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <label className="flex items-center gap-1.5 font-bold text-slate-800">
-                            <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                            <span>Link Google Maps Lokasi Tempat PKL *</span>
-                          </label>
-                          {mapsValidation?.valid && (
-                            <a
-                              href={mapsValidation.normalizedUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:underline whitespace-nowrap"
-                            >
-                              <span>Buka Maps</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-
-                        <input
-                          type="url"
-                          value={linkMaps}
-                          onChange={(e) => {
-                            setLinkMaps(e.target.value);
-                            setSubmitError('');
-                          }}
-                          placeholder="https://maps.app.goo.gl/... atau https://www.google.com/maps/..."
-                          required
-                          className={`w-full min-h-[44px] px-3.5 py-2 rounded-xl border bg-white font-mono text-xs focus:outline-none focus:ring-2 ${
-                            mapsValidation && !mapsValidation.valid
-                              ? 'border-rose-400 focus:ring-rose-500'
-                              : mapsValidation?.valid
-                              ? 'border-emerald-400 focus:ring-emerald-500'
-                              : 'border-slate-300 focus:ring-blue-600'
-                          }`}
-                        />
-
-                        {mapsValidation && !mapsValidation.valid ? (
-                          <p className="text-[11px] text-rose-700 font-medium">
-                            {mapsValidation.error}
-                          </p>
-                        ) : mapsValidation?.valid ? (
-                          <p className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                            <span>Tautan Google Maps valid dan akan dicetak sebagai QR Code pada surat PKL.</span>
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-slate-500 leading-relaxed">
-                            Salin link langsung dari tombol <b>Bagikan / Share → Salin Link</b> di Google Maps. Pengajuan akan ditolak jika link bukan tautan Google Maps yang valid.
-                          </p>
-                        )}
-
-                        <p className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-lg px-3 py-2">
-                          Catatan: Data Penanggung Jawab (Pemimpin &amp; PIC/Pendamping) serta nomor telepon DUDI akan dicatat langsung oleh Guru Pendamping saat pengantaran siswa ke lokasi PKL.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {submitError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                      <span>{submitError}</span>
-                    </div>
-                  )}
-
-                  <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(2)}
-                      className="min-h-[44px] px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <ArrowLeft className="w-4 h-4" />
-                      <span>Kembali</span>
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={submitting || !selectedDudiId}
-                      className="min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      {submitting ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Mengirim ke Cloud Server...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>Kirim Formulir Pengajuan PKL</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
+              {wizard.currentStep === 3 && wizard.studentData && (
+                <WizardStep3DudiMap
+                  dudiList={wizard.dudiList}
+                  loadingDudi={wizard.loadingDudi}
+                  dudiLoadError={wizard.dudiLoadError}
+                  selectedDudiId={wizard.selectedDudiId}
+                  isDudiUnregistered={wizard.isDudiUnregistered}
+                  selectedDudiMeta={wizard.selectedDudiMeta}
+                  customDudiName={wizard.customDudiName}
+                  customDudiAddress={wizard.customDudiAddress}
+                  customDudiField={wizard.customDudiField}
+                  linkMaps={wizard.linkMaps}
+                  mapsValidation={wizard.mapsValidation}
+                  submitting={wizard.submitting}
+                  submitError={wizard.submitError}
+                  onSelectDudi={wizard.handleDudiChange}
+                  onChangeCustomDudiName={wizard.setCustomDudiName}
+                  onChangeCustomDudiAddress={wizard.setCustomDudiAddress}
+                  onChangeCustomDudiField={wizard.setCustomDudiField}
+                  onChangeLinkMaps={(val) => {
+                    wizard.setLinkMaps(val);
+                    wizard.setSubmitError('');
+                  }}
+                  onBackToStep2={() => wizard.setCurrentStep(2)}
+                />
               )}
             </form>
           )}
         </div>
+        {wizard.submitting && (
+          <div
+            role="status"
+            aria-live="assertive"
+            className="absolute inset-0 z-30 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-4"
+          >
+            <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg">
+              <Loader2 className="w-7 h-7 animate-spin" />
+            </div>
+            <div className="space-y-1.5 max-w-sm">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                Sedang Menyimpan &amp; Memverifikasi ke Spreadsheet...
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Mohon tunggu sejenak dan <b>jangan tutup halaman atau browser Anda</b> sampai bukti konfirmasi resmi muncul.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

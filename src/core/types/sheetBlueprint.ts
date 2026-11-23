@@ -63,6 +63,7 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
     headers: [
       'ID',
       'Nama_Kelas',
+      'ID_Jurusan',
       'Jurusan',
       'Tingkat',
       'Wali_Kelas',
@@ -91,6 +92,8 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
       'Link_Maps',
       'ID_Guru_Pendamping',
       'Guru_Pendamping',
+      'Hari_Kerja',
+      'Jam_Kerja',
       'Kuota_Maksimal',
       'Terisi',
       'Status_Kerjasama',
@@ -172,6 +175,7 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
       'Tgl_Selesai_Izin',
       'Rentang_Tanggal',
       'No_Surat_Permohonan',
+      'ID_DUDI',
       'DUDI_Tujuan',
       'Alamat_DUDI',
       'Tgl_Kirim_Surat',
@@ -217,15 +221,24 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
       'ID_Penempatan',
       'NIS',
       'Nama_Siswa',
+      'ID_DUDI',
       'DUDI_Tujuan',
       'Alamat_DUDI',
       'Jurusan',
+      'ID_Guru_Pendamping',
       'Guru_Pendamping',
       'Tahap',
       'Tanggal_Kunjungan',
       'Sakit',
       'Izin',
       'Alpha',
+      'Buku_Laporan',
+      'Aktivitas_DP',
+      'Aktivitas_MT',
+      'Aktivitas_KRT',
+      'Kompetensi_Didapat',
+      'Kondisi_Bengkel',
+      'TTD_Siswa',
       'Nilai_PKL_Muncul',
       'Nilai_K3LH',
       'Nilai_Softskills',
@@ -253,6 +266,7 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
       'Nama_Siswa',
       'Jurusan',
       'Kelas',
+      'ID_DUDI',
       'DUDI_Tujuan',
       'Nilai_K3LH',
       'Nilai_Softskills',
@@ -287,3 +301,129 @@ export const HUBIN_SHEETS_BLUEPRINT: SheetDefinition[] = [
     sampleData: [],
   },
 ];
+
+/**
+ * Daftar kolom read-only per sheet yang dikelola penuh oleh ARRAYFORMULA Header Baris-1 di Google Sheets.
+ * Aplikasi hanya menyimpan Primary Key, Foreign Key (ID/NIS), dan data transaksi asli;
+ * kolom-kolom di bawah ini di-skip saat payload ditulis ke GAS/Spreadsheet.
+ */
+export const FORMULA_MANAGED_COLUMNS: Record<string, string[]> = {
+  Master_Jurusan: ['Kuota_Siswa', 'Total_Terdaftar'],
+  Master_Kelas_Walas: ['Jurusan', 'Jumlah_Siswa'],
+  Master_DUDI: ['Guru_Pendamping', 'Terisi'],
+  Master_Guru_Pendamping: ['Jumlah_Bimbingan'],
+  Data_Pengajuan_PKL: [
+    'Nama_Siswa',
+    'Jurusan',
+    'Kelas',
+    'Nama_Ortu_Wali',
+    'No_Ortu_Wali',
+    'Guru_Pendamping',
+  ],
+  Data_Perizinan_PKL: [
+    'Nama_Siswa',
+    'Jurusan',
+    'Kelas',
+    'Nama_Ortu_Wali',
+    'No_Ortu_Wali',
+    'Rentang_Tanggal',
+    'DUDI_Tujuan',
+    'Alamat_DUDI',
+  ],
+  Plotting_Pemberangkatan: ['Nama_Siswa', 'Nama_DUDI', 'Guru_Pendamping'],
+  Monitoring_5_Tahap: [
+    'Nama_Siswa',
+    'DUDI_Tujuan',
+    'Alamat_DUDI',
+    'Jurusan',
+    'Guru_Pendamping',
+    'Nilai_rata_rata',
+  ],
+  Nilai_Dan_Sertifikat: [
+    'Nama_Siswa',
+    'Jurusan',
+    'Kelas',
+    'DUDI_Tujuan',
+    'Nilai_K3LH',
+    'Nilai_Softskills',
+    'Nilai_Hardskills',
+    'Nilai_Alur_Bisnis_Dunia_Kerja',
+    'Nilai_rata_rata',
+    'Predikat',
+  ],
+};
+
+function normalizeFormulaHeaderKey(key: string): string {
+  return String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const FORMULA_MANAGED_NORM_SETS: Record<string, Set<string>> = Object.fromEntries(
+  Object.entries(FORMULA_MANAGED_COLUMNS).map(([sheet, cols]) => [
+    sheet,
+    new Set(cols.map(normalizeFormulaHeaderKey)),
+  ])
+);
+
+export function isFormulaManagedColumn(sheetName: string, headerOrKey: string): boolean {
+  const set = FORMULA_MANAGED_NORM_SETS[sheetName];
+  if (!set) return false;
+  return set.has(normalizeFormulaHeaderKey(headerOrKey));
+}
+
+/**
+ * Peta ketergantungan sheet untuk invalidasi cache ketika sumber referensi bermutasi
+ * (agar hasil ARRAYFORMULA pada sheet turunan langsung ter-refresh).
+ */
+export const SHEET_DEPENDENTS_MAP: Record<string, string[]> = {
+  Master_Siswa_XI: [
+    'Master_Jurusan',
+    'Master_Kelas_Walas',
+    'Data_Pengajuan_PKL',
+    'Data_Perizinan_PKL',
+    'Plotting_Pemberangkatan',
+    'Monitoring_5_Tahap',
+    'Nilai_Dan_Sertifikat',
+  ],
+  Master_Siswa: [
+    'Master_Jurusan',
+    'Master_Kelas_Walas',
+    'Data_Pengajuan_PKL',
+    'Data_Perizinan_PKL',
+    'Plotting_Pemberangkatan',
+    'Monitoring_5_Tahap',
+    'Nilai_Dan_Sertifikat',
+  ],
+  Master_Jurusan: [
+    'Master_Kelas_Walas',
+    'Data_Pengajuan_PKL',
+    'Data_Perizinan_PKL',
+    'Monitoring_5_Tahap',
+    'Nilai_Dan_Sertifikat',
+  ],
+  Master_DUDI: [
+    'Data_Perizinan_PKL',
+    'Plotting_Pemberangkatan',
+    'Monitoring_5_Tahap',
+    'Nilai_Dan_Sertifikat',
+  ],
+  Master_Guru_Pendamping: [
+    'Master_DUDI',
+    'Data_Pengajuan_PKL',
+    'Plotting_Pemberangkatan',
+    'Monitoring_5_Tahap',
+  ],
+  Data_Pengajuan_PKL: ['Master_Jurusan', 'Data_Perizinan_PKL'],
+  Plotting_Pemberangkatan: [
+    'Master_DUDI',
+    'Master_Guru_Pendamping',
+    'Master_Jurusan',
+    'Monitoring_5_Tahap',
+    'Nilai_Dan_Sertifikat',
+  ],
+  Monitoring_5_Tahap: ['Nilai_Dan_Sertifikat'],
+};
+
+export function getDependentSheets(sheetName: string): string[] {
+  return SHEET_DEPENDENTS_MAP[sheetName] || [];
+}
+

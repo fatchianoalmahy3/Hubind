@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
   Award,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   ExternalLink,
   Loader2,
@@ -16,10 +18,13 @@ import {
   Save,
 } from 'lucide-react';
 import { MONITORING_STAGES, type MonitoringStageControl } from '../../core/types/schema';
-import { getStageValueByNumber } from '../../core/utils/monitoringHelpers';
+import { formatRangePair, getStageValueByNumber } from '../../core/utils/monitoringHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { formatPhoneDisplay, getWhatsAppHref } from '../../core/utils/autoIdHelpers';
+import { Format0701InspectionSection } from './Format0701InspectionSection';
 import { GradeScoreEditorGrid } from './GradeScoreEditorGrid';
+import { SignaturePadInput } from './SignaturePadInput';
+import { WorkScheduleRangeInputs } from './WorkScheduleRangeInputs';
 import type { GradeScoresDraft, StudentStageDraft } from './types';
 
 interface MonitoringEntryStepProps {
@@ -47,17 +52,28 @@ interface MonitoringEntryStepProps {
   savingGradeEdit: boolean;
   submitting: boolean;
   formError: string;
+  formErrorTrigger?: number;
   dudiPemimpin: string;
   dudiPic: string;
   dudiTelp: string;
+  dudiHariMulai: string;
+  dudiHariSelesai: string;
+  dudiJamMulai: string;
+  dudiJamSelesai: string;
   showDudiContactEditor: boolean;
+  canCopyInspectionFromPrevious: boolean;
   onChangeStepToDudiList: () => void;
   onSelectStudentIndex: (idx: number) => void;
   onSelectStage: (stageNum: number) => void;
   onUpdateDraft: (patch: Partial<StudentStageDraft>) => void;
+  onCopyInspectionFromPrevious: () => void;
   onChangeDudiPemimpin: (val: string) => void;
   onChangeDudiPic: (val: string) => void;
   onChangeDudiTelp: (val: string) => void;
+  onChangeDudiHariMulai: (val: string) => void;
+  onChangeDudiHariSelesai: (val: string) => void;
+  onChangeDudiJamMulai: (val: string) => void;
+  onChangeDudiJamSelesai: (val: string) => void;
   onCloseDudiContactEditor: () => void;
   onOpenDudiPopupForEdit: () => void;
   onStartEditGrade: () => void;
@@ -92,17 +108,28 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   savingGradeEdit,
   submitting,
   formError,
+  formErrorTrigger = 0,
   dudiPemimpin,
   dudiPic,
   dudiTelp,
+  dudiHariMulai,
+  dudiHariSelesai,
+  dudiJamMulai,
+  dudiJamSelesai,
   showDudiContactEditor,
+  canCopyInspectionFromPrevious,
   onChangeStepToDudiList,
   onSelectStudentIndex,
   onSelectStage,
   onUpdateDraft,
+  onCopyInspectionFromPrevious,
   onChangeDudiPemimpin,
   onChangeDudiPic,
   onChangeDudiTelp,
+  onChangeDudiHariMulai,
+  onChangeDudiHariSelesai,
+  onChangeDudiJamMulai,
+  onChangeDudiJamSelesai,
   onCloseDudiContactEditor,
   onOpenDudiPopupForEdit,
   onStartEditGrade,
@@ -111,8 +138,16 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   onSaveEditedGrades,
   onSaveSupervision,
 }) => {
+  const errorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (formError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [formError, formErrorTrigger]);
+
   return (
-    <div className="space-y-5 animate-in fade-in duration-150">
+    <div className="space-y-4 sm:space-y-5 animate-in fade-in duration-150">
       {/* Selected DUDI Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -210,11 +245,77 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
       ) : (
         <>
           {/* Student Switcher (Isolated State per Student) */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-2">
-              Pilih Siswa ({dudiStudents.length} Siswa Terdata):
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-xs font-bold text-slate-700">
+                Pilih Siswa ({selectedStudentIndex + 1}/{dudiStudents.length}):
+              </label>
+              {dudiStudents.length > 1 && (
+                <div className="flex sm:hidden items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={selectedStudentIndex <= 0}
+                    onClick={() => onSelectStudentIndex(Math.max(0, selectedStudentIndex - 1))}
+                    aria-label="Siswa sebelumnya"
+                    className="min-w-[34px] min-h-[34px] rounded-lg border border-slate-300 bg-white text-slate-700 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedStudentIndex >= dudiStudents.length - 1}
+                    onClick={() =>
+                      onSelectStudentIndex(
+                        Math.min(dudiStudents.length - 1, selectedStudentIndex + 1)
+                      )
+                    }
+                    aria-label="Siswa berikutnya"
+                    className="min-w-[34px] min-h-[34px] rounded-lg border border-slate-300 bg-white text-slate-700 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile: Compact Horizontal Scrollable Switcher */}
+            <div className="flex sm:hidden gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
+              {dudiStudents.map((student, idx) => {
+                const isSelected = selectedStudentIndex === idx;
+                const completedCount = Array.isArray(student.completedStages)
+                  ? student.completedStages.length
+                  : 0;
+                const hasGrade = Boolean(student.hasSubmittedGrades);
+
+                return (
+                  <button
+                    key={`${student.id || 'stu_mob'}_${idx}`}
+                    type="button"
+                    onClick={() => onSelectStudentIndex(idx)}
+                    className={`snap-start shrink-0 min-w-[168px] max-w-[210px] min-h-[48px] px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-600 text-white shadow-xs'
+                        : 'border-slate-200 bg-white text-slate-700'
+                    }`}
+                  >
+                    <div className="font-bold text-xs truncate">{student.nama}</div>
+                    <div
+                      className={`text-[10px] mt-0.5 flex items-center justify-between gap-2 ${
+                        isSelected ? 'text-blue-100' : 'text-slate-500'
+                      }`}
+                    >
+                      <span>{student.kelas}</span>
+                      <span className="font-semibold">
+                        T{completedCount}/8{hasGrade ? ' · ✓' : ''}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Desktop / Tablet: Multi-Card Grid */}
+            <div className="hidden sm:grid sm:grid-cols-2 md:grid-cols-3 gap-2">
               {dudiStudents.map((student, idx) => {
                 const isSelected = selectedStudentIndex === idx;
                 const completedCount = Array.isArray(student.completedStages)
@@ -427,6 +528,18 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                       />
                     </div>
                   </div>
+                  <WorkScheduleRangeInputs
+                    hariMulai={dudiHariMulai}
+                    hariSelesai={dudiHariSelesai}
+                    jamMulai={dudiJamMulai}
+                    jamSelesai={dudiJamSelesai}
+                    disabled={isStageReadOnly}
+                    required={activeStageNum === 1}
+                    onChangeHariMulai={onChangeDudiHariMulai}
+                    onChangeHariSelesai={onChangeDudiHariSelesai}
+                    onChangeJamMulai={onChangeDudiJamMulai}
+                    onChangeJamSelesai={onChangeDudiJamSelesai}
+                  />
                 </div>
               ) : (
                 <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -440,6 +553,18 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     <span>
                       Telp/WA: <b className="font-mono text-slate-800">{dudiTelp || '-'}</b>
                     </span>
+                    <span>
+                      Hari Kerja:{' '}
+                      <b className="text-slate-800">
+                        {formatRangePair(dudiHariMulai, dudiHariSelesai) || '-'}
+                      </b>
+                    </span>
+                    <span>
+                      Jam Kerja:{' '}
+                      <b className="font-mono text-slate-800">
+                        {formatRangePair(dudiJamMulai, dudiJamSelesai) || '-'}
+                      </b>
+                    </span>
                   </div>
                   {!isStageReadOnly && (
                     <button
@@ -448,7 +573,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                       className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Pencil className="w-3 h-3" />
-                      <span>Edit Kontak DUDI</span>
+                      <span>Edit Biodata DUDI</span>
                     </button>
                   )}
                 </div>
@@ -526,7 +651,32 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     );
                   })}
                 </div>
+
+                {/* Tanda Tangan Siswa langsung di bawah Absensi */}
+                <SignaturePadInput
+                  value={activeDraft.ttdSiswa}
+                  studentName={activeStudent.nama}
+                  disabled={isStageReadOnly}
+                  onChange={(nextSvg) => onUpdateDraft({ ttdSiswa: nextSvg })}
+                />
               </div>
+
+              {/* Format 07.01 Inspection Checklist (Buku Laporan, Aktivitas Siswa, Kompetensi, Keadaan Bengkel) */}
+              <Format0701InspectionSection
+                bukuLaporan={activeDraft.bukuLaporan}
+                aktivitasDp={activeDraft.aktivitasDp}
+                aktivitasMt={activeDraft.aktivitasMt}
+                aktivitasKrt={activeDraft.aktivitasKrt}
+                kompetensiList={activeDraft.kompetensiList}
+                kondisiBengkel={activeDraft.kondisiBengkel}
+                disabled={isStageReadOnly}
+                canCopyFromPrevious={canCopyInspectionFromPrevious}
+                onCopyFromPrevious={onCopyInspectionFromPrevious}
+                onChangeBukuLaporan={(val) => onUpdateDraft({ bukuLaporan: val })}
+                onChangeAktivitas={(field, val) => onUpdateDraft({ [field]: val })}
+                onChangeKompetensiList={(nextList) => onUpdateDraft({ kompetensiList: nextList })}
+                onChangeKondisiBengkel={(nextCheck) => onUpdateDraft({ kondisiBengkel: nextCheck })}
+              />
 
               {/* Conditional Section: Already Submitted Grade Notice (+ Edit Nilai) OR Monitoring ke-4+ Prompt */}
               {alreadyHasGrade ? (
@@ -704,14 +854,18 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
               </div>
 
               {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-xs text-rose-700">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                <div
+                  ref={errorRef}
+                  role="alert"
+                  className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-xs font-medium text-rose-800 shadow-xs"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
                   <span>{formError}</span>
                 </div>
               )}
 
               {/* Primary Save CTA OR Read-Only Notice */}
-              <div className="pt-1 flex justify-end">
+              <div className="sticky bottom-0 z-10 -mx-3.5 -mb-4 sm:static sm:mx-0 sm:mb-0 px-3.5 py-3 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xs sm:backdrop-blur-none border-t border-slate-200 sm:border-t-0 flex justify-end">
                 {isStageReadOnly ? (
                   <div className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-xs flex items-center justify-center gap-2">
                     <Lock className="w-4 h-4 text-amber-600 shrink-0" />
@@ -722,7 +876,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     type="button"
                     onClick={onSaveSupervision}
                     disabled={submitting}
-                    className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                    className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
                   >
                     {submitting ? (
                       <>

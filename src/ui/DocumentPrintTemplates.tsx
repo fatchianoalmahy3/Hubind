@@ -1,11 +1,34 @@
 import React from 'react';
-import { getStageValueByNumber } from '../core/utils/monitoringHelpers';
+import type {
+  AktivitasSikapRating,
+  BukuLaporanStatus,
+  KondisiBengkelCheck,
+} from '../core/types/schema';
+import { formatIndonesianDate } from '../core/utils/dateHelpers';
+import {
+  getStageValueByNumber,
+  normalizeSignatureSvgPath,
+  parseRangePair,
+} from '../core/utils/monitoringHelpers';
 
 export interface BundleStudentItem {
   nis: string;
   namaSiswa: string;
   kelas: string;
   jurusan: string;
+  hasStageLog?: boolean;
+  tanggalMonitoring?: string;
+  sakit?: number;
+  izin?: number;
+  alpha?: number;
+  bukuLaporan?: BukuLaporanStatus | '';
+  dp?: AktivitasSikapRating | '';
+  mt?: AktivitasSikapRating | '';
+  krt?: AktivitasSikapRating | '';
+  kompetensiList?: string[];
+  kondisiBengkel?: KondisiBengkelCheck;
+  ttdSiswa?: string;
+  catatan?: string;
 }
 
 export interface SuratTugas0708Props {
@@ -305,9 +328,14 @@ export interface LembarMonitoring0701Props {
   alamatBengkel: string;
   pemimpinBengkel: string;
   noTelpBengkel: string;
+  hariKerja?: string;
+  jamKerja?: string;
   students: BundleStudentItem[];
   namaPetugas: string;
   tanggalSurat: string;
+  kompetensiList?: string[];
+  keadaanBengkel?: KondisiBengkelCheck;
+  catatanLain?: string;
 }
 
 export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
@@ -317,15 +345,73 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
   alamatBengkel,
   pemimpinBengkel,
   noTelpBengkel,
+  hariKerja,
+  jamKerja,
   students,
   namaPetugas,
   tanggalSurat,
+  kompetensiList,
+  keadaanBengkel,
+  catatanLain,
 }) => {
   const stageLabel = getStageValueByNumber(tahapNum);
   const displayRows: BundleStudentItem[] =
     students.length > 0
       ? students
       : [{ nis: '', namaSiswa: '....................................................', kelas: '', jurusan: '' }];
+
+  const hariRange = parseRangePair(hariKerja, '', '');
+  const jamRange = parseRangePair(jamKerja, '', '');
+  const hariDisplay =
+    hariRange.start && hariRange.end
+      ? `${hariRange.start} s/d ${hariRange.end}`
+      : hariKerja && hariKerja.trim() && hariKerja.trim() !== '-'
+      ? hariKerja.trim()
+      : '............................ s/d ............................';
+  const jamDisplay =
+    jamRange.start && jamRange.end
+      ? `${jamRange.start} s/d ${jamRange.end}`
+      : jamKerja && jamKerja.trim() && jamKerja.trim() !== '-'
+      ? jamKerja.trim()
+      : '............................ s/d ............................';
+
+  const firstMonitorDate = displayRows.find((s) => s.tanggalMonitoring)?.tanggalMonitoring || '';
+  const monitorTglDisplay = firstMonitorDate
+    ? formatIndonesianDate(firstMonitorDate, firstMonitorDate)
+    : '......................';
+
+  const resolvedKompetensi =
+    (kompetensiList && kompetensiList.filter(Boolean).length > 0
+      ? kompetensiList.filter(Boolean)
+      : displayRows.find((s) => Array.isArray(s.kompetensiList) && s.kompetensiList.length > 0)
+          ?.kompetensiList?.filter(Boolean)) || [];
+  const kompetensiLineCount = Math.max(4, resolvedKompetensi.length);
+
+  const resolvedBengkel =
+    keadaanBengkel ||
+    displayRows.find(
+      (s) =>
+        s.kondisiBengkel &&
+        (s.kondisiBengkel.volumePekerjaan ||
+          s.kondisiBengkel.relevansiPekerjaan ||
+          s.kondisiBengkel.kenyamanan ||
+          s.kondisiBengkel.kelayakan)
+    )?.kondisiBengkel;
+
+  const bengkelAspectRows: Array<{ key: keyof KondisiBengkelCheck; label: string }> = [
+    { key: 'volumePekerjaan', label: 'Volume Pekerjaan' },
+    { key: 'relevansiPekerjaan', label: 'Relevansi Pekerjaan' },
+    { key: 'kenyamanan', label: 'Kenyamanan' },
+    { key: 'kelayakan', label: 'Kelayakan' },
+  ];
+
+  const resolvedCatatan =
+    (catatanLain && catatanLain.trim()) ||
+    displayRows
+      .map((s) => (s.catatan || '').trim())
+      .filter(Boolean)
+      .filter((v, i, arr) => arr.indexOf(v) === i)
+      .join('; ');
 
   return (
     <div className="hubin-doc-flow hubin-monitoring-sheet font-sans text-slate-950 text-[10.5pt] leading-[1.22] space-y-2.5">
@@ -397,16 +483,12 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             <tr>
               <td className="w-36 py-[1px]">1. Hari Kerja</td>
               <td className="w-3 py-[1px]">:</td>
-              <td className="py-[1px]">
-                ............................ s/d ............................
-              </td>
+              <td className="py-[1px] font-medium">{hariDisplay}</td>
             </tr>
             <tr>
               <td className="py-[1px]">2. Jam Kerja</td>
               <td className="py-[1px]">:</td>
-              <td className="py-[1px]">
-                ............................ s/d ............................
-              </td>
+              <td className="py-[1px] font-medium">{jamDisplay}</td>
             </tr>
           </tbody>
         </table>
@@ -415,7 +497,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
       {/* 3. Presensi Siswa */}
       <div>
         <div className="font-bold mb-0.5">3. Presensi Siswa :</div>
-          <table className="w-full border-collapse border border-slate-900 text-[9.5pt]">
+          <table className="w-full border-collapse border border-slate-900 text-[9pt]">
             <thead>
               <tr className="bg-slate-100">
                 <th rowSpan={2} className="border border-slate-900 px-1 py-0.5 w-6 text-center">
@@ -426,7 +508,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
                 </th>
                 <th colSpan={3} className="border border-slate-900 px-1 py-0.5 text-center leading-tight">
                   Monitor<br />
-                  Tgl ......................
+                  Tgl {monitorTglDisplay}
                 </th>
                 <th colSpan={3} className="border border-slate-900 px-1 py-0.5 text-center leading-tight">
                   Chek List<br />
@@ -435,7 +517,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
                 <th colSpan={3} className="border border-slate-900 px-1 py-0.5 text-center leading-tight">
                   Aktivitas Siswa
                 </th>
-                <th rowSpan={2} className="border border-slate-900 px-1 py-0.5 w-22 text-center leading-tight">
+                <th rowSpan={2} className="border border-slate-900 px-1 py-0.5 w-24 text-center leading-tight">
                   Tanda Tangan Siswa
                 </th>
               </tr>
@@ -446,28 +528,62 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
                 <th className="border border-slate-900 px-0.5 py-[1px] w-7 text-center">BLM</th>
                 <th className="border border-slate-900 px-0.5 py-[1px] w-7 text-center">SDH</th>
                 <th className="border border-slate-900 px-0.5 py-[1px] w-7 text-center">TDK</th>
-                <th className="border border-slate-900 px-0.5 py-[1px] w-6 text-center">DP</th>
-                <th className="border border-slate-900 px-0.5 py-[1px] w-6 text-center">MT</th>
-                <th className="border border-slate-900 px-0.5 py-[1px] w-6 text-center">KRT</th>
+                <th className="border border-slate-900 px-0.5 py-[1px] w-8 text-center">DP</th>
+                <th className="border border-slate-900 px-0.5 py-[1px] w-8 text-center">MT</th>
+                <th className="border border-slate-900 px-0.5 py-[1px] w-8 text-center">KRT</th>
               </tr>
             </thead>
             <tbody>
-              {displayRows.map((stu, idx) => (
-                <tr key={`${stu.nis || 'row'}_${idx}`}>
-                  <td className="border border-slate-900 px-1 py-0.5 text-center">{idx + 1}</td>
-                  <td className="border border-slate-900 px-1.5 py-0.5 font-semibold">{stu.namaSiswa}</td>
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5" />
-                  <td className="border border-slate-900 px-1 py-0.5 h-6" />
-                </tr>
-              ))}
+              {displayRows.map((stu, idx) => {
+                const sig = normalizeSignatureSvgPath(stu.ttdSiswa);
+                return (
+                  <tr key={`${stu.nis || 'row'}_${idx}`}>
+                    <td className="border border-slate-900 px-1 py-0.5 text-center">{idx + 1}</td>
+                    <td className="border border-slate-900 px-1.5 py-0.5 font-semibold">{stu.namaSiswa}</td>
+                    <td className="border border-slate-900 px-1 py-0.5 text-center font-mono">
+                      {stu.hasStageLog ? stu.sakit ?? 0 : ''}
+                    </td>
+                    <td className="border border-slate-900 px-1 py-0.5 text-center font-mono">
+                      {stu.hasStageLog ? stu.izin ?? 0 : ''}
+                    </td>
+                    <td className="border border-slate-900 px-1 py-0.5 text-center font-mono">
+                      {stu.hasStageLog ? stu.alpha ?? 0 : ''}
+                    </td>
+                    <td className="border border-slate-900 px-0.5 py-0.5 text-center font-bold">
+                      {stu.bukuLaporan === 'BLM' ? '✓' : ''}
+                    </td>
+                    <td className="border border-slate-900 px-0.5 py-0.5 text-center font-bold">
+                      {stu.bukuLaporan === 'SDH' ? '✓' : ''}
+                    </td>
+                    <td className="border border-slate-900 px-0.5 py-0.5 text-center font-bold">
+                      {stu.bukuLaporan === 'TDK' ? '✓' : ''}
+                    </td>
+                    <td className="border border-slate-900 px-0.5 py-0.5 text-center text-[7.5pt] font-semibold">
+                      {stu.dp || ''}
+                    </td>
+                    <td className="border border-slate-900 px-0.5 py-0.5 text-center text-[7.5pt] font-semibold">
+                      {stu.mt || ''}
+                    </td>
+                    <td className="border border-slate-900 px-0.5 py-0.5 text-center text-[7.5pt] font-semibold">
+                      {stu.krt || ''}
+                    </td>
+                    <td className="border border-slate-900 px-1 py-0.5 h-7 text-center align-middle">
+                      {sig ? (
+                        <svg viewBox={sig.viewBox} className="w-20 h-6 mx-auto">
+                          <path
+                            d={sig.pathD}
+                            fill="none"
+                            stroke="#0f172a"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         <div className="text-[8.5pt] text-slate-700 mt-1 leading-tight space-y-0.5">
@@ -485,10 +601,16 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
         <div className="font-bold">4. Aktivitas Siswa</div>
         <div className="ml-3 mt-0.5 space-y-0.5 leading-snug">
           <div>Kompetensi yang didapat :</div>
-          <div>1. ..................................................................................................................</div>
-          <div>2. ..................................................................................................................</div>
-          <div>3. ..................................................................................................................</div>
-          <div>4. ..................................................................................................................</div>
+          {Array.from({ length: kompetensiLineCount }).map((_, idx) => (
+            <div key={idx}>
+              {idx + 1}.{' '}
+              {resolvedKompetensi[idx] ? (
+                <span className="font-medium">{resolvedKompetensi[idx]}</span>
+              ) : (
+                '..................................................................................................................'
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -506,25 +628,42 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             </tr>
           </thead>
           <tbody>
-            {['Volume Pekerjaan', 'Relevansi Pekerjaan', 'Kenyamanan', 'Kelayakan'].map((aspek, i) => (
-              <tr key={aspek}>
-                <td className="border border-slate-900 px-1 py-0.5 text-center">{i + 1}</td>
-                <td className="border border-slate-900 px-1.5 py-0.5">{aspek}</td>
-                <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
-                <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
-                <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">☐</td>
-              </tr>
-            ))}
+            {bengkelAspectRows.map((aspek, i) => {
+              const val = resolvedBengkel?.[aspek.key] || '';
+              return (
+                <tr key={aspek.key}>
+                  <td className="border border-slate-900 px-1 py-0.5 text-center">{i + 1}</td>
+                  <td className="border border-slate-900 px-1.5 py-0.5">{aspek.label}</td>
+                  <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">
+                    {val === 'Baik' ? '☑' : '☐'}
+                  </td>
+                  <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">
+                    {val === 'Cukup' ? '☑' : '☐'}
+                  </td>
+                  <td className="border border-slate-900 px-1 py-0.5 text-center text-[11pt] leading-none">
+                    {val === 'Kurang' ? '☑' : '☐'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       {/* Catatan Lain & Tanda Tangan */}
       <div className="grid grid-cols-12 gap-3 pt-1 print-avoid-break">
-        <div className="col-span-7 space-y-1.5">
+        <div className="col-span-7 space-y-1">
           <div className="font-bold">Catatan Lain :</div>
-          <div className="border-b border-dotted border-slate-700 h-4" />
-          <div className="border-b border-dotted border-slate-700 h-4" />
+          {resolvedCatatan ? (
+            <div className="text-[9.5pt] leading-snug border-b border-dotted border-slate-700 pb-0.5 min-h-[2rem]">
+              {resolvedCatatan}
+            </div>
+          ) : (
+            <>
+              <div className="border-b border-dotted border-slate-700 h-4" />
+              <div className="border-b border-dotted border-slate-700 h-4" />
+            </>
+          )}
         </div>
         <div className="col-span-5 text-center">
           <div>Ponorogo, {tanggalSurat || '..... / ..... / 2026'}</div>

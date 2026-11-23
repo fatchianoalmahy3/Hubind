@@ -92,7 +92,9 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   const [multiPreviewIdx, setMultiPreviewIdx] = useState<number>(0);
   const [guruFilter, setGuruFilter] = useState<string>('ALL');
   const [jurusanFilter, setJurusanFilter] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>(() =>
+    activeDocKey === 'doc_paket_monitoring' ? 'SIAP' : 'ALL'
+  );
   const [subFilter, setSubFilter] = useState<string>('ALL');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isMobilePickerModalOpen, setIsMobilePickerModalOpen] = useState<boolean>(false);
@@ -138,9 +140,14 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     setLoading(true);
     setError(null);
     try {
+      const bootstrapped = forceReload
+        ? await client.bootstrapAdminTables(true).catch(() => false)
+        : false;
+      const shouldFallbackReload = forceReload && !bootstrapped;
+
       if (activeDocKey === 'doc_mou') {
         const svc = DudiService.getInstance();
-        if (forceReload) await svc.reloadFromSpreadsheet();
+        if (shouldFallbackReload) await svc.reloadFromSpreadsheet();
         const rows = await svc.getAll();
         setDudiList(rows);
         setSelectedId((prev) => (rows.some((r) => r.id === prev) ? prev : rows[0]?.id || ''));
@@ -150,7 +157,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         const mSvc = MonitoringService.getInstance();
         const dSvc = DudiService.getInstance();
         const sSvc = SiswaService.getInstance();
-        if (forceReload) {
+        if (shouldFallbackReload) {
           await Promise.all([
             gSvc.reloadFromSpreadsheet(),
             pSvc.reloadFromSpreadsheet(),
@@ -176,7 +183,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         const svc = PengajuanService.getInstance();
         const dSvc = DudiService.getInstance();
         const sSvc = SiswaService.getInstance();
-        if (forceReload) {
+        if (shouldFallbackReload) {
           await Promise.all([
             svc.reloadFromSpreadsheet(),
             dSvc.reloadFromSpreadsheet(),
@@ -199,7 +206,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         const mSvc = MonitoringService.getInstance();
         const reqSvc = PengajuanService.getInstance();
         const sSvc = SiswaService.getInstance();
-        if (forceReload) {
+        if (shouldFallbackReload) {
           await Promise.all([
             gSvc.reloadFromSpreadsheet(),
             pSvc.reloadFromSpreadsheet(),
@@ -239,7 +246,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     setMultiPreviewIdx(0);
     setGuruFilter('ALL');
     setJurusanFilter('ALL');
-    setStatusFilter('ALL');
+    setStatusFilter(activeDocKey === 'doc_paket_monitoring' ? 'SIAP' : 'ALL');
     setSubFilter('ALL');
     setIsMobilePickerModalOpen(false);
     setSelectedSuratTugasDudi('ALL_UNLOCKED');
@@ -309,7 +316,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
   const resetAllFilters = () => {
     setSearchQuery('');
     setJurusanFilter('ALL');
-    setStatusFilter('ALL');
+    setStatusFilter(activeDocKey === 'doc_paket_monitoring' ? 'SIAP' : 'ALL');
     setSubFilter('ALL');
     setGuruFilter('ALL');
     setBundleGuruFilter('ALL');
@@ -930,6 +937,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   penempatanList={penempatanList}
                   dudiList={dudiList}
                   pengajuanList={pengajuanList}
+                  monitoringList={monitoringList}
                   siswaByNis={siswaByNis}
                   suratTugasStageNum={suratTugasStageNum}
                 />
@@ -977,6 +985,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   penempatanList={penempatanList}
                   dudiList={dudiList}
                   pengajuanList={pengajuanList}
+                  monitoringList={monitoringList}
                   siswaByNis={siswaByNis}
                   suratTugasStageNum={suratTugasStageNum}
                 />
@@ -1046,6 +1055,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   penempatanList={penempatanList}
                   dudiList={dudiList}
                   pengajuanList={pengajuanList}
+                  monitoringList={monitoringList}
                   siswaByNis={siswaByNis}
                   suratTugasStageNum={suratTugasStageNum}
                 />
@@ -1106,6 +1116,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                 penempatanList={penempatanList}
                 dudiList={dudiList}
                 pengajuanList={pengajuanList}
+                monitoringList={monitoringList}
                 siswaByNis={siswaByNis}
                 suratTugasStageNum={suratTugasStageNum}
               />

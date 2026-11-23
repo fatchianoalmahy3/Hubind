@@ -1,7 +1,5 @@
 import { ToastManager } from './ToastManager';
 import { GoogleDriveSheetService } from './GoogleDriveSheetService';
-import { getFirebaseIdToken } from './auth/GoogleAuthService';
-import { getAdminSessionToken } from './auth/LocalAccountAuthService';
 import {
   WorkspaceConfigStore,
   EMPTY_WORKSPACE_CONFIG,
@@ -11,15 +9,10 @@ import {
 } from './firebase/WorkspaceConfigStore';
 import { DEFAULT_MONITORING_STAGE_CONTROL, type MonitoringStageControl } from './types/schema';
 import type { Unsubscribe } from 'firebase/firestore';
-import {
-  safeFetchJson,
-  normalizeGasUrl,
-  validateGasDeployUrl,
-  formatGasNetworkError,
-  isBackendProxyUnavailableError,
-} from './utils/safeFetchJson';
+import { normalizeGasUrl, safeFetchJson } from './utils/safeFetchJson';
 import { IndexedDbSheetCache } from './cache/IndexedDbSheetCache';
-import { SHEET_TO_REST_RESOURCE } from './constants/sheetResourceMap';
+import { SheetSnapshotCache } from './sheets/SheetSnapshotCache';
+import { SheetRestTransport, type SheetTransportContext } from './sheets/SheetRestTransport';
 
 export interface AcademicYearConfig {
   year: string;
@@ -78,20 +71,17 @@ export class GoogleSheetClient {
   private lastTestedAt: string | null = null;
   private unsubscribeFirestore: Unsubscribe | null = null;
   private initFirestorePromise: Promise<void> | null = null;
-  private inFlightSheetFetches = new Map<
-    string,
-    Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string }>
-  >();
-  private clientSheetCache = new Map<string, { data: any[]; fetchedAt: number; etag?: string }>();
-  private bootstrapPromise: Promise<boolean> | null = null;
-  private bootstrapEtag: string | null = null;
-  private cacheInvalidationListeners = new Set<(sheetName?: string) => void>();
-  private bootstrapListeners = new Set<(tables: string[]) => void>();
-  private sheetLocalMutationAt = new Map<string, number>();
-  private broadcastChannel: BroadcastChannel | null = null;
-  private static readonly CLIENT_SHEET_CACHE_TTL_MS = 90_000;
+  private listeners: Array<() => void> = [];
+
+  private readonly snapshotCache: SheetSnapshotCache;
+  private readonly transport: SheetRestTransport;
 
   private constructor() {
+    this.snapshotCache = new SheetSnapshotCache((sheetName) => {
+      this.invalidateClientSheetCache(sheetName, true);
+    });
+    this.transport = new SheetRestTransport(this.snapshotCache);
+
     const cachedCfg = WorkspaceConfigStore.readCachedConfigSync();
     if (cachedCfg) {
       this.hydrateSyncFromCachedConfig(cachedCfg);
@@ -105,18 +95,6 @@ export class GoogleSheetClient {
     this.initFromFirestore();
 
     if (typeof window !== 'undefined') {
-      if (typeof BroadcastChannel !== 'undefined') {
-        try {
-          this.broadcastChannel = new BroadcastChannel('hubin_ssot_sync');
-          this.broadcastChannel.onmessage = (ev) => {
-            const sheetName = typeof ev?.data?.sheetName === 'string' ? ev.data.sheetName : undefined;
-            this.invalidateClientSheetCache(sheetName, true);
-          };
-        } catch {
-          this.broadcastChannel = null;
-        }
-      }
-
       window.addEventListener('online', () => {
         this.isOnline = true;
         ToastManager.getInstance().show(
@@ -144,7 +122,14 @@ export class GoogleSheetClient {
     return GoogleSheetClient.instance;
   }
 
-  private listeners: Array<() => void> = [];
+  private getTransportContext(): SheetTransportContext {
+    return {
+      activeYear: this.activeYear,
+      spreadsheetId: this.spreadsheetId,
+      gasDeployUrl: this.gasDeployUrl,
+      isOnline: this.isOnline,
+    };
+  }
 
   public addChangeListener(cb: () => void): () => void {
     this.listeners.push(cb);
@@ -154,10 +139,11 @@ export class GoogleSheetClient {
   }
 
   public onSheetCacheInvalidate(cb: (sheetName?: string) => void): () => void {
-    this.cacheInvalidationListeners.add(cb);
-    return () => {
-      this.cacheInvalidationListeners.delete(cb);
-    };
+    return this.snapshotCache.onSheetCacheInvalidate(cb);
+  }
+
+  public onBootstrapUpdated(cb: (tables: string[]) => void): () => void {
+    return this.snapshotCache.onBootstrapUpdated(cb);
   }
 
   private notifyChange() {
@@ -166,24 +152,6 @@ export class GoogleSheetClient {
         fn();
       } catch (e) {
         console.error('Error in config change listener', e);
-      }
-    });
-  }
-
-  public onBootstrapUpdated(cb: (tables: string[]) => void): () => void {
-    this.bootstrapListeners.add(cb);
-    return () => {
-      this.bootstrapListeners.delete(cb);
-    };
-  }
-
-  private notifyBootstrapUpdated(tables: string[]) {
-    if (tables.length === 0) return;
-    this.bootstrapListeners.forEach((cb) => {
-      try {
-        cb(tables);
-      } catch {
-        // ignore listener failure
       }
     });
   }
@@ -218,25 +186,7 @@ export class GoogleSheetClient {
     const prevTemplatesSig = JSON.stringify(this.templates || []);
     const prevStageControlSig = JSON.stringify(this.monitoringStageControl);
 
-    this.activeYear = cfg.activeYear || '2026/2027';
-    this.gasDeployUrl = normalizeGasUrl(cfg.gasDeployUrl || '');
-    this.driveFolderUrl = cfg.driveFolderUrl || '';
-    this.academicYears = Array.isArray(cfg.academicYears) ? cfg.academicYears : [];
-    this.templates =
-      Array.isArray(cfg.templates) && cfg.templates.length > 0
-        ? cfg.templates
-        : [...EMPTY_DEFAULT_TEMPLATES];
-    this.monitoringStageControl = normalizeMonitoringStageControl(cfg.monitoringStageControl);
-
-    const currentYearObj =
-      this.academicYears.find((ay) => ay.year === this.activeYear) || this.academicYears[0];
-
-    this.spreadsheetId = cfg.spreadsheetId || currentYearObj?.spreadsheetId || '';
-    this.spreadsheetName = cfg.spreadsheetName || currentYearObj?.spreadsheetName || '';
-    this.spreadsheetUrl =
-      cfg.spreadsheetUrl ||
-      currentYearObj?.spreadsheetUrl ||
-      (this.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}` : '');
+    this.hydrateSyncFromCachedConfig(cfg);
 
     const coreChanged =
       prevSpreadsheetId !== this.spreadsheetId ||
@@ -246,7 +196,7 @@ export class GoogleSheetClient {
     if (coreChanged) {
       GoogleDriveSheetService.getInstance().clearSheetIdCache(prevSpreadsheetId);
       this.invalidateClientSheetCache(undefined, true);
-      this.inFlightSheetFetches.clear();
+      this.transport.clearInFlight();
       if (this.spreadsheetId) {
         IndexedDbSheetCache.getInstance()
           .preloadAll(this.spreadsheetId, this.activeYear)
@@ -281,17 +231,6 @@ export class GoogleSheetClient {
     };
   }
 
-  private async resolveAuthBearerToken(): Promise<string | null> {
-    const sessionToken = getAdminSessionToken();
-    if (sessionToken && !sessionToken.startsWith('local_gas_')) {
-      return sessionToken;
-    }
-    return await getFirebaseIdToken();
-  }
-
-  /**
-   * Hydrate & subscribe in real-time to Firestore /config/workspace (deduplicated)
-   */
   public async initFromFirestore(): Promise<void> {
     if (this.initFirestorePromise) {
       return this.initFirestorePromise;
@@ -382,12 +321,13 @@ export class GoogleSheetClient {
   private async persistToFirestoreAndNotify(): Promise<void> {
     const saved = await WorkspaceConfigStore.saveConfigToFirestore(this.toPersistedPayload());
     this.applyConfig(saved);
-    fetch('/api/cache/invalidate', { method: 'POST' }).catch(() => {});
+    const bearerToken = await this.transport.resolveAuthBearerToken();
+    fetch('/api/cache/invalidate', {
+      method: 'POST',
+      headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : undefined,
+    }).catch(() => {});
   }
 
-  /**
-   * Update active spreadsheet links in Cloud Firestore (/config/workspace)
-   */
   public async updateCentralLinks(params: {
     spreadsheetId?: string;
     spreadsheetName?: string;
@@ -441,7 +381,8 @@ export class GoogleSheetClient {
             year: this.activeYear,
             label: `Tahun Ajaran ${this.activeYear} (Aktif)`,
             spreadsheetId: this.spreadsheetId,
-            spreadsheetName: this.spreadsheetName || `Hubin_SMK_PGRI_2_Ponorogo_${this.activeYear.replace('/', '_')}`,
+            spreadsheetName:
+              this.spreadsheetName || `Hubin_SMK_PGRI_2_Ponorogo_${this.activeYear.replace('/', '_')}`,
             spreadsheetUrl: this.spreadsheetUrl,
             formUrl: params.formUrl || '',
             formEditUrl: params.formEditUrl || '',
@@ -472,9 +413,6 @@ export class GoogleSheetClient {
     }
   }
 
-  /**
-   * Switch active academic year in Firestore across all devices
-   */
   public async switchAcademicYear(year: string): Promise<boolean> {
     const toastId = ToastManager.getInstance().show(
       'Mengganti Tahun Ajaran...',
@@ -517,9 +455,6 @@ export class GoogleSheetClient {
     }
   }
 
-  /**
-   * Add a new academic year database entry and persist in Firestore
-   */
   public async addNewAcademicYear(
     year: string,
     spreadsheetId: string,
@@ -535,8 +470,7 @@ export class GoogleSheetClient {
 
     try {
       const cleanYear = year.trim();
-      const exists = this.academicYears.find((ay) => ay.year === cleanYear);
-      if (exists) {
+      if (this.academicYears.find((ay) => ay.year === cleanYear)) {
         throw new Error(`Tahun ajaran ${cleanYear} sudah terdaftar.`);
       }
 
@@ -545,7 +479,8 @@ export class GoogleSheetClient {
         year: cleanYear,
         label: `Tahun Ajaran ${cleanYear} (Aktif)`,
         spreadsheetId: cleanId,
-        spreadsheetName: spreadsheetName || `Hubin_SMK_PGRI_2_Ponorogo_${cleanYear.replace('/', '_')}`,
+        spreadsheetName:
+          spreadsheetName || `Hubin_SMK_PGRI_2_Ponorogo_${cleanYear.replace('/', '_')}`,
         spreadsheetUrl: spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${cleanId}`,
         formUrl: formUrl || '',
         formEditUrl: '',
@@ -587,9 +522,6 @@ export class GoogleSheetClient {
     }
   }
 
-  /**
-   * Save central Spreadsheet ID, GAS URL, & Drive Folder URL to Firestore
-   */
   public async saveCentralConfig(
     spreadsheetId: string,
     gasDeployUrl: string,
@@ -634,7 +566,8 @@ export class GoogleSheetClient {
             year: this.activeYear,
             label: `Tahun Ajaran ${this.activeYear} (Aktif)`,
             spreadsheetId: this.spreadsheetId,
-            spreadsheetName: this.spreadsheetName || `Hubin_SMK_PGRI_2_Ponorogo_${this.activeYear.replace('/', '_')}`,
+            spreadsheetName:
+              this.spreadsheetName || `Hubin_SMK_PGRI_2_Ponorogo_${this.activeYear.replace('/', '_')}`,
             spreadsheetUrl: this.spreadsheetUrl,
             isActive: true,
             createdAt: new Date().toISOString(),
@@ -663,9 +596,6 @@ export class GoogleSheetClient {
     }
   }
 
-  /**
-   * Update document template IDs permanently in Firestore
-   */
   public async updateTemplates(templates: WorkspaceTemplateConfig[]): Promise<boolean> {
     const toastId = ToastManager.getInstance().show(
       'Menyimpan Template Dokumen...',
@@ -695,9 +625,6 @@ export class GoogleSheetClient {
     }
   }
 
-  /**
-   * Update global monitoring stage lock & sequential settings (SuperAdmin only)
-   */
   public async updateMonitoringStageControl(control: MonitoringStageControl): Promise<boolean> {
     const toastId = ToastManager.getInstance().show(
       'Menyimpan Pengaturan Tahap Monitoring...',
@@ -729,109 +656,12 @@ export class GoogleSheetClient {
     }
   }
 
-  /**
-   * Silent verification for Cloud GAS Web App channel (cross-device & refresh-proof).
-   */
-  public async pingGasConnection(
-    customGasUrl?: string,
-    customSpreadsheetId?: string
-  ): Promise<{
-    connected: boolean;
-    title?: string;
-    sheets?: string[];
-    error?: string;
-  }> {
-    const rawGasUrl = customGasUrl !== undefined ? customGasUrl : this.gasDeployUrl;
-    const validation = validateGasDeployUrl(rawGasUrl);
-    if (!validation.valid) {
-      return {
-        connected: false,
-        error: validation.error || 'URL Endpoint Cloud Server (/exec) belum dikonfigurasi.',
-      };
-    }
-
-    const targetGas = validation.normalizedUrl;
-    const targetSpreadsheetId = (
-      customSpreadsheetId !== undefined ? customSpreadsheetId : this.spreadsheetId
-    ).trim();
-
-    if (!targetSpreadsheetId && customGasUrl === undefined) {
-      return { connected: false, error: 'ID Database Cloud Server belum dikonfigurasi.' };
-    }
-    if (!this.isOnline) {
-      return { connected: false, error: 'Perangkat sedang offline.' };
-    }
-
-    // 1. Prefer server-side proxy when Admin session token is available
-    const bearerToken = await this.resolveAuthBearerToken();
-    if (bearerToken) {
-      try {
-        const params = new URLSearchParams();
-        if (customGasUrl !== undefined) {
-          params.set('gasUrl', targetGas);
-        }
-        if (targetSpreadsheetId) {
-          params.set('spreadsheetId', targetSpreadsheetId);
-        }
-        const qs = params.toString();
-        const { ok, status, data: json } = await safeFetchJson(`/api/admin/gas-ping${qs ? `?${qs}` : ''}`, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${bearerToken}`,
-          },
-        });
-        if (ok && json?.success) {
-          return {
-            connected: true,
-            title: json.title,
-            sheets: Array.isArray(json.sheets) ? json.sheets : [],
-          };
-        }
-        if (json?.message && status < 500 && json?.code !== 'UNAUTHORIZED') {
-          return { connected: false, error: json.message };
-        }
-      } catch (err: any) {
-        if (!isBackendProxyUnavailableError(err)) {
-          return { connected: false, error: err?.message || 'Gagal menghubungi proxy Cloud Server.' };
-        }
-      }
-    }
-
-    // 2. Fallback direct GAS GET (static SPA hosting / direct browser test)
-    try {
-      const sep = targetGas.includes('?') ? '&' : '?';
-      const sidParam = targetSpreadsheetId
-        ? `&spreadsheetId=${encodeURIComponent(targetSpreadsheetId)}`
-        : '';
-      const { ok, data: json } = await safeFetchJson(
-        `${targetGas}${sep}action=PING&sheet=Master_Jurusan&year=${encodeURIComponent(
-          this.activeYear
-        )}${sidParam}`,
-        {
-          method: 'GET',
-          redirect: 'follow',
-        }
-      );
-
-      if (!ok || json?.error) {
-        return {
-          connected: false,
-          error: json?.error || 'Endpoint Cloud Server tidak merespon PING dengan benar.',
-        };
-      }
-
-      return {
-        connected: true,
-        title: json?.title,
-        sheets: Array.isArray(json?.sheets) ? json.sheets : [],
-      };
-    } catch (err: any) {
-      return {
-        connected: false,
-        error: formatGasNetworkError(err, targetGas),
-      };
-    }
+  public async pingGasConnection(customGasUrl?: string, customSpreadsheetId?: string) {
+    return this.transport.pingGasConnection(
+      this.getTransportContext(),
+      customGasUrl,
+      customSpreadsheetId
+    );
   }
 
   public async testConnection(
@@ -922,7 +752,8 @@ export class GoogleSheetClient {
             success: true,
             message: 'Berhasil menyiapkan seluruh struktur tabel pada Database Cloud Server.',
             formUrl: resJson.formUrl,
-            spreadsheetUrl: resJson.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${sId}`,
+            spreadsheetUrl:
+              resJson.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${sId}`,
           };
         }
       } catch (err: any) {
@@ -945,523 +776,70 @@ export class GoogleSheetClient {
     };
   }
 
-  public getCachedSnapshotSync(
-    sheetName: string
-  ): { data: any[]; etag?: string; updatedAt: number } | null {
-    if (!this.spreadsheetId) return null;
-    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
-    const inMem = this.clientSheetCache.get(cacheKey);
-    if (inMem) {
-      return { data: inMem.data, etag: inMem.etag, updatedAt: inMem.fetchedAt };
-    }
-    const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
-    const fromSync = IndexedDbSheetCache.getInstance().getSync(idbKey);
-    if (fromSync) {
-      this.clientSheetCache.set(cacheKey, {
-        data: fromSync.data,
-        fetchedAt: fromSync.updatedAt,
-        etag: fromSync.etag,
-      });
-      return { data: fromSync.data, etag: fromSync.etag, updatedAt: fromSync.updatedAt };
-    }
-    return null;
+  public getCachedSnapshotSync(sheetName: string) {
+    return this.snapshotCache.getCachedSnapshotSync(this.spreadsheetId, this.activeYear, sheetName);
   }
 
-  public async getCachedSnapshot(
-    sheetName: string
-  ): Promise<{ data: any[]; etag?: string; updatedAt: number } | null> {
-    if (!this.spreadsheetId) return null;
-    const syncHit = this.getCachedSnapshotSync(sheetName);
-    if (syncHit) return syncHit;
-
-    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
-    const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
-    const fromIdb = await IndexedDbSheetCache.getInstance().get(idbKey);
-    if (fromIdb) {
-      this.clientSheetCache.set(cacheKey, {
-        data: fromIdb.data,
-        fetchedAt: fromIdb.updatedAt,
-        etag: fromIdb.etag,
-      });
-      return { data: fromIdb.data, etag: fromIdb.etag, updatedAt: fromIdb.updatedAt };
-    }
-    return null;
+  public async getCachedSnapshot(sheetName: string) {
+    return this.snapshotCache.getCachedSnapshot(this.spreadsheetId, this.activeYear, sheetName);
   }
 
-  public async saveCachedSnapshot(
-    sheetName: string,
-    rows: any[],
-    etag?: string
-  ): Promise<void> {
-    if (!this.spreadsheetId) return;
-    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
-    const now = Date.now();
-    this.clientSheetCache.set(cacheKey, { data: rows, fetchedAt: now, etag });
-    const idbKey = IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName);
-    await IndexedDbSheetCache.getInstance().set(idbKey, rows, etag).catch(() => {});
+  public async saveCachedSnapshot(sheetName: string, rows: any[], etag?: string) {
+    return this.snapshotCache.saveCachedSnapshot(
+      this.spreadsheetId,
+      this.activeYear,
+      sheetName,
+      rows,
+      etag
+    );
   }
 
   public markSheetMutated(sheetName: string): void {
-    const now = Date.now();
-    this.sheetLocalMutationAt.set(sheetName, now);
-    if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
-      this.sheetLocalMutationAt.set('Master_Siswa_XI', now);
-      this.sheetLocalMutationAt.set('Master_Siswa', now);
-    }
-    this.bootstrapEtag = null;
+    this.snapshotCache.markSheetMutated(this.spreadsheetId, this.activeYear, sheetName);
   }
 
   public getSheetLastMutatedAt(sheetName: string): number {
-    return this.sheetLocalMutationAt.get(sheetName) || 0;
+    return this.snapshotCache.getSheetLastMutatedAt(sheetName);
   }
 
   public invalidateClientSheetCache(sheetName?: string, fromBroadcast: boolean = false): void {
-    const idb = IndexedDbSheetCache.getInstance();
-    if (!sheetName) {
-      this.clientSheetCache.clear();
-      this.bootstrapEtag = null;
-      idb.clearAll().catch(() => {});
-    } else {
-      this.clientSheetCache.delete(`${this.spreadsheetId}::${sheetName}`);
-      this.bootstrapEtag = null;
-      if (this.spreadsheetId) {
-        idb.delete(IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, sheetName)).catch(() => {});
-      }
-      if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
-        this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa_XI`);
-        this.clientSheetCache.delete(`${this.spreadsheetId}::Master_Siswa`);
-        if (this.spreadsheetId) {
-          idb.delete(IndexedDbSheetCache.buildKey(this.spreadsheetId, this.activeYear, 'Master_Siswa_XI')).catch(() => {});
-        }
-      }
-    }
-
-    this.cacheInvalidationListeners.forEach((cb) => {
-      try {
-        cb(sheetName);
-      } catch {
-        // ignore listener failure
-      }
-    });
-
-    if (!fromBroadcast && this.broadcastChannel) {
-      try {
-        this.broadcastChannel.postMessage({ sheetName: sheetName || null, ts: Date.now() });
-      } catch {
-        // ignore closed channel
-      }
-    }
+    this.snapshotCache.invalidateClientSheetCache(
+      this.spreadsheetId,
+      this.activeYear,
+      sheetName,
+      fromBroadcast
+    );
   }
 
-  /**
-   * Single-request Admin Bootstrap via GET /api/v1/bootstrap.
-   * Pre-warms RAM and IndexedDB for all active master & operational tables in 1 HTTP call.
-   */
   public async bootstrapAdminTables(forceFresh: boolean = false): Promise<boolean> {
-    if (!this.spreadsheetId || !this.gasDeployUrl || !this.isOnline) {
-      return false;
-    }
-    if (!forceFresh && this.bootstrapPromise) {
-      return this.bootstrapPromise;
-    }
-
-    this.bootstrapPromise = (async () => {
-      const bearerToken = await this.resolveAuthBearerToken();
-      if (!bearerToken) return false;
-      const requestStartedAt = Date.now();
-
-      try {
-        const headers: Record<string, string> = {
-          Accept: 'application/json',
-          Authorization: `Bearer ${bearerToken}`,
-        };
-        if (!forceFresh && this.bootstrapEtag) {
-          headers['If-None-Match'] = this.bootstrapEtag;
-        }
-
-        const qs = forceFresh ? `?fresh=1&_ts=${Date.now()}` : '';
-        const res = await safeFetchJson(`/api/v1/bootstrap${qs}`, {
-          method: 'GET',
-          timeoutMs: 18_000,
-          headers,
-        });
-
-        if (res.notModified) {
-          const now = Date.now();
-          for (const [k, entry] of this.clientSheetCache.entries()) {
-            if (k.startsWith(`${this.spreadsheetId}::`)) {
-              this.clientSheetCache.set(k, { ...entry, fetchedAt: now });
-            }
-          }
-          return true;
-        }
-
-        const json = res.data;
-        if (res.ok && json?.success && json?.tables && typeof json.tables === 'object') {
-          if (res.etag || json.etag) {
-            this.bootstrapEtag = res.etag || json.etag;
-          }
-          const normalizer = GoogleDriveSheetService.getInstance();
-          const etagsMap: Record<string, string> = json.etags || {};
-          const updatedTables: string[] = [];
-
-          await Promise.all(
-            Object.entries(json.tables).map(async ([tableName, rawRows]) => {
-              if (!Array.isArray(rawRows)) return;
-              const lastLocalMut = this.getSheetLastMutatedAt(tableName);
-              if (!forceFresh && lastLocalMut >= requestStartedAt) {
-                return;
-              }
-              const normalized = normalizer.normalizeExternalRows(tableName, rawRows);
-              await this.saveCachedSnapshot(tableName, normalized, etagsMap[tableName]);
-              updatedTables.push(tableName);
-            })
-          );
-          this.notifyBootstrapUpdated(updatedTables);
-          return true;
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    })();
-
-    try {
-      return await this.bootstrapPromise;
-    } finally {
-      this.bootstrapPromise = null;
-    }
+    return this.transport.bootstrapAdminTables(this.getTransportContext(), forceFresh);
   }
 
-  /**
-   * 100% SSOT Fetch via Full REST API (/api/v1/:resource) with ETag 304 + IndexedDB persistence
-   */
   public async fetchSheetData(
     sheetName: string,
-    forceFresh: boolean = false
-  ): Promise<{ data: any[]; fromSpreadsheet: boolean; error?: string; notModified?: boolean }> {
-    if (!this.spreadsheetId) {
-      return {
-        data: [],
-        fromSpreadsheet: false,
-        error: 'Konfigurasi Database Cloud Server belum diatur.',
-      };
-    }
-
-    if (!this.isOnline) {
-      const offlineSnapshot = await this.getCachedSnapshot(sheetName);
-      if (offlineSnapshot) {
-        return { data: offlineSnapshot.data, fromSpreadsheet: true };
-      }
-      return {
-        data: [],
-        fromSpreadsheet: false,
-        error: 'Perangkat sedang offline. Sambungkan internet untuk mengakses Cloud Server.',
-      };
-    }
-
-    if (!this.gasDeployUrl) {
-      return {
-        data: [],
-        fromSpreadsheet: false,
-        error: 'URL Endpoint Cloud Server (/exec) belum dikonfigurasi.',
-      };
-    }
-
-    const cacheKey = `${this.spreadsheetId}::${sheetName}`;
-    if (!forceFresh) {
-      // Do NOT block the active module behind all 10 bootstrap tables on cold start:
-      // fetch the active table immediately in parallel while bootstrap warms the rest.
-      const cached = this.clientSheetCache.get(cacheKey);
-      if (cached && Date.now() - cached.fetchedAt < GoogleSheetClient.CLIENT_SHEET_CACHE_TTL_MS) {
-        return { data: cached.data, fromSpreadsheet: true };
-      }
-      const existingFlight = this.inFlightSheetFetches.get(cacheKey);
-      if (existingFlight) {
-        return existingFlight;
-      }
-    } else {
-      this.clientSheetCache.delete(cacheKey);
-    }
-
-    const runFetch = (async () => {
-      const normalizer = GoogleDriveSheetService.getInstance();
-      const priorSnapshot = !forceFresh ? await this.getCachedSnapshot(sheetName) : null;
-
-      // 1. Full REST API v1 (/api/v1/:resource) with ETag / If-None-Match 304 revalidation
-      const bearerToken = await this.resolveAuthBearerToken();
-      if (bearerToken) {
-        const restSlug = SHEET_TO_REST_RESOURCE[sheetName] || sheetName;
-        try {
-          const bustParam = forceFresh ? `?fresh=1&_ts=${Date.now()}` : '';
-          const headers: Record<string, string> = {
-            Accept: 'application/json',
-            Authorization: `Bearer ${bearerToken}`,
-          };
-          if (!forceFresh && priorSnapshot?.etag) {
-            headers['If-None-Match'] = priorSnapshot.etag;
-          }
-
-          const { ok, status, notModified, etag, data: json } = await safeFetchJson(
-            `/api/v1/${encodeURIComponent(restSlug)}${bustParam}`,
-            {
-              method: 'GET',
-              timeoutMs: 16_000,
-              headers,
-            }
-          );
-
-          if (notModified && priorSnapshot) {
-            await this.saveCachedSnapshot(sheetName, priorSnapshot.data, etag || priorSnapshot.etag);
-            return {
-              data: priorSnapshot.data,
-              fromSpreadsheet: true,
-              notModified: true,
-            };
-          }
-
-          if (ok && json?.success && Array.isArray(json.data)) {
-            const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
-            await this.saveCachedSnapshot(sheetName, normalized, etag || json.etag);
-            return {
-              data: normalized,
-              fromSpreadsheet: true,
-              notModified: false,
-            };
-          }
-
-          if (json?.message && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 404) {
-            throw new Error(json.message);
-          }
-        } catch (proxyErr: any) {
-          if (!isBackendProxyUnavailableError(proxyErr)) {
-            throw proxyErr;
-          }
-        }
-      }
-
-      // 2. Direct Cloud GAS Web App fallback (static SPA preview host)
-      const validation = validateGasDeployUrl(this.gasDeployUrl);
-      if (!validation.valid) {
-        throw new Error(validation.error || 'URL Endpoint Cloud Server tidak valid.');
-      }
-      const gasUrl = validation.normalizedUrl;
-      const sep = gasUrl.includes('?') ? '&' : '?';
-      const freshParams = forceFresh ? `&fresh=1&_ts=${Date.now()}` : '';
-      try {
-        const { ok, status, data: json } = await safeFetchJson(
-          `${gasUrl}${sep}sheet=${encodeURIComponent(sheetName)}&year=${encodeURIComponent(
-            this.activeYear
-          )}&spreadsheetId=${encodeURIComponent(this.spreadsheetId)}${freshParams}`,
-          { method: 'GET', redirect: 'follow', cache: 'no-store', timeoutMs: 18_000 }
-        );
-        if (!ok) {
-          throw new Error(`Cloud Server gagal memuat data modul (${status}).`);
-        }
-        if ((json.status === 'success' || json.success) && Array.isArray(json.data)) {
-          const normalized = normalizer.normalizeExternalRows(sheetName, json.data);
-          await this.saveCachedSnapshot(sheetName, normalized);
-          return {
-            data: normalized,
-            fromSpreadsheet: true,
-          };
-        }
-        throw new Error(json.error || 'Format respon Cloud Server tidak valid.');
-      } catch (err: any) {
-        throw new Error(formatGasNetworkError(err, gasUrl));
-      }
-    })();
-
-    this.inFlightSheetFetches.set(cacheKey, runFetch);
-    try {
-      return await runFetch;
-    } finally {
-      this.inFlightSheetFetches.delete(cacheKey);
-    }
+    forceFresh: boolean = false,
+    options?: { fields?: string[] }
+  ) {
+    return this.transport.fetchSheetData(
+      this.getTransportContext(),
+      sheetName,
+      forceFresh,
+      options
+    );
   }
 
-  private normalizeOutgoingPayload(
-    sheetName: string,
-    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT' | 'SYNC_ALL',
-    payload: any
-  ): any {
-    const normalizer = GoogleDriveSheetService.getInstance();
-
-    if (action === 'CREATE' || action === 'UPDATE') {
-      return normalizer.prepareOutgoingRecord(sheetName, payload);
-    }
-    if (action === 'IMPORT' || action === 'SYNC_ALL') {
-      return Array.isArray(payload)
-        ? payload.map((row) => normalizer.prepareOutgoingRecord(sheetName, row))
-        : payload;
-    }
-    if (action === 'BULK_UPDATE' && payload && typeof payload === 'object') {
-      return {
-        ...payload,
-        updatedRows: Array.isArray(payload.updatedRows)
-          ? payload.updatedRows.map((row: any) => normalizer.prepareOutgoingRecord(sheetName, row))
-          : [],
-      };
-    }
-    return payload;
+  public async recalculateRelationsOnServer(scope: string = 'all', forceRefresh: boolean = true) {
+    return this.transport.recalculateRelationsOnServer(
+      this.getTransportContext(),
+      scope,
+      forceRefresh
+    );
   }
 
-  private async postViaServerOrDirectGas(
-    sheetName: string,
-    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT' | 'SYNC_ALL',
-    payload: any
-  ): Promise<void> {
-    this.markSheetMutated(sheetName);
-    const preparedPayload = this.normalizeOutgoingPayload(sheetName, action, payload);
-
-    const bearerToken = await this.resolveAuthBearerToken();
-    if (bearerToken) {
-      const restSlug = SHEET_TO_REST_RESOURCE[sheetName] || sheetName;
-      const rawId =
-        preparedPayload && typeof preparedPayload === 'object' && !Array.isArray(preparedPayload)
-          ? preparedPayload.id || preparedPayload.deletedRow?.id || preparedPayload.updatedRow?.id || ''
-          : '';
-      const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(rawId);
-      const targetId = encodeURIComponent(String(cleanId || rawId || 'unknown'));
-
-      let endpoint = `/api/v1/${encodeURIComponent(restSlug)}`;
-      let method: 'POST' | 'PATCH' | 'DELETE' = 'POST';
-      let requestBody: any = preparedPayload;
-
-      if (action === 'CREATE') {
-        endpoint = `/api/v1/${encodeURIComponent(restSlug)}`;
-        method = 'POST';
-        requestBody = preparedPayload;
-      } else if (action === 'UPDATE') {
-        endpoint = `/api/v1/${encodeURIComponent(restSlug)}/${targetId}`;
-        method = 'PATCH';
-        requestBody = preparedPayload;
-      } else if (action === 'DELETE') {
-        endpoint = `/api/v1/${encodeURIComponent(restSlug)}/${targetId}`;
-        method = 'DELETE';
-        requestBody = preparedPayload;
-      } else {
-        endpoint = `/api/v1/${encodeURIComponent(restSlug)}/bulk`;
-        method = 'POST';
-        requestBody = {
-          action,
-          data: preparedPayload,
-        };
-      }
-
-      try {
-        const { ok, status, data: json } = await safeFetchJson(endpoint, {
-          method,
-          timeoutMs: 20_000,
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${bearerToken}`,
-          },
-          body: JSON.stringify(requestBody),
-        });
-        if (ok && json?.success) {
-          this.markSheetMutated(sheetName);
-          return;
-        }
-        if (json?.message && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 404) {
-          throw new Error(json.message);
-        }
-      } catch (proxyErr: any) {
-        if (!isBackendProxyUnavailableError(proxyErr)) {
-          throw proxyErr;
-        }
-      }
-    }
-
-    const validation = validateGasDeployUrl(this.gasDeployUrl);
-    if (!validation.valid) {
-      throw new Error(validation.error || 'URL Endpoint Cloud Server tidak valid.');
-    }
-    const gasUrl = validation.normalizedUrl;
-    const rawId =
-      preparedPayload && typeof preparedPayload === 'object' && !Array.isArray(preparedPayload)
-        ? preparedPayload.id || preparedPayload.deletedRow?.id || preparedPayload.updatedRow?.id || ''
-        : '';
-    const { cleanId } = GoogleDriveSheetService.stripSyntheticRowSuffix(rawId);
-
-    try {
-      const { ok, status, data: json } = await safeFetchJson(gasUrl, {
-        method: 'POST',
-        timeoutMs: 22_000,
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        redirect: 'follow',
-        body: JSON.stringify({
-          action,
-          sheetName,
-          year: this.activeYear,
-          spreadsheetId: this.spreadsheetId,
-          id: cleanId || rawId,
-          sheetRowNumber:
-            preparedPayload?._sheetRowNumber ||
-            preparedPayload?.deletedRow?._sheetRowNumber ||
-            undefined,
-          data: preparedPayload,
-          timestamp: new Date().toISOString(),
-        }),
-      });
-
-      if (!ok || json?.error) {
-        throw new Error(json?.error || `Cloud Server mengembalikan status ${status}`);
-      }
-      this.markSheetMutated(sheetName);
-      await safeFetchJson(`/api/cache/invalidate?sheet=${encodeURIComponent(sheetName)}`, {
-        method: 'POST',
-        timeoutMs: 2_500,
-      }).catch(() => {});
-    } catch (err: any) {
-      throw new Error(formatGasNetworkError(err, gasUrl));
-    }
+  public async triggerMigrateRelationalFormulas() {
+    return this.transport.triggerMigrateRelationalFormulas(this.getTransportContext());
   }
 
-  public async recalculateRelationsOnServer(
-    scope: string = 'all',
-    forceRefresh: boolean = true
-  ): Promise<{
-    handledByServer: boolean;
-    summary?: {
-      updatedPlacements: number;
-      updatedDudi: number;
-      updatedGuru: number;
-      updatedJurusan: number;
-      updatedKelas: number;
-    };
-  }> {
-    const bearerToken = await this.resolveAuthBearerToken();
-    if (!bearerToken) return { handledByServer: false };
-
-    try {
-      const { ok, data: json } = await safeFetchJson('/api/v1/relations/recalculate', {
-        method: 'POST',
-        timeoutMs: 22_000,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${bearerToken}`,
-        },
-        body: JSON.stringify({ scope, forceRefresh }),
-      });
-
-      if (ok && json?.success && json?.summary) {
-        const s = json.summary;
-        if (s.updatedDudi > 0) this.invalidateClientSheetCache('Master_DUDI');
-        if (s.updatedGuru > 0) this.invalidateClientSheetCache('Master_Guru_Pendamping');
-        if (s.updatedJurusan > 0) this.invalidateClientSheetCache('Master_Jurusan');
-        if (s.updatedKelas > 0) this.invalidateClientSheetCache('Master_Kelas_Walas');
-        return { handledByServer: true, summary: s };
-      }
-      return { handledByServer: false };
-    } catch {
-      return { handledByServer: false };
-    }
-  }
-
-  /**
-   * Strict CRUD commit to Cloud Server (fails loudly if not connected)
-   */
   public async commitToSpreadsheet(
     sheetName: string,
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT',
@@ -1498,7 +876,12 @@ export class GoogleSheetClient {
       : null;
 
     try {
-      await this.postViaServerOrDirectGas(sheetName, action, payload);
+      await this.transport.postViaServerOrDirectGas(
+        this.getTransportContext(),
+        sheetName,
+        action,
+        payload
+      );
       if (toastId) {
         ToastManager.getInstance().update(
           toastId,
@@ -1554,7 +937,12 @@ export class GoogleSheetClient {
       : null;
 
     try {
-      await this.postViaServerOrDirectGas(sheetName, 'SYNC_ALL', rows);
+      await this.transport.postViaServerOrDirectGas(
+        this.getTransportContext(),
+        sheetName,
+        'SYNC_ALL',
+        rows
+      );
       const now = new Date().toLocaleTimeString('id-ID');
       if (toastId) {
         ToastManager.getInstance().update(
@@ -1567,7 +955,12 @@ export class GoogleSheetClient {
       return { success: true, message: 'Berhasil tersinkronisasi' };
     } catch (err: any) {
       if (toastId) {
-        ToastManager.getInstance().update(toastId, 'Gagal Sinkronisasi Cloud Server', 'error', err?.message || 'Error');
+        ToastManager.getInstance().update(
+          toastId,
+          'Gagal Sinkronisasi Cloud Server',
+          'error',
+          err?.message || 'Error'
+        );
       }
       return { success: false, message: err?.message || 'Error' };
     }

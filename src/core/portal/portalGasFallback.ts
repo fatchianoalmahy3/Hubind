@@ -1,11 +1,17 @@
 import { GoogleSheetClient } from '../GoogleSheetClient';
+import { GoogleDriveSheetService } from '../GoogleDriveSheetService';
+import { generateJurusanCode } from '../utils/autoIdHelpers';
 import {
   buildStudentMonitoringSummary,
   calculateEqualWeightedAverage,
   extractStageNumber,
   getPredikatFromScore,
   getStageValueByNumber,
-  pickRecommendedStageForControl,
+  parseKompetensiList,
+  parseKondisiBengkel,
+  serializeFormat0701Tag,
+  serializeKompetensiList,
+  serializeKondisiBengkel,
   stripStructuredTagsFromNote,
 } from '../utils/monitoringHelpers';
 import { type MonitoringStageControl } from '../types/schema';
@@ -17,6 +23,13 @@ import {
 import { stripNisSymbols } from '../utils/nisHelpers';
 import { validateGoogleMapsUrl } from '../utils/mapsHelpers';
 import { pickField, normalizeStr } from '../utils/rowFieldHelpers';
+import {
+  aggregatePetugasDudiGroups,
+  buildDudiStudentsWithSummary,
+  mapPublicDudiRows,
+  mapPublicPetugasRows,
+  mapPublicStudentRecord,
+} from './portalTransformers';
 import {
   readMasterSiswaDirect,
   readSheetDirect,
@@ -30,9 +43,13 @@ async function syncDudiContactFallback(params: {
   pemimpin: string;
   pic: string;
   telp: string;
+  hariKerja?: string;
+  jamKerja?: string;
   allowPartialFallback: boolean;
 }): Promise<boolean> {
-  const { dudiId, namaDudi, alamatDudi, pemimpin, pic, telp, allowPartialFallback } = params;
+  const { dudiId, namaDudi, alamatDudi, pemimpin, pic, telp, hariKerja, jamKerja, allowPartialFallback } = params;
+  const inputHariKerja = String(hariKerja || '').trim();
+  const inputJamKerja = String(jamKerja || '').trim();
   const dudiRows = await readSheetDirect('Master_DUDI', true, true);
   const targetDudiId = String(dudiId || '').trim();
   const targetDudiName = normalizeStr(namaDudi);
@@ -60,6 +77,8 @@ async function syncDudiContactFallback(params: {
     const nextKontakPic = allowPartialFallback
       ? telp || pickField(existingDudi, 'Kontak_PIC', 'kontakPic')
       : telp;
+    const nextHariKerja = inputHariKerja || pickField(existingDudi, 'Hari_Kerja', 'hariKerja');
+    const nextJamKerja = inputJamKerja || pickField(existingDudi, 'Jam_Kerja', 'jamKerja');
 
     await writeSheetDirect('Master_DUDI', 'UPDATE', {
       ...existingDudi,
@@ -73,6 +92,10 @@ async function syncDudiContactFallback(params: {
       kontakPic: nextKontakPic,
       No_Telp_DUDI: nextTelp,
       noTelpDudi: nextTelp,
+      Hari_Kerja: nextHariKerja,
+      hariKerja: nextHariKerja,
+      Jam_Kerja: nextJamKerja,
+      jamKerja: nextJamKerja,
     });
   } else if (namaDudi) {
     const newDudiId =
@@ -90,8 +113,9 @@ async function syncDudiContactFallback(params: {
       Nama_PIC: pic,
       Kontak_PIC: telp,
       No_Telp_DUDI: telp,
+      Hari_Kerja: inputHariKerja,
+      Jam_Kerja: inputJamKerja,
       Kuota_Maksimal: 4,
-      Terisi: 1,
       Status_Kerjasama: 'Mitra Baru',
     });
   }
@@ -129,6 +153,7 @@ async function syncDudiContactFallback(params: {
 async function upsertNilaiDanSertifikatFallback(params: {
   cleanNis: string;
   idPenempatan: string;
+  idDudi?: string;
   namaSiswa: string;
   jurusan: string;
   kelas: string;
@@ -143,17 +168,22 @@ async function upsertNilaiDanSertifikatFallback(params: {
   const {
     cleanNis,
     idPenempatan,
-    namaSiswa,
-    jurusan,
-    kelas,
+    idDudi,
     namaDudi,
-    k3lh,
-    softskill,
-    teknis,
-    alurBisnis,
-    avgScore,
     tglVal,
   } = params;
+
+  let resolvedDudiId = String(idDudi || '').trim();
+  if (!resolvedDudiId && namaDudi) {
+    const dudiRows = await readSheetDirect('Master_DUDI', true).catch(() => [] as any[]);
+    const targetDudiNorm = normalizeStr(namaDudi);
+    const matchedDudi = dudiRows.find(
+      (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === targetDudiNorm
+    );
+    if (matchedDudi) {
+      resolvedDudiId = pickField(matchedDudi, 'ID', 'id');
+    }
+  }
 
   const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true, true);
   const existingNilai = nilaiRows.find((n: any) => {
@@ -166,36 +196,27 @@ async function upsertNilaiDanSertifikatFallback(params: {
     );
   });
 
-  const roundedDudi = Math.round(avgScore * 10) / 10;
-  const finalPredikat = getPredikatFromScore(roundedDudi);
-
   if (existingNilai) {
     const existingId =
       pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
+    const existingDudiId = pickField(existingNilai, 'ID_DUDI', 'idDudi') || resolvedDudiId;
     await writeSheetDirect('Nilai_Dan_Sertifikat', 'UPDATE', {
-      ...existingNilai,
       id: existingId,
       ID_Penempatan: existingId,
-      Nilai_K3LH: k3lh,
-      nilaiK3lh: k3lh,
-      Nilai_Softskills: softskill,
-      Nilai_Softskill: softskill,
-      nilaiSoftskill: softskill,
-      Nilai_Hardskills: teknis,
-      Nilai_Kompetensi_Teknis: teknis,
-      nilaiKompetensiTeknis: teknis,
-      Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
-      Nilai_Alur_Bisnis: alurBisnis,
-      nilaiAlurBisnis: alurBisnis,
-      Nilai_rata_rata: roundedDudi,
-      Nilai_Rata_Rata: roundedDudi,
-      nilaiRataRata: roundedDudi,
-      Nilai_DUDI: roundedDudi,
-      nilaiDudi: roundedDudi,
-      Predikat: finalPredikat,
-      predikat: finalPredikat,
+      idPenempatan: existingId,
+      _sheetRowNumber: existingNilai._sheetRowNumber,
+      NIS: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
+      nis: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
+      ID_DUDI: existingDudiId,
+      idDudi: existingDudiId,
+      No_Seri_Blangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
+      noSeriBlangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
+      Status_Blangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
+      statusBlangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
       Status_Raport: 'Siap Cetak',
       statusRaport: 'Siap Cetak',
+      Tgl_Terbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || tglVal,
+      tanggalTerbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || tglVal,
     });
   } else {
     await writeSheetDirect('Nilai_Dan_Sertifikat', 'CREATE', {
@@ -204,32 +225,8 @@ async function upsertNilaiDanSertifikatFallback(params: {
       idPenempatan,
       NIS: cleanNis,
       nis: cleanNis,
-      Nama_Siswa: namaSiswa,
-      namaSiswa,
-      Jurusan: jurusan,
-      jurusan,
-      Kelas: kelas,
-      kelas,
-      DUDI_Tujuan: namaDudi,
-      dudiTujuan: namaDudi,
-      Nilai_K3LH: k3lh,
-      nilaiK3lh: k3lh,
-      Nilai_Softskills: softskill,
-      Nilai_Softskill: softskill,
-      nilaiSoftskill: softskill,
-      Nilai_Hardskills: teknis,
-      Nilai_Kompetensi_Teknis: teknis,
-      nilaiKompetensiTeknis: teknis,
-      Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
-      Nilai_Alur_Bisnis: alurBisnis,
-      nilaiAlurBisnis: alurBisnis,
-      Nilai_rata_rata: roundedDudi,
-      Nilai_Rata_Rata: roundedDudi,
-      nilaiRataRata: roundedDudi,
-      Nilai_DUDI: roundedDudi,
-      nilaiDudi: roundedDudi,
-      Predikat: finalPredikat,
-      predikat: finalPredikat,
+      ID_DUDI: resolvedDudiId,
+      idDudi: resolvedDudiId,
       No_Seri_Blangko: '',
       noSeriBlangko: '',
       Status_Blangko: 'Tersedia',
@@ -245,35 +242,7 @@ async function upsertNilaiDanSertifikatFallback(params: {
 
 export async function directFetchDudiList(forceRefresh = false) {
   const rows = await readSheetDirect('Master_DUDI', false, forceRefresh);
-  const mapped = rows
-    .filter((d: any) => pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama') !== '')
-    .map((d: any, idx: number) => {
-      const namaPemimpin = pickField(d, 'Nama_Pemimpin', 'namaPemimpin', 'nama_pemimpin', 'pimpinan');
-      const namaPic = pickField(d, 'Nama_PIC', 'namaPic', 'nama_pic');
-      const kontakPic = pickField(d, 'Kontak_PIC', 'kontakPic', 'kontak_pic');
-      const noTelpDudi =
-        pickField(d, 'No_Telp_DUDI', 'noTelpDudi', 'no_telp_dudi', 'telepon') || kontakPic;
-      const linkMaps = pickField(d, 'Link_Maps', 'linkMaps', 'link_maps', 'mapsUrl');
-      return {
-        id: pickField(d, 'ID', 'id') || `dudi_${idx + 1}`,
-        nama_dudi: pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi', 'nama'),
-        bidang_usaha: pickField(d, 'Bidang_Keahlian', 'bidangKeahlian', 'bidang_usaha') || '-',
-        alamat: pickField(d, 'Alamat', 'alamat'),
-        kota: pickField(d, 'Wilayah_Kota', 'wilayahKota', 'kota'),
-        kuota_maksimal: Number(d.Kuota_Maksimal ?? d.kuotaMaksimal ?? 0),
-        terisi: Number(d.Terisi ?? d.terisi ?? 0),
-        status: pickField(d, 'Status_Kerjasama', 'statusKerjasama', 'status') || 'Aktif',
-        nama_pemimpin: namaPemimpin,
-        nama_pic: namaPic,
-        kontak_pic: kontakPic,
-        no_telp_dudi: noTelpDudi,
-        link_maps: linkMaps,
-        id_guru_pendamping: pickField(d, 'ID_Guru_Pendamping', 'idGuruPendamping'),
-        guru_pendamping: pickField(d, 'Guru_Pendamping', 'guruPendamping'),
-        pimpinan: namaPemimpin || namaPic,
-        telepon: noTelpDudi,
-      };
-    });
+  const mapped = mapPublicDudiRows(rows);
   return { success: true, total: mapped.length, data: mapped };
 }
 
@@ -303,46 +272,10 @@ export async function directLookupStudentByNis(nis: string) {
     };
   }
 
-  const canonicalNisRaw = pickField(student, 'NIS', 'nis');
-  const canonicalNis = stripNisSymbols(canonicalNisRaw) || canonicalNisRaw;
-
   return {
     success: true,
     found: true,
-    student: {
-      id: pickField(student, 'ID', 'id', 'NIS', 'nis'),
-      nama: pickField(student, 'Nama_Lengkap', 'nama', 'namaLengkap'),
-      nis: canonicalNis,
-      nik: pickField(student, 'NIK', 'nik'),
-      kelas: pickField(student, 'Kelas', 'kelas'),
-      jurusan: pickField(student, 'ID_Jurusan', 'jurusan', 'Jurusan', 'idJurusan'),
-      telepon: pickField(student, 'No_HP_Siswa', 'noHpSiswa', 'telepon', 'noHp'),
-      jk: pickField(student, 'Jenis_Kelamin', 'jenisKelamin', 'jk') || 'Laki-laki',
-      alamat_domisili: pickField(
-        student,
-        'Alamat_Domisili',
-        'alamatDomisili',
-        'alamat_domisili',
-        'Alamat',
-        'alamat'
-      ),
-      nama_wali: pickField(
-        student,
-        'Nama_Ortu_Wali',
-        'namaOrtuWali',
-        'nama_ortu_wali',
-        'Nama_Wali',
-        'nama_wali'
-      ),
-      telepon_wali: pickField(
-        student,
-        'No_Ortu_Wali',
-        'noOrtuWali',
-        'no_ortu_wali',
-        'Telepon_Wali',
-        'telepon_wali'
-      ),
-    },
+    student: mapPublicStudentRecord(student),
   };
 }
 
@@ -365,16 +298,18 @@ export async function directSubmitApplication(payload: any) {
   let canonicalNama = String(payload.nama).trim();
   let canonicalJurusan = String(payload.jurusan || '');
   let canonicalKelas = String(payload.kelas || '');
+  let matchedStudent: any = null;
 
   if (siswaRows.length > 0) {
-    const matchedStudent = siswaRows.find((s: any) => {
-      const rowNis = pickField(s, 'NIS', 'nis');
-      const rowDigits = stripNisSymbols(rowNis);
-      return (
-        (cleanNisInput && rowDigits === cleanNisInput) ||
-        rowNis.toLowerCase() === rawNisStr.toLowerCase()
-      );
-    });
+    matchedStudent =
+      siswaRows.find((s: any) => {
+        const rowNis = pickField(s, 'NIS', 'nis');
+        const rowDigits = stripNisSymbols(rowNis);
+        return (
+          (cleanNisInput && rowDigits === cleanNisInput) ||
+          rowNis.toLowerCase() === rawNisStr.toLowerCase()
+        );
+      }) || null;
     if (!matchedStudent) {
       throw new Error(`NIS [${rawNisStr}] tidak terdaftar di Master Siswa. Hubungi Admin Hubin.`);
     }
@@ -421,9 +356,57 @@ export async function directSubmitApplication(payload: any) {
     }
   }
 
-  const noPengajuan = `REQ-${new Date().getFullYear()}-${String(canonicalJurusan || 'PKL')
-    .substring(0, 3)
-    .toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+  const cleanClientRequestId = String(payload.client_request_id || '').trim();
+  try {
+    const existingRows = await readSheetDirect('Data_Pengajuan_PKL', true, true);
+    const existingApp = existingRows.find((r: any) => {
+      const rReqId = pickField(r, 'No_Pengajuan', 'noPengajuan', 'id');
+      if (cleanClientRequestId && rReqId === cleanClientRequestId) return true;
+      const rNis = stripNisSymbols(pickField(r, 'NIS', 'nis')) || pickField(r, 'NIS', 'nis');
+      const rStatusKakomli = normalizeStr(pickField(r, 'Status_Kakomli', 'statusKakomli'));
+      if (!canonicalNis || rNis !== canonicalNis || rStatusKakomli !== 'pending') return false;
+      const rDudiId = pickField(r, 'ID_DUDI', 'idDudi');
+      const rDudiNama = normalizeStr(pickField(r, 'DUDI_Tujuan', 'dudiTujuan', 'nama_dudi'));
+      return (
+        (resolvedDudiId && rDudiId === resolvedDudiId) ||
+        (resolvedDudiNama && rDudiNama === normalizeStr(resolvedDudiNama))
+      );
+    });
+    if (existingApp) {
+      const existingId = pickField(existingApp, 'No_Pengajuan', 'noPengajuan', 'id');
+      const existingMaps = pickField(existingApp, 'Link_Maps', 'linkMaps', 'link_maps');
+      return {
+        success: true,
+        deduplicated: true,
+        verifiedInSpreadsheet: true,
+        sheetRowNumber: existingApp._sheetRowNumber,
+        savedAt: new Date().toISOString(),
+        message: 'Pengajuan PKL Anda untuk DUDI ini sudah tercatat di Cloud Server.',
+        application: {
+          ...existingApp,
+          id: existingId,
+          No_Pengajuan: existingId,
+          nis: canonicalNis,
+          nama_siswa: pickField(existingApp, 'Nama_Siswa', 'namaSiswa', 'nama_siswa') || canonicalNama,
+          kelas: pickField(existingApp, 'Kelas', 'kelas') || canonicalKelas,
+          jurusan: pickField(existingApp, 'Jurusan', 'jurusan') || canonicalJurusan,
+          nama_dudi: pickField(existingApp, 'DUDI_Tujuan', 'dudiTujuan', 'nama_dudi') || resolvedDudiNama,
+          Link_Maps: existingMaps || mapsCheck.normalizedUrl,
+          link_maps: existingMaps || mapsCheck.normalizedUrl,
+          status: pickField(existingApp, 'Status_Hubin', 'statusHubin', 'status') || 'Menunggu ACC Kakomli',
+        },
+      };
+    }
+  } catch {
+    // Proceed cleanly
+  }
+
+  const jurCode =
+    generateJurusanCode(canonicalJurusan) ||
+    String(canonicalJurusan || 'PKL').substring(0, 3).toUpperCase();
+  const noPengajuan =
+    cleanClientRequestId ||
+    `REQ-${new Date().getFullYear()}-${jurCode}-${Math.floor(100 + Math.random() * 900)}`;
   const timestamp = getTodayWibDateTime();
 
   const baseStatusNote = payload.is_dudi_unregistered
@@ -488,7 +471,42 @@ export async function directSubmitApplication(payload: any) {
     status: 'Menunggu Validasi Kakomli',
   };
 
-  await writeSheetDirect('Data_Pengajuan_PKL', 'CREATE', sheetRow);
+  const persistedPengajuan = GoogleDriveSheetService.getInstance().stripFormulaManagedFields(
+    'Data_Pengajuan_PKL',
+    sheetRow
+  );
+  const writeReceipt = await writeSheetDirect('Data_Pengajuan_PKL', 'CREATE', persistedPengajuan);
+
+  if (matchedStudent) {
+    const siswaId = pickField(matchedStudent, 'ID', 'id', 'NIS', 'nis');
+    if (siswaId) {
+      const inputNoHp = String(payload.telepon || '').trim();
+      const inputAlamat = String(payload.alamat_domisili || '').trim();
+      const inputNamaOrtu = String(payload.nama_orang_tua || '').trim();
+      const inputNoOrtu = String(payload.telepon_orang_tua || '').trim();
+      const currNoHp = pickField(matchedStudent, 'No_HP_Siswa', 'noHpSiswa');
+      const currAlamat = pickField(matchedStudent, 'Alamat_Domisili', 'alamatDomisili');
+      const currNamaOrtu = pickField(matchedStudent, 'Nama_Ortu_Wali', 'namaOrtuWali');
+      const currNoOrtu = pickField(matchedStudent, 'No_Ortu_Wali', 'noOrtuWali');
+      const currStatus = pickField(matchedStudent, 'Status_PKL', 'statusPKL');
+      const studentUpdates: Record<string, any> = {};
+      if (inputNoHp && inputNoHp !== currNoHp) studentUpdates.No_HP_Siswa = inputNoHp;
+      if (inputAlamat && inputAlamat !== currAlamat) studentUpdates.Alamat_Domisili = inputAlamat;
+      if (inputNamaOrtu && inputNamaOrtu !== currNamaOrtu) studentUpdates.Nama_Ortu_Wali = inputNamaOrtu;
+      if (inputNoOrtu && inputNoOrtu !== currNoOrtu) studentUpdates.No_Ortu_Wali = inputNoOrtu;
+      if (!currStatus || normalizeStr(currStatus) === 'belum daftar') {
+        studentUpdates.Status_PKL = 'Diajukan';
+      }
+      if (Object.keys(studentUpdates).length > 0) {
+        await writeSheetDirect('Master_Siswa_XI', 'UPDATE', {
+          id: siswaId,
+          ID: siswaId,
+          _sheetRowNumber: matchedStudent._sheetRowNumber,
+          ...studentUpdates,
+        }).catch(() => {});
+      }
+    }
+  }
 
   if (
     matchedDudiRow &&
@@ -499,9 +517,9 @@ export async function directSubmitApplication(payload: any) {
       const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
       if (targetDudiId) {
         await writeSheetDirect('Master_DUDI', 'UPDATE', {
-          ...matchedDudiRow,
           id: targetDudiId,
           ID: targetDudiId,
+          _sheetRowNumber: matchedDudiRow._sheetRowNumber,
           Link_Maps: mapsCheck.normalizedUrl,
           linkMaps: mapsCheck.normalizedUrl,
         });
@@ -513,7 +531,10 @@ export async function directSubmitApplication(payload: any) {
 
   return {
     success: true,
-    message: 'Pengajuan PKL berhasil disimpan ke Cloud Server.',
+    verifiedInSpreadsheet: writeReceipt.verified,
+    sheetRowNumber: writeReceipt.sheetRowNumber,
+    savedAt: writeReceipt.savedAt,
+    message: 'Pengajuan PKL berhasil disimpan dan diverifikasi ke Cloud Server.',
     application: sheetRow,
   };
 }
@@ -525,11 +546,15 @@ export async function directSaveDudiContactVerification(payload: {
   nama_pemimpin: string;
   nama_pic: string;
   no_telp_dudi: string;
+  hari_kerja?: string;
+  jam_kerja?: string;
   spelling_confirmed: boolean;
 }) {
   const inputPemimpin = String(payload.nama_pemimpin || '').trim();
   const inputPic = String(payload.nama_pic || '').trim();
   const inputTelp = String(payload.no_telp_dudi || '').trim();
+  const inputHariKerja = String(payload.hari_kerja || '').trim();
+  const inputJamKerja = String(payload.jam_kerja || '').trim();
 
   await syncDudiContactFallback({
     dudiId: payload.dudi_id,
@@ -538,6 +563,8 @@ export async function directSaveDudiContactVerification(payload: {
     pemimpin: inputPemimpin,
     pic: inputPic,
     telp: inputTelp,
+    hariKerja: inputHariKerja || undefined,
+    jamKerja: inputJamKerja || undefined,
     allowPartialFallback: false,
   });
 
@@ -548,21 +575,15 @@ export async function directSaveDudiContactVerification(payload: {
       namaPemimpin: inputPemimpin,
       pic: inputPic,
       kontak: inputTelp,
+      ...(inputHariKerja ? { hariKerja: inputHariKerja } : {}),
+      ...(inputJamKerja ? { jamKerja: inputJamKerja } : {}),
     },
   };
 }
 
 export async function directFetchPetugasList(forceRefresh = false) {
   const rows = await readSheetDirect('Master_Guru_Pendamping', false, forceRefresh);
-  const mapped = rows
-    .filter((g: any) => pickField(g, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama', 'Nama') !== '')
-    .map((g: any, idx: number) => ({
-      id: pickField(g, 'ID', 'ID_Guru', 'idGuru', 'id') || `guru_${idx + 1}`,
-      nama: pickField(g, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama', 'Nama'),
-      nip: pickField(g, 'NIP', 'nip') || '-',
-      peran: pickField(g, 'Peran_Utama', 'peranUtama', 'Peran', 'peran') || 'Guru Pendamping',
-      email: pickField(g, 'Email_Google', 'email', 'emailGoogle'),
-    }));
+  const mapped = mapPublicPetugasRows(rows);
   return { success: true, total: mapped.length, data: mapped };
 }
 
@@ -640,149 +661,13 @@ export async function directFetchPetugasDudi(petugasNama: string, petugasId: str
     readSheetDirect('Data_Pengajuan_PKL', true),
   ]);
 
-  const dudiMapById = new Map<string, any>();
-  const dudiMapByName = new Map<string, any>();
-  for (const d of dudiRows) {
-    const id = pickField(d, 'ID', 'id');
-    const nama = pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi');
-    if (id) dudiMapById.set(id, d);
-    if (nama) dudiMapByName.set(normalizeStr(nama), d);
-  }
-
-  const pengajuanMapsByDudi = new Map<string, string>();
-  for (const reqRow of pengajuanRows) {
-    const lm = pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps');
-    if (!lm) continue;
-    const did = pickField(reqRow, 'ID_DUDI', 'idDudi');
-    const dname = normalizeStr(pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'));
-    if (did && !pengajuanMapsByDudi.has(did)) pengajuanMapsByDudi.set(did, lm);
-    if (dname && !pengajuanMapsByDudi.has(dname)) pengajuanMapsByDudi.set(dname, lm);
-  }
-
-  const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
-  const targetNamaNorm = normalizeStr(petugasNama);
-
-  const isTeacherMatch = (row: any) => {
-    const rowGuruId = pickField(row, 'ID_Guru_Pendamping', 'idGuruPendamping');
-    const rowGuruNama = normalizeStr(pickField(row, 'Guru_Pendamping', 'guruPendamping'));
-    return (
-      (petugasId && rowGuruId && rowGuruId === petugasId) ||
-      (targetNamaNorm &&
-        rowGuruNama &&
-        (rowGuruNama === targetNamaNorm ||
-          rowGuruNama.includes(targetNamaNorm) ||
-          targetNamaNorm.includes(rowGuruNama)))
-    );
-  };
-
-  for (const p of plottingRows) {
-    const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
-    if (statusPlt === 'dibatalkan' || statusPlt === 'batal' || statusPlt === 'pindah dudi') continue;
-    if (!isTeacherMatch(p)) continue;
-
-    const dudiId = pickField(p, 'ID_DUDI', 'idDudi');
-    const dudiNamaRaw = pickField(p, 'Nama_DUDI', 'namaDudi');
-    const master =
-      (dudiId && dudiMapById.get(dudiId)) ||
-      (dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw)));
-
-    const resolvedName = pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw;
-    if (!resolvedName) continue;
-
-    const key = normalizeStr(resolvedName);
-    if (!grouped.has(key)) {
-      const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
-      const resolvedKontak =
-        pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') || '-';
-      const resolvedMaps =
-        pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
-        pengajuanMapsByDudi.get(masterId) ||
-        pengajuanMapsByDudi.get(key) ||
-        '';
-      grouped.set(key, {
-        dudi: {
-          id: masterId,
-          nama: resolvedName,
-          alamat: pickField(master || {}, 'Alamat', 'alamat') || '-',
-          bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || '-',
-          namaPemimpin: pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') || '',
-          pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-          kontak: resolvedKontak,
-          linkMaps: resolvedMaps,
-          kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
-        },
-        studentNisSet: new Set<string>(),
-      });
-    }
-    const rawNis = pickField(p, 'NIS', 'nis');
-    const canonicalStudentKey =
-      stripNisSymbols(rawNis) || normalizeStr(pickField(p, 'Nama_Siswa', 'namaSiswa'));
-    if (canonicalStudentKey) grouped.get(key)!.studentNisSet.add(canonicalStudentKey);
-  }
-
-  for (const reqRow of pengajuanRows) {
-    const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
-    const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
-    if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
-    if (!isTeacherMatch(reqRow)) continue;
-
-    const dudiId = pickField(reqRow, 'ID_DUDI', 'idDudi');
-    const dudiNamaRaw = pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan');
-    if (!dudiNamaRaw) continue;
-    const master =
-      (dudiId && dudiMapById.get(dudiId)) || dudiMapByName.get(normalizeStr(dudiNamaRaw));
-    const resolvedName = pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw;
-    const key = normalizeStr(resolvedName);
-
-    if (!grouped.has(key)) {
-      const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
-      const resolvedKontak =
-        pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
-        pickField(reqRow, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
-        '-';
-      const resolvedMaps =
-        pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
-        pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps') ||
-        pengajuanMapsByDudi.get(masterId) ||
-        pengajuanMapsByDudi.get(key) ||
-        '';
-      grouped.set(key, {
-        dudi: {
-          id: masterId,
-          nama: resolvedName,
-          alamat:
-            pickField(master || {}, 'Alamat', 'alamat') ||
-            pickField(reqRow, 'Alamat_DUDI', 'alamatDudi') ||
-            '-',
-          bidang:
-            pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') ||
-            pickField(reqRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') ||
-            '-',
-          namaPemimpin:
-            pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') ||
-            pickField(reqRow, 'Nama_Pemimpin', 'namaPemimpin') ||
-            '',
-          pic:
-            pickField(master || {}, 'Nama_PIC', 'namaPic') ||
-            pickField(reqRow, 'Nama_PIC', 'namaPic') ||
-            '-',
-          kontak: resolvedKontak,
-          linkMaps: resolvedMaps,
-          kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
-        },
-        studentNisSet: new Set<string>(),
-      });
-    }
-    const rawNis = pickField(reqRow, 'NIS', 'nis');
-    const canonicalStudentKey =
-      stripNisSymbols(rawNis) || normalizeStr(pickField(reqRow, 'Nama_Siswa', 'namaSiswa'));
-    if (canonicalStudentKey) grouped.get(key)!.studentNisSet.add(canonicalStudentKey);
-  }
-
-  const result = Array.from(grouped.values()).map((entry) => ({
-    ...entry.dudi,
-    jumlahSiswa: entry.studentNisSet.size,
-  }));
+  const result = aggregatePetugasDudiGroups({
+    petugasNama,
+    petugasId,
+    plottingRows,
+    dudiRows,
+    pengajuanRows,
+  });
 
   return { success: true, total: result.length, data: result };
 }
@@ -805,113 +690,17 @@ export async function directFetchDudiStudents(
     readSheetDirect('Nilai_Dan_Sertifikat', true),
   ]);
 
-  const siswaByNis = new Map<string, any>();
-  for (const s of siswaRows) {
-    const nis = pickField(s, 'NIS', 'nis');
-    const nisDigits = stripNisSymbols(nis);
-    if (nisDigits) siswaByNis.set(nisDigits, s);
-    if (nis) siswaByNis.set(nis, s);
-  }
-
-  const studentsMap = new Map<string, any>();
-  const targetDudiNorm = normalizeStr(dudiNama);
-  const targetPetugasNorm = normalizeStr(petugasNama);
-
-  const checkDudiAndPetugasMatch = (row: any, rowDudiNameField: 'Nama_DUDI' | 'DUDI_Tujuan') => {
-    const rowDudiId = pickField(row, 'ID_DUDI', 'idDudi');
-    const rowDudiNama = normalizeStr(
-      rowDudiNameField === 'Nama_DUDI'
-        ? pickField(row, 'Nama_DUDI', 'namaDudi')
-        : pickField(row, 'DUDI_Tujuan', 'dudiTujuan')
-    );
-    const dudiMatches =
-      (dudiId && rowDudiId && rowDudiId === dudiId) ||
-      (targetDudiNorm &&
-        rowDudiNama &&
-        (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm)));
-    if (!dudiMatches) return false;
-    if (targetPetugasNorm) {
-      const rowGuru = normalizeStr(pickField(row, 'Guru_Pendamping', 'guruPendamping'));
-      if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  for (const p of plottingRows) {
-    const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
-    if (statusPlt === 'dibatalkan' || statusPlt === 'batal' || statusPlt === 'pindah dudi') continue;
-    if (!checkDudiAndPetugasMatch(p, 'Nama_DUDI')) continue;
-
-    const rawNis = pickField(p, 'NIS', 'nis');
-    const cleanNis = stripNisSymbols(rawNis) || rawNis;
-    const masterSiswa =
-      (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
-    const canonicalNis = stripNisSymbols(pickField(masterSiswa || {}, 'NIS', 'nis')) || cleanNis;
-    const nama =
-      pickField(masterSiswa || {}, 'Nama_Lengkap', 'namaLengkap', 'nama') ||
-      pickField(p, 'Nama_Siswa', 'namaSiswa');
-    if (!canonicalNis && !nama) continue;
-
-    const key = canonicalNis || normalizeStr(nama);
-    if (!studentsMap.has(key)) {
-      studentsMap.set(key, {
-        id: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || key,
-        idPenempatan: pickField(p, 'ID_Penempatan', 'idPenempatan', 'id') || '',
-        nis: canonicalNis || '-',
-        nama: nama || 'Siswa Prakerin',
-        kelas: pickField(masterSiswa || {}, 'Kelas', 'kelas') || '-',
-        jurusan: pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan', 'Jurusan') || '-',
-        dudi_name: dudiNama || pickField(p, 'Nama_DUDI', 'namaDudi'),
-      });
-    }
-  }
-
-  for (const reqRow of pengajuanRows) {
-    const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
-    const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
-    if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
-    if (!checkDudiAndPetugasMatch(reqRow, 'DUDI_Tujuan')) continue;
-
-    const rawNis = pickField(reqRow, 'NIS', 'nis');
-    const cleanNis = stripNisSymbols(rawNis) || rawNis;
-    const masterSiswa =
-      (cleanNis ? siswaByNis.get(cleanNis) : undefined) || (rawNis ? siswaByNis.get(rawNis) : undefined);
-    const canonicalNis = stripNisSymbols(pickField(masterSiswa || {}, 'NIS', 'nis')) || cleanNis;
-    const nama =
-      pickField(masterSiswa || {}, 'Nama_Lengkap', 'namaLengkap', 'nama') ||
-      pickField(reqRow, 'Nama_Siswa', 'namaSiswa');
-    if (!canonicalNis && !nama) continue;
-
-    const key = canonicalNis || normalizeStr(nama);
-    if (!studentsMap.has(key)) {
-      studentsMap.set(key, {
-        id: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || key,
-        idPenempatan: pickField(reqRow, 'No_Pengajuan', 'noPengajuan', 'id') || '',
-        nis: canonicalNis || '-',
-        nama: nama || 'Siswa Prakerin',
-        kelas:
-          pickField(masterSiswa || {}, 'Kelas', 'kelas') ||
-          pickField(reqRow, 'Kelas', 'kelas') ||
-          '-',
-        jurusan:
-          pickField(masterSiswa || {}, 'ID_Jurusan', 'jurusan') ||
-          pickField(reqRow, 'Jurusan', 'jurusan') ||
-          '-',
-        dudi_name: dudiNama || pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan'),
-      });
-    }
-  }
-
   const stageControl = GoogleSheetClient.getInstance().getMonitoringStageControl();
-  const result = Array.from(studentsMap.values()).map((stu) => {
-    const summary = buildStudentMonitoringSummary(stu, monitoringRows, nilaiRows);
-    return {
-      ...stu,
-      ...summary,
-      recommendedStage: pickRecommendedStageForControl(summary.completedStages, stageControl),
-    };
+  const result = buildDudiStudentsWithSummary({
+    dudiNama,
+    dudiId,
+    petugasNama,
+    plottingRows,
+    pengajuanRows,
+    siswaRows,
+    monitoringRows,
+    nilaiRows,
+    stageControl,
   });
 
   return { success: true, total: result.length, stageControl, data: result };
@@ -923,13 +712,32 @@ export async function directSubmitMonitoring(payload: any) {
   }
 
   const cleanNis = stripNisSymbols(payload.nis) || String(payload.nis).trim();
-  const existingMonId = String(payload.existing_monitoring_id || '').trim();
-  const isUpdate = Boolean(existingMonId);
-  const idMonitoring =
-    existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+  const inputIdPenempatan = String(payload.id_penempatan || '').trim();
+  let existingMonId = String(payload.existing_monitoring_id || '').trim();
   const tglVal = normalizeToIsoDate(payload.tanggal) || getTodayWibIsoDate();
 
-  const noteCombined = stripStructuredTagsFromNote(payload.catatan_perkembangan);
+  const bukuLaporan = String(payload.buku_laporan || '').trim().toUpperCase();
+  const aktivitasDp = String(payload.aktivitas_dp || '').trim();
+  const aktivitasMt = String(payload.aktivitas_mt || '').trim();
+  const aktivitasKrt = String(payload.aktivitas_krt || '').trim();
+  const kompetensiArr = parseKompetensiList(payload.kompetensi_siswa);
+  const kompetensiSerialized = serializeKompetensiList(kompetensiArr);
+  const kondisiCheck = parseKondisiBengkel(payload.kondisi_bengkel);
+  const kondisiSerialized = serializeKondisiBengkel(kondisiCheck);
+  const ttdSiswaRaw = String(payload.ttd_siswa || '').trim();
+  const safeTtdSiswa = ttdSiswaRaw.startsWith('svgpath:') ? ttdSiswaRaw : '';
+
+  const cleanUserNote = stripStructuredTagsFromNote(payload.catatan_perkembangan);
+  const f0701Tag = serializeFormat0701Tag({
+    bukuLaporan,
+    dp: aktivitasDp,
+    mt: aktivitasMt,
+    krt: aktivitasKrt,
+    kompetensiList: kompetensiArr,
+    kondisiBengkel: kondisiCheck,
+  });
+  const noteCombined = [cleanUserNote, f0701Tag].filter(Boolean).join(' ').trim();
+
   const stageStr = String(payload.tahap_monitoring);
   const stageNum = extractStageNumber(stageStr);
 
@@ -947,13 +755,14 @@ export async function directSubmitMonitoring(payload: any) {
     );
   }
 
+  const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true).catch(() => [] as any[]);
+
   if (stageControl.requireSequential && stageNum >= 2) {
-    const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true);
     const summary = buildStudentMonitoringSummary(
       {
         nis: cleanNis,
         nama: String(payload.nama_siswa || ''),
-        idPenempatan: String(payload.id_penempatan || ''),
+        idPenempatan: inputIdPenempatan,
         dudi_name: String(payload.nama_dudi || ''),
       },
       monRows,
@@ -967,9 +776,33 @@ export async function directSubmitMonitoring(payload: any) {
     }
   }
 
+  const matchedExistingRow = monRows.find((r: any) => {
+    const rMonId = pickField(r, 'ID_Monitoring', 'idMonitoring', 'id');
+    if (existingMonId && rMonId === existingMonId) return true;
+    const rStage = extractStageNumber(pickField(r, 'Tahap', 'tahap'));
+    if (rStage !== stageNum) return false;
+    const rNisRaw = pickField(r, 'NIS', 'nis');
+    const rNisDigits = stripNisSymbols(rNisRaw) || rNisRaw;
+    const rPlt = pickField(r, 'ID_Penempatan', 'idPenempatan');
+    return Boolean(
+      (cleanNis && rNisDigits === cleanNis) || (inputIdPenempatan && rPlt === inputIdPenempatan)
+    );
+  });
+
+  if (matchedExistingRow) {
+    existingMonId =
+      pickField(matchedExistingRow, 'ID_Monitoring', 'idMonitoring', 'id') || existingMonId;
+  }
+
+  const isUpdate = Boolean(existingMonId);
+  const idMonitoring =
+    existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
   const inputPemimpin = String(payload.nama_pemimpin || '').trim();
   const inputPic = String(payload.nama_pic || '').trim();
   const inputTelpDudi = String(payload.no_telp_dudi || '').trim();
+  const inputHariKerja = String(payload.hari_kerja || '').trim();
+  const inputJamKerja = String(payload.jam_kerja || '').trim();
   const inputTelpDigits = inputTelpDudi.replace(/\D/g, '');
   if (stageNum === 1 || payload.dudi_contact_submitted) {
     if (
@@ -1007,6 +840,18 @@ export async function directSubmitMonitoring(payload: any) {
     avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
   }
 
+  let resolvedDudiId = String(payload.dudi_id || '').trim();
+  if (!resolvedDudiId && payload.nama_dudi) {
+    const dudiRows = await readSheetDirect('Master_DUDI', true).catch(() => [] as any[]);
+    const targetDudiNorm = normalizeStr(payload.nama_dudi);
+    const matchedDudi = dudiRows.find(
+      (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === targetDudiNorm
+    );
+    if (matchedDudi) {
+      resolvedDudiId = pickField(matchedDudi, 'ID', 'id');
+    }
+  }
+
   const idPenempatan = String(payload.id_penempatan || `PLT-${cleanNis}`);
   const sheetRow = {
     id: idMonitoring,
@@ -1014,8 +859,8 @@ export async function directSubmitMonitoring(payload: any) {
     idMonitoring,
     ID_Penempatan: idPenempatan,
     idPenempatan,
-    ID_DUDI: String(payload.dudi_id || ''),
-    idDudi: String(payload.dudi_id || ''),
+    ID_DUDI: resolvedDudiId,
+    idDudi: resolvedDudiId,
     DUDI_Tujuan: String(payload.nama_dudi || ''),
     dudiTujuan: String(payload.nama_dudi || ''),
     Alamat_DUDI: String(payload.alamat_dudi || ''),
@@ -1058,6 +903,20 @@ export async function directSubmitMonitoring(payload: any) {
     nilaiRataRata: nilaiMuncul ? avgScore : '',
     Catatan_Kunjungan: noteCombined,
     catatanKunjungan: noteCombined,
+    Buku_Laporan: bukuLaporan,
+    bukuLaporan,
+    Aktivitas_DP: aktivitasDp,
+    aktivitasDp,
+    Aktivitas_MT: aktivitasMt,
+    aktivitasMt,
+    Aktivitas_KRT: aktivitasKrt,
+    aktivitasKrt,
+    Kompetensi_Didapat: kompetensiSerialized,
+    kompetensiDidapat: kompetensiSerialized,
+    Kondisi_Bengkel: kondisiSerialized,
+    kondisiBengkel: kondisiSerialized,
+    TTD_Siswa: safeTtdSiswa,
+    ttdSiswa: safeTtdSiswa,
     Foto_Bukti_Drive: '',
     fotoBuktiUrl: '',
     Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? 'Ya' : 'Belum',
@@ -1068,18 +927,30 @@ export async function directSubmitMonitoring(payload: any) {
     statusTahap: 'Terlaksana',
   };
 
-  await writeSheetDirect('Monitoring_5_Tahap', isUpdate ? 'UPDATE' : 'CREATE', sheetRow);
+  const persistedMon = GoogleDriveSheetService.getInstance().stripFormulaManagedFields(
+    'Monitoring_5_Tahap',
+    matchedExistingRow?._sheetRowNumber
+      ? { ...sheetRow, _sheetRowNumber: matchedExistingRow._sheetRowNumber }
+      : sheetRow
+  );
+  const writeReceipt = await writeSheetDirect(
+    'Monitoring_5_Tahap',
+    isUpdate ? 'UPDATE' : 'CREATE',
+    persistedMon
+  );
 
   let dudiContactSynced = false;
-  if (inputPemimpin || inputPic || inputTelpDudi) {
+  if (inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja) {
     try {
       dudiContactSynced = await syncDudiContactFallback({
-        dudiId: payload.dudi_id,
+        dudiId: resolvedDudiId || payload.dudi_id,
         namaDudi: payload.nama_dudi,
         alamatDudi: payload.alamat_dudi,
         pemimpin: inputPemimpin,
         pic: inputPic,
         telp: inputTelpDudi,
+        hariKerja: inputHariKerja || undefined,
+        jamKerja: inputJamKerja || undefined,
         allowPartialFallback: true,
       });
     } catch {
@@ -1093,6 +964,7 @@ export async function directSubmitMonitoring(payload: any) {
       gradeSynced = await upsertNilaiDanSertifikatFallback({
         cleanNis,
         idPenempatan,
+        idDudi: resolvedDudiId,
         namaSiswa: String(payload.nama_siswa || ''),
         jurusan: String(payload.jurusan || ''),
         kelas: String(payload.kelas || '-'),
@@ -1111,14 +983,19 @@ export async function directSubmitMonitoring(payload: any) {
 
   return {
     success: true,
+    verifiedInSpreadsheet: writeReceipt.verified,
+    sheetRowNumber: writeReceipt.sheetRowNumber,
+    savedAt: writeReceipt.savedAt,
     gradeSynced,
     dudiContactSynced,
     dudiContact:
-      inputPemimpin || inputPic || inputTelpDudi
+      inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja
         ? {
             namaPemimpin: inputPemimpin,
             pic: inputPic,
             kontak: inputTelpDudi,
+            ...(inputHariKerja ? { hariKerja: inputHariKerja } : {}),
+            ...(inputJamKerja ? { jamKerja: inputJamKerja } : {}),
           }
         : undefined,
     message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Cloud Server.`,
@@ -1188,76 +1065,94 @@ export async function directUpdateMonitoringGrades(payload: {
 
   let resolvedMonId = targetMonId;
   let resolvedStage = String(payload.tahap_monitoring || getStageValueByNumber(5));
+  let resolvedDudiId = String(payload.dudi_id || '').trim();
+  if (!resolvedDudiId && targetRow) {
+    resolvedDudiId = pickField(targetRow, 'ID_DUDI', 'idDudi');
+  }
+  if (!resolvedDudiId && payload.nama_dudi) {
+    const dudiRows = await readSheetDirect('Master_DUDI', true).catch(() => [] as any[]);
+    const targetDudiNorm = normalizeStr(payload.nama_dudi);
+    const matchedDudi = dudiRows.find(
+      (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === targetDudiNorm
+    );
+    if (matchedDudi) {
+      resolvedDudiId = pickField(matchedDudi, 'ID', 'id');
+    }
+  }
+
+  const sheetSvc = GoogleDriveSheetService.getInstance();
 
   if (targetRow) {
     resolvedMonId = pickField(targetRow, 'ID_Monitoring', 'idMonitoring', 'id');
     resolvedStage = pickField(targetRow, 'Tahap', 'tahap') || resolvedStage;
-    const cleanNote = stripStructuredTagsFromNote(
-      targetRow.Catatan_Kunjungan ?? targetRow.catatanKunjungan ?? ''
-    );
+    const rawNote = String(targetRow.Catatan_Kunjungan ?? targetRow.catatanKunjungan ?? '');
+    const existingF0701 = rawNote.match(/\[F0701:[^\]]+\]/i);
+    const cleanNoteBase = stripStructuredTagsFromNote(rawNote);
+    const cleanNote = [cleanNoteBase, existingF0701 ? existingF0701[0] : ''].filter(Boolean).join(' ').trim();
 
-    await writeSheetDirect('Monitoring_5_Tahap', 'UPDATE', {
-      ...targetRow,
-      id: resolvedMonId,
-      ID_Monitoring: resolvedMonId,
-      idMonitoring: resolvedMonId,
-      Nilai_PKL_Muncul: 'Ya',
-      nilaiPklMuncul: true,
-      Nilai_K3LH: k3lh,
-      nilaiK3lh: k3lh,
-      Nilai_Softskills: softskill,
-      Nilai_Softskill: softskill,
-      nilaiSoftskill: softskill,
-      Nilai_Hardskills: teknis,
-      Nilai_Kompetensi_Teknis: teknis,
-      nilaiKompetensiTeknis: teknis,
-      Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
-      Nilai_Alur_Bisnis: alurBisnis,
-      nilaiAlurBisnis: alurBisnis,
-      Nilai_rata_rata: avgScore,
-      Nilai_Rata_Rata: avgScore,
-      nilaiRataRata: avgScore,
-      Nilai_DUDI_Terkumpul: 'Ya',
-      nilaiDudiTerkumpul: true,
-      Catatan_Kunjungan: cleanNote,
-      catatanKunjungan: cleanNote,
-    });
+    await writeSheetDirect(
+      'Monitoring_5_Tahap',
+      'UPDATE',
+      sheetSvc.stripFormulaManagedFields('Monitoring_5_Tahap', {
+        id: resolvedMonId,
+        ID_Monitoring: resolvedMonId,
+        idMonitoring: resolvedMonId,
+        _sheetRowNumber: targetRow._sheetRowNumber,
+        ID_Penempatan: pickField(targetRow, 'ID_Penempatan', 'idPenempatan') || idPenempatan,
+        ID_DUDI: resolvedDudiId,
+        ID_Guru_Pendamping: pickField(targetRow, 'ID_Guru_Pendamping', 'idGuruPendamping') || String(payload.guru_id || ''),
+        Nilai_PKL_Muncul: 'Ya',
+        nilaiPklMuncul: true,
+        Nilai_K3LH: k3lh,
+        nilaiK3lh: k3lh,
+        Nilai_Softskills: softskill,
+        Nilai_Softskill: softskill,
+        nilaiSoftskill: softskill,
+        Nilai_Hardskills: teknis,
+        Nilai_Kompetensi_Teknis: teknis,
+        nilaiKompetensiTeknis: teknis,
+        Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
+        Nilai_Alur_Bisnis: alurBisnis,
+        nilaiAlurBisnis: alurBisnis,
+        Nilai_DUDI_Terkumpul: 'Ya',
+        nilaiDudiTerkumpul: true,
+        Catatan_Kunjungan: cleanNote,
+        catatanKunjungan: cleanNote,
+      })
+    );
   } else {
     resolvedMonId = `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const stageNum = extractStageNumber(resolvedStage) || 5;
-    await writeSheetDirect('Monitoring_5_Tahap', 'CREATE', {
-      id: resolvedMonId,
-      ID_Monitoring: resolvedMonId,
-      idMonitoring: resolvedMonId,
-      ID_Penempatan: idPenempatan,
-      ID_DUDI: String(payload.dudi_id || ''),
-      DUDI_Tujuan: String(payload.nama_dudi || ''),
-      Alamat_DUDI: String(payload.alamat_dudi || ''),
-      NIS: nis,
-      Nama_Siswa: namaSiswa,
-      Jurusan: String(payload.jurusan || ''),
-      ID_Guru_Pendamping: String(payload.guru_id || ''),
-      Guru_Pendamping: String(payload.guru_pembimbing || ''),
-      Tahap: resolvedStage,
-      Tanggal_Kunjungan: tglVal,
-      Sakit: 0,
-      Izin: 0,
-      Alpha: 0,
-      Nilai_PKL_Muncul: 'Ya',
-      Nilai_K3LH: k3lh,
-      Nilai_Softskills: softskill,
-      Nilai_Softskill: softskill,
-      Nilai_Hardskills: teknis,
-      Nilai_Kompetensi_Teknis: teknis,
-      Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
-      Nilai_Alur_Bisnis: alurBisnis,
-      Nilai_rata_rata: avgScore,
-      Nilai_Rata_Rata: avgScore,
-      Catatan_Kunjungan: '',
-      Nilai_DUDI_Terkumpul: 'Ya',
-      Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
-      Status_Tahap: 'Terlaksana',
-    });
+    await writeSheetDirect(
+      'Monitoring_5_Tahap',
+      'CREATE',
+      sheetSvc.stripFormulaManagedFields('Monitoring_5_Tahap', {
+        id: resolvedMonId,
+        ID_Monitoring: resolvedMonId,
+        idMonitoring: resolvedMonId,
+        ID_Penempatan: idPenempatan,
+        ID_DUDI: resolvedDudiId,
+        NIS: nis,
+        ID_Guru_Pendamping: String(payload.guru_id || ''),
+        Tahap: resolvedStage,
+        Tanggal_Kunjungan: tglVal,
+        Sakit: 0,
+        Izin: 0,
+        Alpha: 0,
+        Nilai_PKL_Muncul: 'Ya',
+        Nilai_K3LH: k3lh,
+        Nilai_Softskills: softskill,
+        Nilai_Softskill: softskill,
+        Nilai_Hardskills: teknis,
+        Nilai_Kompetensi_Teknis: teknis,
+        Nilai_Alur_Bisnis_Dunia_Kerja: alurBisnis,
+        Nilai_Alur_Bisnis: alurBisnis,
+        Catatan_Kunjungan: '',
+        Nilai_DUDI_Terkumpul: 'Ya',
+        Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
+        Status_Tahap: 'Terlaksana',
+      })
+    );
   }
 
   let nilaiSynced = false;
@@ -1265,6 +1160,7 @@ export async function directUpdateMonitoringGrades(payload: {
     nilaiSynced = await upsertNilaiDanSertifikatFallback({
       cleanNis: nis,
       idPenempatan,
+      idDudi: resolvedDudiId,
       namaSiswa,
       jurusan: String(payload.jurusan || ''),
       kelas: String(payload.kelas || '-'),

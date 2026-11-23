@@ -1,4 +1,5 @@
-import { Dudi, Guru, Monitoring, Pengajuan, PenempatanPKL, Siswa } from '../../core/types/schema';
+import { Dudi, Guru, KondisiBengkelCheck, Monitoring, Pengajuan, PenempatanPKL, Siswa } from '../../core/types/schema';
+import { resolveJurusanDisplayName } from '../../core/utils/autoIdHelpers';
 import { formatNisVisual, stripNisSymbols } from '../../core/utils/nisHelpers';
 import {
   getCanonicalNisDigits,
@@ -60,6 +61,74 @@ function getPendingStudentsForStage(
     }
   }
   return pending;
+}
+
+export function enrichBundleStudentsWithMonitoring(
+  dedupedRows: PenempatanPKL[],
+  siswaByNis: Map<string, Siswa>,
+  monitoringList: Monitoring[],
+  stageNum: number
+): BundleStudentItem[] {
+  return dedupedRows.map((s) => {
+    const siswaRec = siswaByNis.get(getCanonicalNisDigits(s.nis));
+    const canonicalNis = siswaRec?.nis || s.nis;
+    const canonicalNama = siswaRec?.nama || s.namaSiswa;
+    const summary = buildStudentMonitoringSummary(
+      {
+        nis: canonicalNis,
+        nama: canonicalNama,
+        idPenempatan: s.idPenempatan,
+        dudi_name: s.namaDudi,
+      },
+      monitoringList,
+      []
+    );
+    const stageLog = summary.stageLogs[stageNum];
+    return {
+      nis: canonicalNis,
+      namaSiswa: canonicalNama,
+      kelas: siswaRec?.kelas || '-',
+      jurusan: resolveJurusanDisplayName(siswaRec?.jurusan) || '-',
+      hasStageLog: Boolean(stageLog),
+      tanggalMonitoring: stageLog?.tanggal || '',
+      sakit: stageLog?.sakit,
+      izin: stageLog?.izin,
+      alpha: stageLog?.alpha,
+      bukuLaporan: stageLog?.bukuLaporan || '',
+      dp: stageLog?.aktivitasDp || '',
+      mt: stageLog?.aktivitasMt || '',
+      krt: stageLog?.aktivitasKrt || '',
+      kompetensiList: stageLog?.kompetensiList || [],
+      kondisiBengkel: stageLog?.kondisiBengkel,
+      ttdSiswa: stageLog?.ttdSiswa || '',
+      catatan: stageLog?.catatan || '',
+    };
+  });
+}
+
+export function extractGroupFormat0701Summary(students: BundleStudentItem[]): {
+  kompetensiList: string[];
+  keadaanBengkel?: KondisiBengkelCheck;
+  catatanLain: string;
+} {
+  const kompetensiList =
+    students.find((s) => Array.isArray(s.kompetensiList) && s.kompetensiList.some(Boolean))
+      ?.kompetensiList?.filter(Boolean) || [];
+
+  const keadaanBengkel = students.find(
+    (s) =>
+      s.kondisiBengkel &&
+      (s.kondisiBengkel.volumePekerjaan ||
+        s.kondisiBengkel.relevansiPekerjaan ||
+        s.kondisiBengkel.kenyamanan ||
+        s.kondisiBengkel.kelayakan)
+  )?.kondisiBengkel;
+
+  const catatanLain = Array.from(
+    new Set(students.map((s) => (s.catatan || '').trim()).filter(Boolean))
+  ).join('; ');
+
+  return { kompetensiList, keadaanBengkel, catatanLain };
 }
 
 export function buildBundleDudiItems(params: {
@@ -150,23 +219,18 @@ export function buildBundleDudiItems(params: {
     const dudiObj = findMatchingDudi(dudiList, grp.dudiId, grp.namaDudi);
 
     const dedupedRows = dedupePlacementsByCanonicalNis(grp.rows, siswaByNis);
-    const students: BundleStudentItem[] = dedupedRows.map((s) => {
-      const siswaRec = siswaByNis.get(getCanonicalNisDigits(s.nis));
-      return {
-        nis: siswaRec?.nis || s.nis,
-        namaSiswa: siswaRec?.nama || s.namaSiswa,
-        kelas: siswaRec?.kelas || '-',
-        jurusan: siswaRec?.jurusan || dudiObj?.bidangKeahlian || '-',
-      };
-    });
+    const students = enrichBundleStudentsWithMonitoring(
+      dedupedRows,
+      siswaByNis,
+      monitoringList,
+      bundleStageNum
+    );
+    const group0701 = extractGroupFormat0701Summary(students);
 
     const jurusanSet = new Set<string>();
     for (const st of students) {
       const j = String(st.jurusan || '').trim();
       if (j && j !== '-') jurusanSet.add(j);
-    }
-    if (dudiObj?.bidangKeahlian && dudiObj.bidangKeahlian !== '-') {
-      jurusanSet.add(dudiObj.bidangKeahlian.trim());
     }
     if (jurusanFilter !== 'ALL' && !jurusanSet.has(jurusanFilter)) {
       continue;
@@ -206,6 +270,11 @@ export function buildBundleDudiItems(params: {
         : '-',
       pemimpinDudi,
       noTelpDudi,
+      hariKerja: dudiObj?.hariKerja || '',
+      jamKerja: dudiObj?.jamKerja || '',
+      kompetensiList: group0701.kompetensiList,
+      keadaanBengkel: group0701.keadaanBengkel,
+      catatanLain: group0701.catatanLain,
       students,
       isLocked,
       pendingStudents,
@@ -291,18 +360,19 @@ export function buildFilterMeta(params: {
     }
   } else if (activeDocKey === 'doc_pengajuan') {
     for (const p of pengajuanList) {
-      if (p.jurusan && p.jurusan !== '-') jSet.add(p.jurusan.trim());
+      const sRec = siswaByNis.get(getCanonicalNisDigits(p.nis));
+      const resolvedJur = resolveJurusanDisplayName(sRec?.jurusan || p.jurusan);
+      const resolvedKelas = (sRec?.kelas || p.kelas || '').trim();
+      if (resolvedJur && resolvedJur !== '-') jSet.add(resolvedJur);
       if (p.statusKakomli) sSet.add(p.statusKakomli.trim());
-      if (p.kelas && p.kelas !== '-') subSet.add(p.kelas.trim());
+      if (resolvedKelas && resolvedKelas !== '-') subSet.add(resolvedKelas);
     }
   } else {
     for (const p of penempatanList) {
       if (isExcludedFromDudiListStatus(p.statusPenempatan)) continue;
       const sRec = siswaByNis.get(getCanonicalNisDigits(p.nis));
-      if (sRec?.jurusan && sRec.jurusan !== '-') jSet.add(sRec.jurusan.trim());
-    }
-    for (const d of dudiList) {
-      if (d.bidangKeahlian && d.bidangKeahlian !== '-') jSet.add(d.bidangKeahlian.trim());
+      const resolvedJur = resolveJurusanDisplayName(sRec?.jurusan);
+      if (resolvedJur && resolvedJur !== '-') jSet.add(resolvedJur);
     }
     if (activeDocKey === 'doc_surat_tugas') {
       for (const g of guruList) {
@@ -396,11 +466,7 @@ export function buildFilteredItems(params: {
           );
           const hasJurusan = guruPlacements.some((p) => {
             const sRec = siswaByNis.get(getCanonicalNisDigits(p.nis));
-            const dObj = findMatchingDudi(dudiList, p.idDudi, p.namaDudi);
-            return (
-              (sRec?.jurusan && sRec.jurusan.trim() === jurusanFilter) ||
-              (dObj?.bidangKeahlian && dObj.bidangKeahlian.trim() === jurusanFilter)
-            );
+            return resolveJurusanDisplayName(sRec?.jurusan) === jurusanFilter;
           });
           if (!hasJurusan) return false;
         }
@@ -435,9 +501,9 @@ export function buildFilteredItems(params: {
         const sRec = siswaByNis.get(getCanonicalNisDigits(p.nis));
         const resolvedNama = sRec?.nama || p.namaSiswa;
         const resolvedNis = sRec?.nis || p.nis;
-        const resolvedJurusan = sRec?.jurusan || p.jurusan;
+        const resolvedJurusan = resolveJurusanDisplayName(sRec?.jurusan || p.jurusan);
         const resolvedKelas = sRec?.kelas || p.kelas;
-        if (jurusanFilter !== 'ALL' && (resolvedJurusan || '').trim() !== jurusanFilter) return false;
+        if (jurusanFilter !== 'ALL' && resolvedJurusan !== jurusanFilter) return false;
         if (statusFilter !== 'ALL' && (p.statusKakomli || '').trim() !== statusFilter) return false;
         if (subFilter !== 'ALL' && (resolvedKelas || '').trim() !== subFilter) return false;
         if (
@@ -495,14 +561,11 @@ export function buildFilteredItems(params: {
     .map(([key, grp]) => {
       const dedupedRows = dedupePlacementsByCanonicalNis(grp.rows, siswaByNis);
       const first = dedupedRows[0] || grp.rows[0];
-      const dObj = findMatchingDudi(dudiList, grp.dudiId, grp.dudiName);
       const jurSet = new Set<string>();
       for (const r of dedupedRows) {
         const sRec = siswaByNis.get(getCanonicalNisDigits(r.nis));
-        if (sRec?.jurusan && sRec.jurusan !== '-') jurSet.add(sRec.jurusan.trim());
-      }
-      if (dObj?.bidangKeahlian && dObj.bidangKeahlian !== '-') {
-        jurSet.add(dObj.bidangKeahlian.trim());
+        const resolvedJur = resolveJurusanDisplayName(sRec?.jurusan);
+        if (resolvedJur && resolvedJur !== '-') jurSet.add(resolvedJur);
       }
       if (jurusanFilter !== 'ALL' && !jurSet.has(jurusanFilter)) return null;
 

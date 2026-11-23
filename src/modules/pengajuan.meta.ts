@@ -96,17 +96,6 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       isFilterable: true,
       isSortable: true,
       relationSource: 'jurusan',
-      options: [
-        { label: 'Desain Komunikasi Visual', value: 'Desain Komunikasi Visual' },
-        { label: 'Rekayasa Perangkat Lunak', value: 'Rekayasa Perangkat Lunak' },
-        { label: 'Teknik Alat Berat', value: 'Teknik Alat Berat' },
-        { label: 'Teknik Bodi Kendaraan Ringan', value: 'Teknik Bodi Kendaraan Ringan' },
-        { label: 'Teknik Kendaraan Ringan', value: 'Teknik Kendaraan Ringan' },
-        { label: 'Teknik Komputer dan Jaringan', value: 'Teknik Komputer dan Jaringan' },
-        { label: 'Teknik Pemesinan', value: 'Teknik Pemesinan' },
-        { label: 'Teknik Pengelasan', value: 'Teknik Pengelasan' },
-        { label: 'Teknik Sepeda Motor', value: 'Teknik Sepeda Motor' },
-      ],
       validation: { required: true },
     },
     {

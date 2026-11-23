@@ -61,6 +61,16 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
       placeholder: 'Contoh: XI TKR 1',
     },
     {
+      key: 'idJurusan',
+      label: 'Kode / ID Jurusan',
+      type: 'text',
+      isTableColumn: false,
+      isFormInput: true,
+      disabled: true,
+      placeholder: 'Otomatis dari Kompetensi Keahlian',
+      helperText: 'Terisi otomatis sesuai Kompetensi Keahlian',
+    },
+    {
       key: 'jurusan',
       label: 'Kompetensi Keahlian',
       type: 'select',
@@ -68,6 +78,7 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
       isFormInput: true,
       isFilterable: true,
       isSortable: true,
+      relationSource: 'jurusan',
       options: [
         { label: 'Desain Komunikasi Visual', value: 'Desain Komunikasi Visual' },
         { label: 'Rekayasa Perangkat Lunak', value: 'Rekayasa Perangkat Lunak' },
@@ -115,7 +126,9 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
       isTableColumn: true,
       isFormInput: true,
       isSortable: true,
-      validation: { min: 1 },
+      disabled: true,
+      defaultValue: 0,
+      helperText: 'Otomatis terhitung dari Master Siswa',
     },
   ],
 };

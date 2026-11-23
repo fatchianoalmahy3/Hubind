@@ -17,6 +17,18 @@ const JURUSAN_CODE_MAP: Record<string, string> = {
   'teknik sepeda motor': 'TSM',
 };
 
+const CODE_TO_JURUSAN_NAME: Record<string, string> = {
+  DKV: 'Desain Komunikasi Visual',
+  RPL: 'Rekayasa Perangkat Lunak',
+  TAB: 'Teknik Alat Berat',
+  TBKR: 'Teknik Bodi Kendaraan Ringan',
+  TKR: 'Teknik Kendaraan Ringan',
+  TKJ: 'Teknik Komputer dan Jaringan',
+  TPM: 'Teknik Pemesinan',
+  TPL: 'Teknik Pengelasan',
+  TSM: 'Teknik Sepeda Motor',
+};
+
 const PREFIX_BY_SHEET: Record<string, { prefix: string; withYear: boolean }> = {
   Master_Siswa_XI: { prefix: 'SIS', withYear: true },
   Master_Siswa: { prefix: 'SIS', withYear: true },
@@ -35,12 +47,29 @@ export function getTodayIsoDate(): string {
   return getTodayWibIsoDate();
 }
 
+export function resolveJurusanDisplayName(raw: unknown): string {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return '';
+  const upper = trimmed.toUpperCase();
+  if (CODE_TO_JURUSAN_NAME[upper]) {
+    return CODE_TO_JURUSAN_NAME[upper];
+  }
+  const lower = trimmed.toLowerCase().replace(/\s+/g, ' ');
+  if (JURUSAN_CODE_MAP[lower]) {
+    return CODE_TO_JURUSAN_NAME[JURUSAN_CODE_MAP[lower]] || trimmed;
+  }
+  return trimmed;
+}
+
 export function generateJurusanCode(namaJurusan: string): string {
-  const cleaned = String(namaJurusan || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-  if (!cleaned) return '';
+  const raw = String(namaJurusan || '').trim();
+  if (!raw) return '';
+  const upperRaw = raw.toUpperCase();
+  if (CODE_TO_JURUSAN_NAME[upperRaw]) {
+    return upperRaw;
+  }
+
+  const cleaned = raw.toLowerCase().replace(/\s+/g, ' ');
   if (JURUSAN_CODE_MAP[cleaned]) {
     return JURUSAN_CODE_MAP[cleaned];
   }
@@ -53,7 +82,7 @@ export function generateJurusanCode(namaJurusan: string): string {
 
   if (words.length === 0) return '';
   if (words.length === 1) {
-    return words[0].slice(0, 4).toUpperCase();
+    return words[0].slice(0, 5).toUpperCase();
   }
   return words
     .map((w) => w[0])

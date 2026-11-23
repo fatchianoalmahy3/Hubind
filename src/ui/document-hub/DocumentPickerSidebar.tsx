@@ -126,9 +126,10 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
     onResetAllFilters,
   } = props;
 
+  const defaultStatusFilter = activeDocKey === 'doc_paket_monitoring' ? 'SIAP' : 'ALL';
   const activeFilterCount =
     (jurusanFilter !== 'ALL' ? 1 : 0) +
-    (statusFilter !== 'ALL' ? 1 : 0) +
+    (statusFilter !== defaultStatusFilter ? 1 : 0) +
     (subFilter !== 'ALL' ? 1 : 0) +
     (activeDocKey === 'doc_paket_monitoring'
       ? bundleGuruFilter !== 'ALL'

@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
+import { Database, AlertTriangle, RefreshCw } from 'lucide-react';
 import { ModuleMetadata } from '../core/types/metadata';
 import { BaseRepository } from '../core/BaseRepository';
 import { useDataGrid } from '../hooks/useDataGrid';
+import { UserRole } from '../core/types/schema';
+import { SertifikatService } from '../services/SertifikatService';
+import { RelationSyncService } from '../services/RelationSyncService';
+import { ToastManager } from '../core/ToastManager';
 import { StatCards } from './StatCards';
 import { Toolbar } from './Toolbar';
 import { DynamicDataGrid } from './DynamicDataGrid';
@@ -11,55 +16,20 @@ import { BulkActionModal } from './BulkActionModal';
 import { ImportExcelModal } from './ImportExcelModal';
 import { ImageCropperModal } from './ImageCropperModal';
 import { AppleConfirmModal } from './AppleConfirmModal';
-import { UserRole } from '../core/types/schema';
-import {
-  CheckCircle2,
-  XCircle,
-  Printer,
-  Calendar,
-  Database,
-  AlertTriangle,
-  RefreshCw,
-  FileCheck,
-  Send,
-  X,
-  MessageCircle,
-  Copy,
-  ExternalLink,
-  FileDown,
-  Loader2,
-  ArrowRightLeft,
-} from 'lucide-react';
-import { DudiService } from '../services/DudiService';
-import { PengajuanService } from '../services/PengajuanService';
-import { PerizinanService } from '../services/PerizinanService';
-import { GuruService } from '../services/GuruService';
-import { JurusanService } from '../services/JurusanService';
-import { SiswaPklService } from '../services/SiswaPklService';
-import { RelationSyncService } from '../services/RelationSyncService';
-import { PublicPortalClient } from '../core/PublicPortalClient';
 import { MonitoringRecapModal } from './MonitoringRecapModal';
 import { MonitoringStageControlModal } from './MonitoringStageControlModal';
-import { Dudi, Guru, Jurusan } from '../core/types/schema';
-import { ToastManager } from '../core/ToastManager';
-import { getTodayIsoDate, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
+import { ModuleActionModal } from './module-page/ModuleActionModal';
+import { PerizinanWaModal } from './module-page/PerizinanWaModal';
 import {
-  formatIndonesianDate,
-  formatPerizinanDateRange,
-  getOffsetWibIsoDate,
-  getTodayWibIsoDate,
-  normalizeToIsoDate,
-} from '../core/utils/dateHelpers';
-import { formatNisVisual } from '../core/utils/nisHelpers';
+  deduplicateImportRows,
+  exportSelectedRowsToCsv,
+} from './module-page/moduleImportExport';
 import {
-  getCanonicalNisDigits,
-  isActivePlacementStatus,
-  normalizeRelationText,
-} from '../core/utils/relationHelpers';
-import {
-  calculateEqualWeightedAverage,
-  getPredikatFromScore,
-} from '../core/utils/monitoringHelpers';
+  applyModulePreSubmitTransforms,
+  extractGradeSyncScores,
+  ModuleConfirmConfig,
+} from './module-page/moduleWorkflowRegistry';
+import { useModuleWorkflows } from './module-page/useModuleWorkflows';
 
 interface ModulePageProps<T extends { id: string }> {
   metadata: ModuleMetadata<T>;
@@ -89,6 +59,7 @@ export function ModulePage<T extends { id: string }>({
 }: ModulePageProps<T>) {
   const {
     data,
+    filteredData,
     total,
     loading,
     revalidating,
@@ -114,25 +85,15 @@ export function ModulePage<T extends { id: string }>({
     refresh,
   } = useDataGrid<T>(repository);
 
-  // Modal states
+  // Modal & View states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<T | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-
-  // Default viewMode: 'card' (user can switch to 'table' anytime from Toolbar)
   const [viewMode, setViewMode] = useState<'table' | 'card'>('card');
 
-  // Confirmation modal state (Apple Style)
-  const [confirmModal, setConfirmModal] = useState<{
-    isOpen: boolean;
-    title: string;
-    description: string;
-    variant: 'primary' | 'danger' | 'success';
-    confirmText: string;
-    onConfirm: () => Promise<void>;
-  }>({
+  const [confirmModal, setConfirmModal] = useState<ModuleConfirmConfig>({
     isOpen: false,
     title: '',
     description: '',
@@ -141,7 +102,6 @@ export function ModulePage<T extends { id: string }>({
     onConfirm: async () => {},
   });
 
-  // Image Cropper modal state
   const [cropperState, setCropperState] = useState<{
     isOpen: boolean;
     currentImage: string;
@@ -152,69 +112,36 @@ export function ModulePage<T extends { id: string }>({
     onDone: () => {},
   });
 
-  // Action prompt modal state (Apple Style replacement for window.prompt)
-  const [actionModal, setActionModal] = useState<{
-    isOpen: boolean;
-    type: 'reject_kakomli' | 'schedule_hubin' | 'promote_to_pkl' | 'transfer_dudi' | null;
-    row: any | null;
-    reason: string;
-    newDudi: string;
-    guruPendamping: string;
-    tanggalBerangkat: string;
-    tanggalRencanaTarik: string;
-    submitting: boolean;
-  }>({
-    isOpen: false,
-    type: null,
-    row: null,
-    reason: 'Kompetensi tidak linier',
-    newDudi: '',
-    guruPendamping: '',
-    tanggalBerangkat: getTodayWibIsoDate(),
-    tanggalRencanaTarik: getOffsetWibIsoDate(120),
-    submitting: false,
-  });
-  const [guruList, setGuruList] = useState<Guru[]>([]);
-  const [dudiList, setDudiList] = useState<Dudi[]>([]);
-  const [syncingRelations, setSyncingRelations] = useState(false);
   const [allExistingRows, setAllExistingRows] = useState<T[]>([]);
   const [isMonitoringRecapOpen, setIsMonitoringRecapOpen] = useState(false);
   const [isStageControlOpen, setIsStageControlOpen] = useState(false);
 
-  // Kirim WA & PDF Surat Izin modal state (DUDI / Kakomli)
-  const [waModal, setWaModal] = useState<{
-    isOpen: boolean;
-    row: any | null;
-    recipientType: 'dudi' | 'kakomli';
-    dudiName: string;
-    picName: string;
-    dudiPhone: string;
-    kakomliName: string;
-    kakomliPhone: string;
-    phoneInput: string;
-    alamat: string;
-    pdfUrl: string;
-    generatingPdf: boolean;
-    message: string;
-  }>({
-    isOpen: false,
-    row: null,
-    recipientType: 'dudi',
-    dudiName: '',
-    picName: '',
-    dudiPhone: '',
-    kakomliName: '',
-    kakomliPhone: '',
-    phoneInput: '',
-    alamat: '-',
-    pdfUrl: '',
-    generatingPdf: false,
-    message: '',
-  });
+  const isSuperAdmin = userRole === 'SuperAdmin';
 
-  const isRelationalModule = ['dudi', 'guru', 'siswa_pkl', 'jurusan', 'kelas', 'siswa'].includes(
-    metadata.id
-  );
+  const {
+    guruList,
+    dudiList,
+    syncingRelations,
+    actionModal,
+    setActionModal,
+    waModal,
+    setWaModal,
+    customRowActions,
+    supportsRelationSync,
+    supportsMonitoringRecap,
+    handleSyncRelations,
+    handleCustomAction,
+    handleActionModalSubmit,
+    handleBulkApprove,
+  } = useModuleWorkflows<T>({
+    moduleId: metadata.id,
+    userRole,
+    filteredData,
+    selectedIds,
+    refresh,
+    setConfirmModal,
+    onOpenDocsForStudent,
+  });
 
   const handleOpenAddModal = async () => {
     try {
@@ -236,483 +163,11 @@ export function ModulePage<T extends { id: string }>({
     setEditingRow(row);
   };
 
-  const handleSyncRelations = async () => {
-    setSyncingRelations(true);
-    const toastId = ToastManager.getInstance().show(
-      'Menyinkronkan Relasi Data...',
-      'pending',
-      'Menghitung ulang keterisian DUDI, Guru, Jurusan & Kelas dari Cloud Server'
-    );
-    try {
-      const summary = await RelationSyncService.getInstance().recalculateAllRelations({
-        backfillIds: true,
-      });
-      await refresh();
-      const totalChanges =
-        summary.updatedPlacements +
-        summary.updatedDudi +
-        summary.updatedGuru +
-        summary.updatedJurusan +
-        summary.updatedKelas;
-
-      ToastManager.getInstance().update(
-        toastId,
-        'Relasi Data Tersinkron',
-        'success',
-        totalChanges > 0
-          ? `Diperbarui: ${summary.updatedPlacements} plotting, ${summary.updatedDudi} DUDI, ${summary.updatedGuru} guru, ${summary.updatedJurusan} jurusan, ${summary.updatedKelas} kelas.`
-          : 'Semua relasi Siswa, DUDI, Guru, Jurusan & Kelas sudah konsisten.'
-      );
-    } catch (err: any) {
-      ToastManager.getInstance().update(
-        toastId,
-        'Gagal Sinkronisasi Relasi',
-        'error',
-        err?.message || 'Periksa koneksi Cloud Server dan coba kembali.'
-      );
-    } finally {
-      setSyncingRelations(false);
-    }
-  };
-
-  const loadGuruOptions = async (): Promise<{ gurus: Guru[]; dudis: Dudi[] }> => {
-    const guruSvc = GuruService.getInstance();
-    const dudiSvc = DudiService.getInstance();
-    const [gurus, dudis] = await Promise.all([
-      guruSvc
-        .reloadFromSpreadsheet()
-        .then(() => guruSvc.getAll())
-        .catch(() => guruSvc.getAll())
-        .catch(() => [] as Guru[]),
-      dudiSvc
-        .reloadFromSpreadsheet()
-        .then(() => dudiSvc.getAll())
-        .catch(() => dudiSvc.getAll())
-        .catch(() => [] as Dudi[]),
-    ]);
-    setGuruList(gurus);
-    setDudiList(dudis);
-    return { gurus, dudis };
-  };
-
-  const activeFilterCount = Object.keys(filter).length;
-
-  // Custom row actions based on module
-  const customRowActions: any[] = [];
-
-  const isSuperAdmin = userRole === 'SuperAdmin';
-  const isHubinOrSuper = userRole === 'Hubin' || isSuperAdmin;
-
-  if (metadata.id === 'pengajuan') {
-    if (userRole === 'Kakomli' || isHubinOrSuper) {
-      customRowActions.push({
-        name: 'approve_kakomli',
-        label: 'ACC Kakomli',
-        icon: CheckCircle2,
-        color: 'hover:text-emerald-600 hover:bg-emerald-50 text-emerald-600',
-      });
-      customRowActions.push({
-        name: 'reject_kakomli',
-        label: 'Tolak',
-        icon: XCircle,
-        color: 'hover:text-rose-600 hover:bg-rose-50 text-rose-500',
-      });
-      customRowActions.push({
-        name: 'create_perizinan',
-        label: 'Buat Berkas Perizinan',
-        icon: FileCheck,
-        color: 'hover:text-indigo-600 hover:bg-indigo-50 text-indigo-600',
-      });
-    }
-    if (isHubinOrSuper) {
-      customRowActions.push({
-        name: 'schedule_hubin',
-        label: 'Jadwalkan',
-        icon: Calendar,
-        color: 'hover:text-blue-600 hover:bg-blue-50 text-blue-600',
-      });
-    }
-  }
-
-  if (metadata.id === 'perizinan') {
-    if (isHubinOrSuper || userRole === 'Kakomli') {
-      customRowActions.push({
-        name: 'send_wa_dudi',
-        label: 'Kirim WA & PDF',
-        icon: MessageCircle,
-        color: 'hover:text-emerald-700 hover:bg-emerald-50 text-emerald-600',
-      });
-      customRowActions.push({
-        name: 'promote_to_pkl',
-        label: 'Terbitkan ke Data Siswa PKL',
-        icon: Send,
-        color: 'hover:text-blue-600 hover:bg-blue-50 text-blue-600',
-      });
-    }
-    if (onOpenDocsForStudent) {
-      customRowActions.push({
-        name: 'print_docs',
-        label: 'Cetak Surat',
-        icon: Printer,
-        color: 'hover:text-amber-600 hover:bg-amber-50 text-amber-600',
-      });
-    }
-  }
-
-  if (metadata.id === 'siswa_pkl' || metadata.id === 'sertifikat') {
-    if (metadata.id === 'siswa_pkl' && isHubinOrSuper) {
-      customRowActions.push({
-        name: 'transfer_dudi',
-        label: 'Pindah DUDI',
-        icon: ArrowRightLeft,
-        color: 'hover:text-orange-600 hover:bg-orange-50 text-orange-600',
-      });
-    }
-    customRowActions.push({
-      name: 'print_docs',
-      label: 'Cetak Dokumen',
-      icon: Printer,
-      color: 'hover:text-amber-600 hover:bg-amber-50 text-amber-600',
-    });
-  }
-
-  const handleCustomAction = async (actionName: string, row: T) => {
-    const item = row as any;
-
-    if (actionName === 'approve_kakomli') {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Setujui Pengajuan Siswa (ACC Kakomli)?',
-        description: `Setujui permohonan PKL ${item.namaSiswa} di ${item.dudiTujuan}. Sistem juga akan membuatkan antrean berkas pada menu Perizinan PKL.`,
-        variant: 'success',
-        confirmText: 'Ya, Setujui & Catat',
-        onConfirm: async () => {
-          const pengajuanService = PengajuanService.getInstance();
-          await pengajuanService.approveByKakomli(row.id);
-          await refresh();
-        },
-      });
-    } else if (actionName === 'create_perizinan') {
-      setConfirmModal({
-        isOpen: true,
-        title: 'Buat Berkas Perizinan PKL?',
-        description: `Kirim data ${item.namaSiswa} (${item.dudiTujuan}) ke modul Perizinan PKL untuk pencatatan izin orang tua & balasan DUDI.`,
-        variant: 'primary',
-        confirmText: 'Buat Berkas Perizinan',
-        onConfirm: async () => {
-          await PengajuanService.getInstance().createPerizinanFromPengajuan(row.id, {
-            silentToast: true,
-          });
-          ToastManager.getInstance().show(
-            'Berkas Perizinan Dibuat',
-            'success',
-            `${item.namaSiswa} kini tercatat di menu Perizinan PKL.`
-          );
-          await refresh();
-        },
-      });
-    } else if (actionName === 'reject_kakomli') {
-      setActionModal({
-        isOpen: true,
-        type: 'reject_kakomli',
-        row: item,
-        reason: 'Kompetensi tidak linier dengan bidang pekerjaan DUDI',
-        newDudi: '',
-        guruPendamping: '',
-        tanggalBerangkat: getTodayWibIsoDate(),
-        tanggalRencanaTarik: '',
-        submitting: false,
-      });
-    } else if (actionName === 'schedule_hubin') {
-      const { dudis } = await loadGuruOptions();
-      const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
-      const matchedDudi =
-        (item.idDudi ? dudis.find((d) => d.id === item.idDudi) : undefined) ||
-        dudis.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
-      setActionModal({
-        isOpen: true,
-        type: 'schedule_hubin',
-        row: item,
-        reason: '',
-        newDudi: '',
-        guruPendamping: item.guruPendamping || matchedDudi?.guruPendamping || '',
-        tanggalBerangkat: normalizeToIsoDate(item.tanggalBerangkat) || getTodayWibIsoDate(),
-        tanggalRencanaTarik: '',
-        submitting: false,
-      });
-    } else if (actionName === 'send_wa_dudi') {
-      const [dudiList, pengajuanList, jurusanList] = await Promise.all([
-        DudiService.getInstance().getAll().catch(() => []),
-        PengajuanService.getInstance().getAll().catch(() => []),
-        JurusanService.getInstance().getAll().catch(() => [] as Jurusan[]),
-      ]);
-      const targetDudiNorm = String(item.dudiTujuan || '').trim().toLowerCase();
-      const matchedDudi = dudiList.find(
-        (d) => d.namaDudi.trim().toLowerCase() === targetDudiNorm
-      );
-      const matchedPengajuan = pengajuanList.find(
-        (p) =>
-          (item.noPengajuan && p.noPengajuan === item.noPengajuan) ||
-          (item.nis && p.nis === item.nis)
-      );
-
-      const targetJurRaw = String(item.jurusan || '').trim().toLowerCase();
-      const matchedJurusan = jurusanList.find((j) => {
-        const k = String(j.kode || '').trim().toLowerCase();
-        const n = String(j.nama || '').trim().toLowerCase();
-        return (
-          targetJurRaw === k ||
-          targetJurRaw === n ||
-          (k.length >= 2 && targetJurRaw.includes(k)) ||
-          (n.length >= 4 && targetJurRaw.includes(n))
-        );
-      });
-
-      const rawDudiPhone =
-        matchedDudi?.noTelpDudi ||
-        matchedDudi?.kontakPic ||
-        matchedPengajuan?.noTelpDudi ||
-        '';
-      const cleanDudiPhone = rawDudiPhone === '-' ? '' : rawDudiPhone;
-      const rawKakomliPhone = matchedJurusan?.kontakWA || '';
-      const cleanKakomliPhone = rawKakomliPhone === '-' ? '' : rawKakomliPhone;
-      const kakomliName = matchedJurusan?.namaKakomli || 'Ketua Kompetensi Keahlian';
-
-      const alamat =
-        (item.alamatDudi && item.alamatDudi !== '-' ? item.alamatDudi : '') ||
-        matchedDudi?.alamat ||
-        matchedPengajuan?.alamatDudi ||
-        '-';
-      const existingPdfUrl =
-        item.linkSuratPdf && item.linkSuratPdf !== '-' ? String(item.linkSuratPdf).trim() : '';
-      const dudiName = item.dudiTujuan || matchedDudi?.namaDudi || 'Mitra DUDI';
-
-      const composedMsg = composePerizinanWaMessage({
-        row: item,
-        recipientType: 'dudi',
-        dudiName,
-        kakomliName,
-        alamat,
-        pdfUrl: existingPdfUrl,
-      });
-
-      setWaModal({
-        isOpen: true,
-        row: item,
-        recipientType: 'dudi',
-        dudiName,
-        picName: matchedDudi?.namaPic || matchedDudi?.namaPemimpin || 'PIC / HRD Industri',
-        dudiPhone: cleanDudiPhone,
-        kakomliName,
-        kakomliPhone: cleanKakomliPhone,
-        phoneInput: cleanDudiPhone,
-        alamat,
-        pdfUrl: existingPdfUrl,
-        generatingPdf: false,
-        message: composedMsg,
-      });
-    } else if (actionName === 'promote_to_pkl') {
-      const { dudis } = await loadGuruOptions();
-      const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
-      const matchedDudi = dudis.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
-      const todayWib = getTodayWibIsoDate();
-      const fourMonthsLater = getOffsetWibIsoDate(120, todayWib);
-      setActionModal({
-        isOpen: true,
-        type: 'promote_to_pkl',
-        row: item,
-        reason: '',
-        newDudi: '',
-        guruPendamping: matchedDudi?.guruPendamping || '',
-        tanggalBerangkat: todayWib,
-        tanggalRencanaTarik: fourMonthsLater,
-        submitting: false,
-      });
-    } else if (actionName === 'transfer_dudi') {
-      if (!isActivePlacementStatus(item.statusPenempatan)) {
-        ToastManager.getInstance().show(
-          'Penempatan Sudah Non-Aktif',
-          'info',
-          `Pindah DUDI hanya berlaku untuk status Terjadwal / Sedang Berjalan (saat ini: ${item.statusPenempatan}).`
-        );
-        return;
-      }
-      await loadGuruOptions();
-      const todayWib = getTodayWibIsoDate();
-      setActionModal({
-        isOpen: true,
-        type: 'transfer_dudi',
-        row: item,
-        reason: '',
-        newDudi: '',
-        guruPendamping: item.guruPendamping || '',
-        tanggalBerangkat: todayWib,
-        tanggalRencanaTarik: normalizeToIsoDate(item.tanggalRencanaTarik) || getOffsetWibIsoDate(120, todayWib),
-        submitting: false,
-      });
-    } else if (actionName === 'print_docs') {
-      if (onOpenDocsForStudent) {
-        const selected = data.filter((d) => selectedIds.includes(d.id));
-        onOpenDocsForStudent(item, selected, data, metadata.id);
-      }
-    }
-  };
-
-  const handleActionModalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!actionModal.row || !actionModal.type) return;
-
-    setActionModal((prev) => ({ ...prev, submitting: true }));
-    const toastTitleMap = {
-      reject_kakomli: 'Menyimpan Penolakan Pengajuan...',
-      schedule_hubin: 'Menjadwalkan Pemberangkatan...',
-      promote_to_pkl: 'Menerbitkan ke Data Siswa PKL...',
-      transfer_dudi: 'Memproses Pindah DUDI Siswa...',
-    };
-    const toastId = ToastManager.getInstance().show(
-      toastTitleMap[actionModal.type],
-      'pending',
-      `${actionModal.row.namaSiswa} · ${actionModal.row.dudiTujuan || actionModal.row.namaDudi || ''}`
-    );
-
-    try {
-      if (actionModal.type === 'reject_kakomli') {
-        await PengajuanService.getInstance().rejectByKakomli(
-          actionModal.row.id,
-          actionModal.reason.trim(),
-          { silentToast: true }
-        );
-        ToastManager.getInstance().update(
-          toastId,
-          'Pengajuan Ditolak',
-          'info',
-          `Pengajuan ${actionModal.row.namaSiswa} telah diperbarui.`
-        );
-      } else if (actionModal.type === 'schedule_hubin') {
-        if (!actionModal.guruPendamping.trim() || !actionModal.tanggalBerangkat) {
-          throw new Error('Nama Guru Pendamping dan Tanggal Keberangkatan wajib diisi.');
-        }
-        await PengajuanService.getInstance().scheduleHubin(
-          actionModal.row.id,
-          actionModal.guruPendamping.trim(),
-          actionModal.tanggalBerangkat,
-          { silentToast: true }
-        );
-        ToastManager.getInstance().update(
-          toastId,
-          'Pemberangkatan Dijadwalkan',
-          'success',
-          `${actionModal.row.namaSiswa} dijadwalkan dengan ${actionModal.guruPendamping}.`
-        );
-      } else if (actionModal.type === 'promote_to_pkl') {
-        if (!actionModal.guruPendamping.trim() || !actionModal.tanggalBerangkat) {
-          throw new Error('Guru Pendamping dan Tanggal Berangkat wajib diisi.');
-        }
-        await PerizinanService.getInstance().promoteToPenempatan(
-          actionModal.row.id,
-          actionModal.guruPendamping.trim(),
-          actionModal.tanggalBerangkat,
-          actionModal.tanggalRencanaTarik,
-          { silentToast: true }
-        );
-        ToastManager.getInstance().update(
-          toastId,
-          'Resmi Diterbitkan ke Data Siswa PKL',
-          'success',
-          `${actionModal.row.namaSiswa} kini tercatat aktif di Data Siswa PKL.`
-        );
-      } else if (actionModal.type === 'transfer_dudi') {
-        if (!actionModal.newDudi.trim() || !actionModal.guruPendamping.trim() || !actionModal.tanggalBerangkat) {
-          throw new Error('DUDI tujuan baru, Guru Pendamping, dan Tanggal Berangkat wajib diisi.');
-        }
-        const res = await SiswaPklService.getInstance().transferDudi({
-          sourcePlacementId: actionModal.row.id,
-          newDudiName: actionModal.newDudi.trim(),
-          newGuruPendamping: actionModal.guruPendamping.trim(),
-          tanggalBerangkat: actionModal.tanggalBerangkat,
-          tanggalRencanaTarik: actionModal.tanggalRencanaTarik,
-          reason: actionModal.reason.trim(),
-        });
-        ToastManager.getInstance().update(
-          toastId,
-          'Pindah DUDI Berhasil Dicatat',
-          'success',
-          `${actionModal.row.namaSiswa} dipindahkan ke ${res.newPlacement.namaDudi}. Riwayat lama tersimpan sebagai Pindah DUDI.`
-        );
-      }
-
-      setActionModal((prev) => ({ ...prev, isOpen: false, submitting: false }));
-      await refresh();
-    } catch (err: any) {
-      ToastManager.getInstance().update(
-        toastId,
-        'Gagal Memproses Tindakan',
-        'error',
-        err?.message || 'Periksa kembali data dan koneksi Cloud Server.'
-      );
-      setActionModal((prev) => ({ ...prev, submitting: false }));
-    }
-  };
-
-  const normalizeGradePayload = (values: T): any => {
-    const nextValues: any = { ...values };
-
-    if (metadata.id === 'monitoring' || metadata.id === 'sertifikat') {
-      const scoreKeys = [
-        'nilaiK3lh',
-        'nilaiSoftskill',
-        'nilaiKompetensiTeknis',
-        'nilaiAlurBisnis',
-      ];
-      const enteredScores = scoreKeys
-        .map((k) => nextValues[k])
-        .filter((v) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
-        .map((v) => Math.min(100, Math.max(0, Number(v))));
-
-      if (enteredScores.length === 4) {
-        const avg = calculateEqualWeightedAverage(
-          enteredScores[0],
-          enteredScores[1],
-          enteredScores[2],
-          enteredScores[3]
-        );
-        nextValues.nilaiRataRata = avg;
-        if (metadata.id === 'monitoring') {
-          nextValues.nilaiPklMuncul = true;
-          nextValues.nilaiDudiTerkumpul = true;
-        } else {
-          nextValues.predikat = getPredikatFromScore(avg);
-        }
-      } else if (enteredScores.length > 0 && enteredScores.some((s) => s > 0)) {
-        const avg =
-          Math.round(
-            (enteredScores.reduce((acc, s) => acc + s, 0) / enteredScores.length) * 10
-          ) / 10;
-        nextValues.nilaiRataRata = avg;
-        if (metadata.id === 'monitoring') {
-          nextValues.nilaiPklMuncul = true;
-          nextValues.nilaiDudiTerkumpul = true;
-        } else if (!nextValues.predikat || avg > 0) {
-          nextValues.predikat = getPredikatFromScore(avg);
-        }
-      } else if (metadata.id === 'sertifikat') {
-        const rataRata = Number(nextValues.nilaiRataRata ?? 0) || 0;
-        if (rataRata > 0) {
-          const rounded = Math.round(rataRata * 10) / 10;
-          nextValues.nilaiRataRata = rounded;
-          if (!nextValues.predikat) {
-            nextValues.predikat = getPredikatFromScore(rounded);
-          }
-        }
-      }
-    }
-
-    return nextValues;
-  };
-
-  // Form submit for Add with confirmation
   const handleCreateSubmit = (values: T) => {
-    const nextValues = normalizeGradePayload(values);
+    const { nextValues, shouldSyncSertifikatGrades } = applyModulePreSubmitTransforms(
+      metadata.id,
+      values
+    );
     setConfirmModal({
       isOpen: true,
       title: 'Simpan Data Baru ke Cloud Server?',
@@ -720,6 +175,13 @@ export function ModulePage<T extends { id: string }>({
       variant: 'primary',
       confirmText: 'Simpan ke Server',
       onConfirm: async () => {
+        if (shouldSyncSertifikatGrades) {
+          await SertifikatService.getInstance().syncGradesViaMonitoring(
+            nextValues,
+            extractGradeSyncScores(nextValues),
+            { silentToast: true }
+          );
+        }
         await repository.create(nextValues);
         setPage(1);
         await RelationSyncService.getInstance()
@@ -730,23 +192,14 @@ export function ModulePage<T extends { id: string }>({
     });
   };
 
-  // Form submit for Edit with confirmation
   const handleEditSubmit = (values: T) => {
     if (!editingRow) return;
-
-    const nextValues = normalizeGradePayload(values);
-    if (metadata.id === 'siswa_pkl') {
-      const prevRow = editingRow as any;
-      const oldGuru = String(prevRow.guruPendamping || '').trim();
-      const newGuru = String(nextValues.guruPendamping || '').trim();
-      if (oldGuru && newGuru && normalizeRelationText(oldGuru) !== normalizeRelationText(newGuru)) {
-        const handoverLine = `[${getTodayWibIsoDate()}] Alih pendamping: ${oldGuru} -> ${newGuru}`;
-        const prevNote = String(nextValues.catatanPenempatan || '').trim();
-        if (!prevNote.includes(handoverLine)) {
-          nextValues.catatanPenempatan = prevNote ? `${prevNote}\n${handoverLine}` : handoverLine;
-        }
-      }
-    }
+    const prevRow = editingRow as any;
+    const { nextValues, shouldSyncSertifikatGrades } = applyModulePreSubmitTransforms(
+      metadata.id,
+      values,
+      prevRow
+    );
 
     setConfirmModal({
       isOpen: true,
@@ -755,6 +208,13 @@ export function ModulePage<T extends { id: string }>({
       variant: 'primary',
       confirmText: 'Perbarui di Server',
       onConfirm: async () => {
+        if (shouldSyncSertifikatGrades) {
+          await SertifikatService.getInstance().syncGradesViaMonitoring(
+            { ...prevRow, ...nextValues },
+            extractGradeSyncScores(nextValues),
+            { silentToast: true }
+          );
+        }
         await repository.update(editingRow.id, nextValues);
         await RelationSyncService.getInstance()
           .syncAfterMutation(metadata.id, 'update')
@@ -765,12 +225,12 @@ export function ModulePage<T extends { id: string }>({
     });
   };
 
-  // Delete row with confirmation
   const handleDeleteRow = (row: T) => {
     setConfirmModal({
       isOpen: true,
       title: 'Hapus Baris dari Cloud Server?',
-      description: 'Apakah Anda yakin ingin menghapus data baris ini? Perubahan akan langsung disinkronkan ke Database Cloud Server.',
+      description:
+        'Apakah Anda yakin ingin menghapus data baris ini? Perubahan akan langsung disinkronkan ke Database Cloud Server.',
       variant: 'danger',
       confirmText: 'Ya, Hapus Data',
       onConfirm: async () => {
@@ -782,35 +242,21 @@ export function ModulePage<T extends { id: string }>({
     });
   };
 
-  // Export selected rows as CSV
   const handleExportSelected = () => {
-    const selectedRows = data.filter((d) => selectedIds.includes(d.id));
-    if (selectedRows.length === 0) return;
-
-    const exportCols = metadata.fields.filter((f) => f.isTableColumn && f.type !== 'image');
-    const headers = exportCols.map((c) => `"${c.label}"`).join(',');
-    const rows = selectedRows.map((r: any) =>
-      exportCols.map((c) => `"${String(r[c.key] ?? '').replace(/"/g, '""')}"`).join(',')
-    );
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Export_${metadata.id}_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    ToastManager.getInstance().show(
-      'Data Diekspor ke CSV',
-      'success',
-      `${selectedRows.length} baris dari ${metadata.title} berhasil diunduh.`
-    );
+    const selectedRows = filteredData.filter((d) => selectedIds.includes(d.id));
+    exportSelectedRowsToCsv({
+      selectedRows,
+      fields: metadata.fields,
+      moduleId: metadata.id,
+      moduleTitle: metadata.title,
+    });
   };
+
+  const activeFilterCount = Object.keys(filter).length;
 
   return (
     <div className="space-y-4">
-      {/* Clean Editorial Page Header (Zero nested card bloat or pill clutter) */}
+      {/* Clean Editorial Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-3 border-b border-slate-200">
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-slate-900 tracking-tight truncate">
@@ -842,7 +288,7 @@ export function ModulePage<T extends { id: string }>({
         )}
       </div>
 
-      {/* Server Error Banner (Never fallback to fake data) */}
+      {/* Server Error Banner */}
       {loadError && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-900">
           <div className="flex items-start gap-2.5">
@@ -875,8 +321,12 @@ export function ModulePage<T extends { id: string }>({
         </div>
       )}
 
-      {/* 1. Top 4 Statistic Cards */}
-      <StatCards configs={metadata.statCards} data={data} loading={loading && data.length === 0} />
+      {/* 1. Top 4 Statistic Cards (full filtered dataset) */}
+      <StatCards
+        configs={metadata.statCards}
+        data={filteredData}
+        loading={loading && filteredData.length === 0}
+      />
 
       {/* 2. Middle Toolbar */}
       <Toolbar
@@ -893,23 +343,19 @@ export function ModulePage<T extends { id: string }>({
         onOpenDocsModal={
           onOpenDocsForStudent
             ? () => {
-                const selected = data.filter((d) => selectedIds.includes(d.id));
-                const active = selected.length > 0 ? selected[0] : data[0] || null;
-                onOpenDocsForStudent(active, selected, data, metadata.id);
+                const selected = filteredData.filter((d) => selectedIds.includes(d.id));
+                const active = selected.length > 0 ? selected[0] : filteredData[0] || null;
+                onOpenDocsForStudent(active, selected, filteredData, metadata.id);
               }
             : undefined
         }
         onOpenSimulatorModal={isSuperAdmin ? onOpenSimulator : undefined}
         onOpenGasModal={isSuperAdmin ? onOpenGas : undefined}
-        onSyncRelations={isRelationalModule ? handleSyncRelations : undefined}
+        onSyncRelations={supportsRelationSync ? handleSyncRelations : undefined}
         onOpenMonitoringRecap={
-          metadata.id === 'monitoring' || metadata.id === 'jurusan'
-            ? () => setIsMonitoringRecapOpen(true)
-            : undefined
+          supportsMonitoringRecap ? () => setIsMonitoringRecapOpen(true) : undefined
         }
-        onOpenMonitoringBundle={
-          metadata.id === 'monitoring' ? onOpenMonitoringBundle : undefined
-        }
+        onOpenMonitoringBundle={onOpenMonitoringBundle}
         onOpenStageControl={
           metadata.id === 'monitoring' && isSuperAdmin
             ? () => setIsStageControlOpen(true)
@@ -920,7 +366,7 @@ export function ModulePage<T extends { id: string }>({
         onViewModeChange={setViewMode}
       />
 
-      {/* 3. Dynamic Data Grid (Table & Card Pagination) */}
+      {/* 3. Dynamic Data Grid */}
       <DynamicDataGrid
         fields={metadata.fields}
         data={data}
@@ -944,7 +390,7 @@ export function ModulePage<T extends { id: string }>({
         onViewModeChange={setViewMode}
       />
 
-      {/* Apple Confirmation Modal */}
+      {/* Confirmation Modal */}
       <AppleConfirmModal
         isOpen={confirmModal.isOpen}
         onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
@@ -1020,7 +466,8 @@ export function ModulePage<T extends { id: string }>({
           setConfirmModal({
             isOpen: true,
             title: `Hapus ${selectedIds.length} Baris Data Terpilih?`,
-            description: 'Tindakan ini akan menghapus data terpilih secara permanen dari Database Cloud Server.',
+            description:
+              'Tindakan ini akan menghapus data terpilih secara permanen dari Database Cloud Server.',
             variant: 'danger',
             confirmText: 'Ya, Hapus Terpilih',
             onConfirm: async () => {
@@ -1028,54 +475,12 @@ export function ModulePage<T extends { id: string }>({
             },
           });
         }}
-        onBulkApprove={
-          metadata.id === 'pengajuan' && (userRole === 'Kakomli' || isHubinOrSuper)
-            ? async () => {
-                setConfirmModal({
-                  isOpen: true,
-                  title: `Setujui Massal ${selectedIds.length} Pengajuan Siswa?`,
-                  description: 'Status pengajuan terpilih akan diubah menjadi Disetujui di Database Cloud Server.',
-                  variant: 'success',
-                  confirmText: 'Setujui Massal',
-                  onConfirm: async () => {
-                    const count = selectedIds.length;
-                    const toastId = ToastManager.getInstance().show(
-                      `Menyetujui Massal ${count} Pengajuan...`,
-                      'pending',
-                      'Memperbarui status pengajuan ke Cloud Server',
-                      isSuperAdmin ? 'Data_Pengajuan_PKL' : undefined
-                    );
-                    try {
-                      const pengajuanService = PengajuanService.getInstance();
-                      for (const id of selectedIds) {
-                        await pengajuanService.approveByKakomli(id, undefined, { silentToast: true });
-                      }
-                      await refresh();
-                      ToastManager.getInstance().update(
-                        toastId,
-                        `${count} Pengajuan Disetujui (ACC)`,
-                        'success',
-                        'Seluruh pengajuan terpilih telah diperbarui & masuk antrean Perizinan.'
-                      );
-                    } catch (err: any) {
-                      ToastManager.getInstance().update(
-                        toastId,
-                        'Persetujuan Massal Gagal',
-                        'error',
-                        err?.message || 'Terjadi kendala saat memperbarui sebagian data.'
-                      );
-                      throw err;
-                    }
-                  },
-                });
-              }
-            : undefined
-        }
+        onBulkApprove={handleBulkApprove}
         onBulkPrint={
           onOpenDocsForStudent && selectedIds.length > 0
             ? () => {
-                const selected = data.filter((d) => selectedIds.includes(d.id));
-                onOpenDocsForStudent(selected[0], selected, data, metadata.id);
+                const selected = filteredData.filter((d) => selectedIds.includes(d.id));
+                onOpenDocsForStudent(selected[0], selected, filteredData, metadata.id);
               }
             : undefined
         }
@@ -1090,37 +495,13 @@ export function ModulePage<T extends { id: string }>({
         fields={metadata.fields}
         moduleTitle={metadata.title}
         onImport={async (newRows) => {
-          let rowsToImport = newRows;
-          if (metadata.id === 'siswa') {
-            const existingAll = await repository.getAll().catch(() => data);
-            const seenNis = new Set<string>(
-              existingAll
-                .map((r: any) => getCanonicalNisDigits(r?.nis))
-                .filter(Boolean)
-            );
-            const deduped: any[] = [];
-            let skipped = 0;
-            for (const row of newRows as any[]) {
-              const nisDigits = getCanonicalNisDigits(row?.nis);
-              if (nisDigits && seenNis.has(nisDigits)) {
-                skipped++;
-                continue;
-              }
-              if (nisDigits) {
-                seenNis.add(nisDigits);
-                row.nis = nisDigits;
-              }
-              deduped.push(row);
-            }
-            rowsToImport = deduped;
-            if (skipped > 0) {
-              ToastManager.getInstance().show(
-                `${skipped} Baris NIS Duplikat Dilewati`,
-                'info',
-                '1 siswa hanya boleh memiliki 1 NIS unik di Master Siswa.'
-              );
-            }
-          }
+          const existingAll = await repository.getAll().catch(() => data);
+          const { rowsToImport } = deduplicateImportRows({
+            moduleId: metadata.id,
+            newRows,
+            existingAll,
+          });
+          if (rowsToImport.length === 0) return 0;
           const count = await repository.importRows(rowsToImport);
           setPage(1);
           await RelationSyncService.getInstance()
@@ -1136,576 +517,18 @@ export function ModulePage<T extends { id: string }>({
         isOpen={cropperState.isOpen}
         onClose={() => setCropperState((prev) => ({ ...prev, isOpen: false }))}
         currentImage={cropperState.currentImage}
-        onSave={(dataUrl) => {
-          cropperState.onDone(dataUrl);
-        }}
+        onSave={(dataUrl) => cropperState.onDone(dataUrl)}
       />
 
-      {/* Unified Inline Action Modal (Reject / Schedule / Promote to Data Siswa PKL) */}
-      {actionModal.isOpen && actionModal.row && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
-          onClick={() => !actionModal.submitting && setActionModal((p) => ({ ...p, isOpen: false }))}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div className="min-w-0 pr-2">
-                <h3 className="text-sm font-bold text-slate-900">
-                  {actionModal.type === 'reject_kakomli' && 'Tolak Pengajuan PKL'}
-                  {actionModal.type === 'schedule_hubin' && 'Jadwalkan Pemberangkatan PKL'}
-                  {actionModal.type === 'promote_to_pkl' && 'Terbitkan ke Data Siswa PKL'}
-                  {actionModal.type === 'transfer_dudi' && 'Pindah DUDI Siswa PKL'}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5 truncate">
-                  {actionModal.row.namaSiswa} ({formatNisVisual(actionModal.row.nis)}) ·{' '}
-                  {actionModal.row.dudiTujuan || actionModal.row.namaDudi}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={actionModal.submitting}
-                onClick={() => setActionModal((p) => ({ ...p, isOpen: false }))}
-                className="w-9 h-9 rounded-lg hover:bg-slate-200/80 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 transition-colors"
-                aria-label="Tutup modal"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <ModuleActionModal
+        state={actionModal}
+        setState={setActionModal}
+        dudiList={dudiList}
+        guruList={guruList}
+        onSubmit={handleActionModalSubmit}
+      />
 
-            <form onSubmit={handleActionModalSubmit} className="p-5 space-y-4 text-xs">
-              {actionModal.type === 'reject_kakomli' ? (
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1.5">
-                    Alasan Penolakan (Catatan Kakomli):
-                  </label>
-                  <textarea
-                    rows={3}
-                    required
-                    value={actionModal.reason}
-                    onChange={(e) =>
-                      setActionModal((prev) => ({ ...prev, reason: e.target.value }))
-                    }
-                    placeholder="Contoh: DUDI tidak linier dengan kompetensi keahlian"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500"
-                  />
-                </div>
-              ) : (
-                <>
-                  {actionModal.type === 'transfer_dudi' && (
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1.5">
-                        Mitra DUDI Tujuan Baru <span className="text-rose-500">*</span>
-                      </label>
-                      {dudiList.length > 0 ? (
-                        <select
-                          required
-                          value={actionModal.newDudi}
-                          onChange={(e) => {
-                            const selectedName = e.target.value;
-                            const matched = dudiList.find(
-                              (d) => normalizeRelationText(d.namaDudi) === normalizeRelationText(selectedName)
-                            );
-                            setActionModal((prev) => ({
-                              ...prev,
-                              newDudi: selectedName,
-                              guruPendamping: matched?.guruPendamping || prev.guruPendamping,
-                            }));
-                          }}
-                          className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                        >
-                          <option value="">-- Pilih Mitra DUDI Baru --</option>
-                          {dudiList
-                            .filter(
-                              (d) =>
-                                normalizeRelationText(d.namaDudi) !==
-                                normalizeRelationText(actionModal.row.namaDudi)
-                            )
-                            .map((d, idx) => (
-                              <option key={`${d.id || 'dudi'}_${idx}`} value={d.namaDudi}>
-                                {d.namaDudi} ({d.terisi ?? 0}/{d.kuotaMaksimal ?? 0})
-                                {d.guruPendamping ? ` · ${d.guruPendamping}` : ''}
-                              </option>
-                            ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          required
-                          value={actionModal.newDudi}
-                          onChange={(e) =>
-                            setActionModal((prev) => ({ ...prev, newDudi: e.target.value }))
-                          }
-                          placeholder="Ketik nama DUDI tujuan baru..."
-                          className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1.5">
-                      Guru Pendamping Lapangan <span className="text-rose-500">*</span>
-                    </label>
-                    {guruList.length > 0 ? (
-                      <select
-                        required
-                        value={actionModal.guruPendamping}
-                        onChange={(e) =>
-                          setActionModal((prev) => ({
-                            ...prev,
-                            guruPendamping: e.target.value,
-                          }))
-                        }
-                        className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                      >
-                        <option value="">-- Pilih Guru Pendamping --</option>
-                        {guruList.map((g, idx) => (
-                          <option key={`${g.id || 'guru'}_${idx}`} value={g.nama}>
-                            {g.nama} ({g.peranUtama || 'Guru Pendamping'})
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        required
-                        value={actionModal.guruPendamping}
-                        onChange={(e) =>
-                          setActionModal((prev) => ({
-                            ...prev,
-                            guruPendamping: e.target.value,
-                          }))
-                        }
-                        placeholder="Ketik nama lengkap Guru Pendamping..."
-                        className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                      />
-                    )}
-                    {guruList.length === 0 && (
-                      <p className="text-[11px] text-amber-700 mt-1">
-                        Daftar Guru Pendamping di Cloud Server masih kosong; Anda dapat mengetik nama guru secara langsung.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1.5">
-                        Tanggal Berangkat <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={actionModal.tanggalBerangkat}
-                        onChange={(e) =>
-                          setActionModal((prev) => ({
-                            ...prev,
-                            tanggalBerangkat: e.target.value,
-                          }))
-                        }
-                        className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 tabular-nums"
-                      />
-                    </div>
-                    {(actionModal.type === 'promote_to_pkl' ||
-                      actionModal.type === 'transfer_dudi') && (
-                      <div>
-                        <label className="block font-semibold text-slate-700 mb-1.5">
-                          Rencana Tanggal Tarik
-                        </label>
-                        <input
-                          type="date"
-                          value={actionModal.tanggalRencanaTarik}
-                          onChange={(e) =>
-                            setActionModal((prev) => ({
-                              ...prev,
-                              tanggalRencanaTarik: e.target.value,
-                            }))
-                          }
-                          className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 tabular-nums"
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {actionModal.type === 'transfer_dudi' && (
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1.5">
-                        Alasan Pindah / Catatan Mutasi
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={actionModal.reason}
-                        onChange={(e) =>
-                          setActionModal((prev) => ({ ...prev, reason: e.target.value }))
-                        }
-                        placeholder="Contoh: Ketidakcocokan shift/lingkungan atau relokasi mitra DUDI"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30 focus:border-orange-500"
-                      />
-                    </div>
-                  )}
-                </>
-              )}
-
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  disabled={actionModal.submitting}
-                  onClick={() => setActionModal((p) => ({ ...p, isOpen: false }))}
-                  className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionModal.submitting}
-                  className={`h-9 px-4 rounded-lg text-white font-semibold cursor-pointer disabled:opacity-50 ${
-                    actionModal.type === 'reject_kakomli'
-                      ? 'bg-rose-600 hover:bg-rose-700'
-                      : actionModal.type === 'transfer_dudi'
-                      ? 'bg-orange-600 hover:bg-orange-700'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  {actionModal.submitting
-                    ? 'Menyimpan...'
-                    : actionModal.type === 'reject_kakomli'
-                    ? 'Tolak Pengajuan'
-                    : actionModal.type === 'promote_to_pkl'
-                    ? 'Terbitkan ke Data Siswa PKL'
-                    : actionModal.type === 'transfer_dudi'
-                    ? 'Proses Pindah DUDI'
-                    : 'Simpan Jadwal'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Kirim WA & PDF Surat Izin Modal (DUDI / Kakomli) */}
-      {waModal.isOpen && waModal.row && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
-          onClick={() => !waModal.generatingPdf && setWaModal((p) => ({ ...p, isOpen: false }))}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-emerald-50/70 shrink-0">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                  <MessageCircle className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 truncate">
-                    Kirim Surat PDF &amp; WhatsApp ({waModal.recipientType === 'dudi' ? 'DUDI' : 'Kakomli'})
-                  </h3>
-                  <p className="text-xs text-slate-600 truncate">
-                    {waModal.recipientType === 'dudi'
-                      ? `${waModal.dudiName} · ${waModal.picName}`
-                      : `${waModal.kakomliName} · ${waModal.row.jurusan || 'Jurusan'}`}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={waModal.generatingPdf}
-                onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
-                className="w-9 h-9 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40"
-                aria-label="Tutup modal WhatsApp"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
-              {/* Recipient Toggle: DUDI vs Kakomli */}
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  Pilih Penerima Pesan WhatsApp
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWaModal((prev) => ({
-                        ...prev,
-                        recipientType: 'dudi',
-                        phoneInput: prev.dudiPhone,
-                        message: composePerizinanWaMessage({
-                          row: prev.row,
-                          recipientType: 'dudi',
-                          dudiName: prev.dudiName,
-                          kakomliName: prev.kakomliName,
-                          alamat: prev.alamat,
-                          pdfUrl: prev.pdfUrl,
-                        }),
-                      }));
-                    }}
-                    className={`min-h-[40px] px-3 py-2 rounded-lg border font-semibold transition-colors cursor-pointer text-left ${
-                      waModal.recipientType === 'dudi'
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="font-bold">1. Kirim ke DUDI</div>
-                    <div className="text-[11px] text-slate-500 truncate">{waModal.dudiName}</div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWaModal((prev) => ({
-                        ...prev,
-                        recipientType: 'kakomli',
-                        phoneInput: prev.kakomliPhone,
-                        message: composePerizinanWaMessage({
-                          row: prev.row,
-                          recipientType: 'kakomli',
-                          dudiName: prev.dudiName,
-                          kakomliName: prev.kakomliName,
-                          alamat: prev.alamat,
-                          pdfUrl: prev.pdfUrl,
-                        }),
-                      }));
-                    }}
-                    className={`min-h-[40px] px-3 py-2 rounded-lg border font-semibold transition-colors cursor-pointer text-left ${
-                      waModal.recipientType === 'kakomli'
-                        ? 'bg-blue-50 border-blue-500 text-blue-900'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="font-bold">2. Kirim ke Kakomli</div>
-                    <div className="text-[11px] text-slate-500 truncate">{waModal.kakomliName}</div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Google Drive PDF Generator */}
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="font-bold text-slate-800">
-                      File Surat Permohonan PDF (Google Drive)
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      {waModal.pdfUrl
-                        ? 'Tautan PDF Google Drive sudah tersemat otomatis ke dalam pesan WhatsApp.'
-                        : 'Generate PDF ke Google Drive agar penerima dapat mengunduh surat permohonan resmi.'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={waModal.generatingPdf}
-                    onClick={async () => {
-                      if (!waModal.row) return;
-                      setWaModal((p) => ({ ...p, generatingPdf: true }));
-                      try {
-                        const res = await PublicPortalClient.generatePerizinanPdf({
-                          perizinanId: waModal.row.id || waModal.row.noPerizinan,
-                          noPerizinan: waModal.row.noPerizinan,
-                          noSuratPermohonan: waModal.row.noSuratPermohonan,
-                          namaSiswa: waModal.row.namaSiswa,
-                          nis: waModal.row.nis,
-                          kelas: waModal.row.kelas,
-                          jurusan: waModal.row.jurusan,
-                          dudiTujuan: waModal.dudiName,
-                          alamatDudi: waModal.alamat,
-                          tanggalSurat: formatIndonesianDate(
-                            waModal.row.tanggalKirimSurat || getTodayIsoDate()
-                          ),
-                        });
-                        const nextUrl = res.pdfUrl;
-                        setWaModal((prev) => ({
-                          ...prev,
-                          generatingPdf: false,
-                          pdfUrl: nextUrl,
-                          message: composePerizinanWaMessage({
-                            row: prev.row,
-                            recipientType: prev.recipientType,
-                            dudiName: prev.dudiName,
-                            kakomliName: prev.kakomliName,
-                            alamat: prev.alamat,
-                            pdfUrl: nextUrl,
-                          }),
-                        }));
-                        await refresh();
-                      } catch {
-                        setWaModal((prev) => ({ ...prev, generatingPdf: false }));
-                      }
-                    }}
-                    className="h-9 px-3.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
-                  >
-                    {waModal.generatingPdf ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Membuat PDF...</span>
-                      </>
-                    ) : (
-                      <>
-                        <FileDown className="w-3.5 h-3.5" />
-                        <span>{waModal.pdfUrl ? 'Buat Ulang PDF' : 'Generate PDF ke GDrive'}</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {waModal.pdfUrl && (
-                  <div className="p-2.5 rounded-lg border border-emerald-200 bg-white flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] text-emerald-800 truncate">
-                      {waModal.pdfUrl}
-                    </span>
-                    <a
-                      href={waModal.pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] font-bold text-blue-600 hover:underline inline-flex items-center gap-1 shrink-0 whitespace-nowrap"
-                    >
-                      <span>Buka PDF</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  {waModal.recipientType === 'dudi'
-                    ? 'Nomor WhatsApp Tujuan (PIC / HRD DUDI)'
-                    : `Nomor WhatsApp Kakomli (${waModal.kakomliName})`}
-                </label>
-                <input
-                  type="text"
-                  value={waModal.phoneInput}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setWaModal((prev) => ({
-                      ...prev,
-                      phoneInput: val,
-                      ...(prev.recipientType === 'dudi'
-                        ? { dudiPhone: val }
-                        : { kakomliPhone: val }),
-                    }));
-                  }}
-                  placeholder="Contoh: 081234567890"
-                  className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                />
-                {normalizeWhatsAppNumber(waModal.phoneInput) ? (
-                  <p className="text-[11px] text-emerald-700 mt-1 font-mono">
-                    Target Link: wa.me/{normalizeWhatsAppNumber(waModal.phoneInput)}
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-amber-700 mt-1">
-                    {waModal.recipientType === 'dudi'
-                      ? 'Nomor WA DUDI belum tercatat. Masukkan nomor WA yang valid di atas.'
-                      : 'Nomor WA Kakomli belum tercatat di Master Jurusan. Masukkan nomor WA Kakomli di atas.'}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  Pratinjau Pesan WhatsApp (Dapat Diedit)
-                </label>
-                <textarea
-                  rows={8}
-                  value={waModal.message}
-                  onChange={(e) =>
-                    setWaModal((prev) => ({ ...prev, message: e.target.value }))
-                  }
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white text-xs text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                />
-              </div>
-            </div>
-
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(waModal.message);
-                    ToastManager.getInstance().show(
-                      'Pesan Disalin',
-                      'success',
-                      'Teks konfirmasi beserta tautan PDF siap ditempel ke WhatsApp.'
-                    );
-                  } catch {
-                    ToastManager.getInstance().show(
-                      'Gagal Menyalin Otomatis',
-                      'info',
-                      'Silakan blok teks pesan dan tekan Ctrl+C.'
-                    );
-                  }
-                }}
-                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span>Salin Pesan</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={waModal.generatingPdf}
-                  onClick={() => setWaModal((p) => ({ ...p, isOpen: false }))}
-                  className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
-                >
-                  Tutup
-                </button>
-                {normalizeWhatsAppNumber(waModal.phoneInput) ? (
-                  <a
-                    href={`https://wa.me/${normalizeWhatsAppNumber(
-                      waModal.phoneInput
-                    )}?text=${encodeURIComponent(waModal.message)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => {
-                      if (waModal.recipientType === 'dudi') {
-                        PerizinanService.getInstance()
-                          .markSuratSentToday(waModal.row.id, { silentToast: true })
-                          .then(() => refresh())
-                          .catch(() => {});
-                      }
-                      ToastManager.getInstance().show(
-                        waModal.recipientType === 'dudi'
-                          ? 'Membuka WhatsApp DUDI'
-                          : 'Membuka WhatsApp Kakomli',
-                        'success',
-                        `Mengirim surat permohonan ${waModal.row.namaSiswa} ke ${
-                          waModal.recipientType === 'dudi' ? waModal.dudiName : waModal.kakomliName
-                        }.`
-                      );
-                      setWaModal((p) => ({ ...p, isOpen: false }));
-                    }}
-                    className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Kirim via WhatsApp</span>
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      ToastManager.getInstance().show(
-                        'Nomor WA Kosong',
-                        'error',
-                        'Isi nomor WhatsApp tujuan terlebih dahulu sebelum mengirim.'
-                      )
-                    }
-                    className="h-9 px-4 rounded-lg bg-slate-300 text-slate-600 font-semibold inline-flex items-center gap-1.5 cursor-not-allowed"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Isi No. WA Dulu</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PerizinanWaModal state={waModal} setState={setWaModal} onRefresh={refresh} />
 
       {isMonitoringRecapOpen && (
         <MonitoringRecapModal
@@ -1722,75 +545,4 @@ export function ModulePage<T extends { id: string }>({
       )}
     </div>
   );
-}
-
-function composePerizinanWaMessage(params: {
-  row: any;
-  recipientType: 'dudi' | 'kakomli';
-  dudiName: string;
-  kakomliName: string;
-  alamat: string;
-  pdfUrl: string;
-}): string {
-  const { row, recipientType, dudiName, kakomliName, alamat, pdfUrl } = params;
-  const tglSurat = formatIndonesianDate(row?.tanggalKirimSurat || getTodayIsoDate());
-  const rentangIzin = formatPerizinanDateRange(
-    row?.tanggalMulaiIzin,
-    row?.tanggalSelesaiIzin,
-    row?.rentangTanggal || '-'
-  );
-  const baseDetails = [
-    `• No. Perizinan: ${row?.noPerizinan || row?.id || '-'}`,
-    `• No. Surat: ${row?.noSuratPermohonan || '-'}`,
-    `• Tanggal Surat: ${tglSurat}`,
-    `• Nama Siswa: ${row?.namaSiswa || '-'} (NIS: ${formatNisVisual(row?.nis)})`,
-    `• Kelas / Jurusan: ${row?.kelas || '-'} / ${row?.jurusan || '-'}`,
-    `• Nama Ortu / Wali: ${row?.namaOrtuWali || '-'}`,
-    `• Izin: ${row?.statusIzinOrtu || '-'}`,
-    rentangIzin && rentangIzin !== '-' ? `• Rentang Tanggal: ${rentangIzin}` : '',
-    `• Lokasi DUDI: ${dudiName || '-'}`,
-    `• Alamat DUDI: ${alamat || '-'}`,
-    pdfUrl && pdfUrl !== '-' ? `• Unduh Surat Resmi (PDF): ${pdfUrl}` : '',
-    row?.linkBuktiBalasan && row.linkBuktiBalasan !== '-'
-      ? `• Tautan Bukti Balasan: ${row.linkBuktiBalasan}`
-      : '',
-  ];
-
-  if (recipientType === 'kakomli') {
-    return [
-      `Yth. Bapak/Ibu ${kakomliName || 'Ketua Kompetensi Keahlian'}`,
-      `Ketua Kompetensi Keahlian ${row?.jurusan || 'Terkait'}`,
-      'SMK PGRI 2 Ponorogo',
-      '',
-      'Dengan hormat,',
-      'Kami informasikan penerbitan berkas Surat Permohonan / Perizinan PKL peserta didik jurusan Anda:',
-      '',
-      ...baseDetails,
-      '',
-      'Mohon dapat dipantau & dikoordinasikan bersama siswa/orang tua terkait tindak lanjut konfirmasi DUDI.',
-      '',
-      'Hormat kami,',
-      'Pokja Hubin SMK PGRI 2 Ponorogo',
-    ]
-      .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
-      .join('\n');
-  }
-
-  return [
-    'Yth. Pimpinan / Pembimbing Industri',
-    `${dudiName || 'Mitra DUDI'}`,
-    'di Tempat',
-    '',
-    'Dengan hormat,',
-    'Kami dari Pokja Hubin SMK PGRI 2 Ponorogo menyampaikan surat permohonan & konfirmasi Perizinan PKL peserta didik kami:',
-    '',
-    ...baseDetails,
-    '',
-    'Mohon konfirmasi kesediaan penempatan PKL dari pihak Bapak/Ibu. Atas perhatian dan kerjasamanya kami ucapkan terima kasih.',
-    '',
-    'Hormat kami,',
-    'Pokja Hubin SMK PGRI 2 Ponorogo',
-  ]
-    .filter((line, idx, arr) => !(line === '' && arr[idx - 1] === ''))
-    .join('\n');
 }

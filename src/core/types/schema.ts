@@ -36,6 +36,7 @@ export interface Siswa {
   nik: string;
   nama: string;
   jenisKelamin: 'Laki-laki' | 'Perempuan';
+  idJurusan?: string;
   jurusan: string;
   kelas: string;
   noHpSiswa: string;
@@ -60,6 +61,7 @@ export interface Jurusan {
 export interface Kelas {
   id: string;
   namaKelas: string; // misal: XI TKR 1, XI RPL 2
+  idJurusan?: string;
   jurusan: string;
   tingkat: string;
   waliKelas: string;
@@ -80,6 +82,8 @@ export interface Dudi {
   linkMaps?: string;
   idGuruPendamping?: string;
   guruPendamping?: string;
+  hariKerja?: string;
+  jamKerja?: string;
   kuotaMaksimal: number;
   terisi: number;
   statusKerjasama: 'MoU Aktif' | 'Proses Perpanjangan' | 'Mitra Baru';
@@ -145,6 +149,7 @@ export interface PerizinanPKL {
   tanggalSelesaiIzin?: string;
   rentangTanggal?: string;
   noSuratPermohonan: string;
+  idDudi?: string;
   dudiTujuan: string;
   alamatDudi: string;
   tanggalKirimSurat: string;
@@ -170,21 +175,43 @@ export interface PenempatanPKL {
   catatanPenempatan?: string;
 }
 
+export type BukuLaporanStatus = 'BLM' | 'SDH' | 'TDK';
+
+export type AktivitasSikapRating = 'Kurang' | 'Cukup' | 'Baik';
+
+export type KondisiBengkelRating = 'Baik' | 'Cukup' | 'Kurang';
+
+export interface KondisiBengkelCheck {
+  volumePekerjaan: KondisiBengkelRating | '';
+  relevansiPekerjaan: KondisiBengkelRating | '';
+  kenyamanan: KondisiBengkelRating | '';
+  kelayakan: KondisiBengkelRating | '';
+}
+
 export interface Monitoring {
   id: string;
   idPenempatan: string;
   nis: string;
   namaSiswa: string;
+  idDudi?: string;
   dudiTujuan: string;
   alamatDudi: string;
   daftarSiswa?: string;
   jurusan: string;
+  idGuruPendamping?: string;
   guruPendamping: string;
   tahap: MonitoringTahapValue | string;
   tanggalKunjungan: string;
   sakit?: number;
   izin?: number;
   alpha?: number;
+  bukuLaporan?: BukuLaporanStatus | string;
+  aktivitasDp?: AktivitasSikapRating | string;
+  aktivitasMt?: AktivitasSikapRating | string;
+  aktivitasKrt?: AktivitasSikapRating | string;
+  kompetensiDidapat?: string;
+  kondisiBengkel?: string;
+  ttdSiswa?: string;
   nilaiPklMuncul?: boolean;
   nilaiK3lh?: number;
   nilaiSoftskill?: number;
@@ -200,10 +227,12 @@ export interface Monitoring {
 
 export interface Sertifikat {
   id: string;
+  idPenempatan?: string;
   nis: string;
   namaSiswa: string;
   jurusan: string;
   kelas: string;
+  idDudi?: string;
   dudiTujuan: string;
   nilaiK3lh: number;
   nilaiSoftskill: number;

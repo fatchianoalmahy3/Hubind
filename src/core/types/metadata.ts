@@ -97,6 +97,7 @@ export interface SortState {
 
 export interface QueryResult<T> {
   data: T[];
+  filteredData?: T[];
   total: number;
   page: number;
   pageSize: number;

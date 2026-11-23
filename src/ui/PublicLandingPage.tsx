@@ -5,10 +5,8 @@ import {
   Lock,
   ArrowRight,
   CheckCircle2,
-  Mail,
   Sparkles,
   ChevronRight,
-  Clock,
   AlertCircle,
 } from 'lucide-react';
 import { PublicPortalClient } from '../core/PublicPortalClient';
@@ -112,12 +110,6 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             <a href="#beranda" className="hover:text-blue-600 transition-colors whitespace-nowrap">
               Beranda
             </a>
-            <a href="#alur" className="hover:text-blue-600 transition-colors whitespace-nowrap">
-              Alur PKL
-            </a>
-            <a href="#dudi" className="hover:text-blue-600 transition-colors whitespace-nowrap">
-              Tempat DUDI
-            </a>
             <a href="#kontak" className="hover:text-blue-600 transition-colors whitespace-nowrap">
               Kontak Hubin
             </a>
@@ -182,28 +174,28 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
           )}
         </div>
 
-        {/* 2 Dominant Action Portal Cards */}
-        <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        {/* 2 Dominant Action Portal Cards (2 cards per row on mobile & desktop) */}
+        <div className="mt-8 sm:mt-10 grid grid-cols-2 gap-2.5 sm:gap-6 max-w-4xl mx-auto">
           {/* Portal Card 1: Pengajuan PKL Siswa */}
           <div
             onMouseEnter={handlePrefetchStudentPortal}
             onTouchStart={handlePrefetchStudentPortal}
-            className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
+            className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
           >
-            <div className="space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                <FileText className="w-6 h-6" />
+            <div className="space-y-2.5 sm:space-y-4">
+              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                <FileText className="w-4 h-4 sm:w-6 sm:h-6" />
               </div>
-              <div className="space-y-1.5">
-                <h2 className="text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+              <div className="space-y-1 sm:space-y-1.5">
+                <h2 className="text-sm sm:text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors leading-snug">
                   Pengajuan PKL Siswa Mandiri
                 </h2>
-                <p className="text-xs text-slate-600 leading-relaxed">
+                <p className="text-[11px] sm:text-xs text-slate-600 leading-relaxed line-clamp-3 sm:line-clamp-none">
                   Masukkan NIS Anda untuk verifikasi data otomatis dari Cloud Server, lengkapi kontak wali, dan pilih DUDI mitra resmi sekolah.
                 </p>
               </div>
 
-              <div className="space-y-2 pt-1 text-xs text-slate-500">
+              <div className="hidden sm:block space-y-2 pt-1 text-xs text-slate-500">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>Cek biodata instan dengan memasukkan NIS resmi</span>
@@ -219,38 +211,39 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
               </div>
             </div>
 
-            <div className="pt-6">
+            <div className="pt-3.5 sm:pt-6">
               <button
                 onClick={onOpenPengajuan}
                 onFocus={handlePrefetchStudentPortal}
-                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+                className="w-full min-h-[44px] py-2.5 sm:py-3 px-2.5 sm:px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] sm:text-xs shadow-md transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-[0.99]"
               >
-                <span>Buka Formulir Pengajuan Siswa</span>
-                <ArrowRight className="w-4 h-4" />
+                <span className="sm:hidden truncate">Ajukan PKL</span>
+                <span className="hidden sm:inline">Buka Formulir Pengajuan Siswa</span>
+                <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               </button>
             </div>
           </div>
 
-          {/* Portal Card 2: Monitoring 1-5 Guru */}
+          {/* Portal Card 2: Monitoring 1-8 Guru */}
           <div
             onMouseEnter={handlePrefetchTeacherPortal}
             onTouchStart={handlePrefetchTeacherPortal}
-            className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
+            className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-7 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
           >
-            <div className="space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-                <UserCheck className="w-6 h-6" />
+            <div className="space-y-2.5 sm:space-y-4">
+              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                <UserCheck className="w-4 h-4 sm:w-6 sm:h-6" />
               </div>
-              <div className="space-y-1.5">
-                <h2 className="text-xl font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+              <div className="space-y-1 sm:space-y-1.5">
+                <h2 className="text-sm sm:text-xl font-bold text-slate-900 group-hover:text-indigo-600 transition-colors leading-snug">
                   Portal Petugas Monitoring DUDI
                 </h2>
-                <p className="text-xs text-slate-600 leading-relaxed">
+                <p className="text-[11px] sm:text-xs text-slate-600 leading-relaxed line-clamp-3 sm:line-clamp-none">
                   Pilih nama petugas dari daftar resmi dan masukkan PIN verifikasi. Sistem menampilkan DUDI binaan beserta daftar siswa dan 4 kategori penilaian.
                 </p>
               </div>
 
-              <div className="space-y-2 pt-1 text-xs text-slate-500">
+              <div className="hidden sm:block space-y-2 pt-1 text-xs text-slate-500">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
                   <span>Langkah 1: Pilih Nama Petugas &amp; Verifikasi PIN</span>
@@ -266,120 +259,22 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
               </div>
             </div>
 
-            <div className="pt-6">
+            <div className="pt-3.5 sm:pt-6">
               <button
                 onClick={onOpenMonitoring}
                 onFocus={handlePrefetchTeacherPortal}
-                className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+                className="w-full min-h-[44px] py-2.5 sm:py-3 px-2.5 sm:px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] sm:text-xs shadow-md transition-all flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer active:scale-[0.99]"
               >
-                <span>Buka Portal Monitoring Guru</span>
-                <ArrowRight className="w-4 h-4" />
+                <span className="sm:hidden truncate">Monitoring</span>
+                <span className="hidden sm:inline">Buka Portal Monitoring Guru</span>
+                <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 3. Section: Alur 4 Langkah PKL Sterida */}
-      <section id="alur" className="py-14 bg-white border-y border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-2xl mx-auto space-y-2 mb-10">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-blue-600">
-              Prosedur Resmi Sekolah
-            </h3>
-            <h2 className="text-2xl font-bold text-slate-900">
-              Alur 4 Tahap Pelaksanaan PKL Sterida {liveYear}
-            </h2>
-            <p className="text-xs text-slate-500">
-              Setiap tahapan tersinkronisasi langsung dengan Cloud Server Pokja Hubin.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
-              <span className="text-xs font-mono font-bold text-blue-600">01.</span>
-              <h4 className="text-sm font-bold text-slate-900">
-                Pengajuan Mandiri Berbasis NIS
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Siswa memasukkan NIS pada portal publik, mengecek data terverifikasi, dan memilih DUDI mitra yang tersedia.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
-              <span className="text-xs font-mono font-bold text-blue-600">02.</span>
-              <h4 className="text-sm font-bold text-slate-900">
-                Verifikasi &amp; ACC Kakomli
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Ketua Konsentrasi Keahlian meninjau kesesuaian kompetensi dan menerbitkan persetujuan penempatan.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
-              <span className="text-xs font-mono font-bold text-blue-600">03.</span>
-              <h4 className="text-sm font-bold text-slate-900">
-                Supervisi Berkala Monitoring 1–3
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Guru pendamping memantau kehadiran siswa, adaptasi lingkungan kerja industri, dan penyelesaian kendala.
-              </p>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
-              <span className="text-xs font-mono font-bold text-blue-600">04.</span>
-              <h4 className="text-sm font-bold text-slate-900">
-                Evaluasi 4 Kategori &amp; Sertifikat
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Petugas monitoring menginput nilai 4 kategori per siswa dalam 1 DUDI dan menerbitkan piagam sertifikat resmi.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Section: Penanganan DUDI Belum Terdaftar (Hubin Desk) */}
-      <section id="dudi" className="py-14 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-3xl p-7 sm:p-10 shadow-lg flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-3 max-w-xl">
-            <span className="text-xs font-mono font-bold text-amber-400">
-              POKJA HUBIN CORNER
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Ingin Mengajukan DUDI yang Belum Ada di Daftar?
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Jika perusahaan/bengkel pilihan Anda belum tercantum di sistem, silakan berkoordinasi dengan staf Pokja Hubin untuk verifikasi legalitas dan kesesuaian kompetensi.
-            </p>
-            <div className="pt-2 flex items-center gap-4 text-xs text-slate-300">
-              <div className="flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span>Pelayanan: Senin – Jumat (07.00 – 15.30 WIB)</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row md:flex-col gap-3 shrink-0 w-full md:w-auto">
-            <a
-              href="mailto:hubin@smkpgri2ponorogo.sch.id?subject=Konsultasi%20Pengajuan%20Tempat%20PKL%20Baru"
-              className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 text-center"
-            >
-              <Mail className="w-4 h-4" />
-              <span>Hubungi Sekretariat Hubin</span>
-            </a>
-            <button
-              onClick={onOpenPengajuan}
-              className="px-5 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <span>Ajukan Rekomendasi di Portal</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Footer */}
+      {/* Footer */}
       <footer id="kontak" className="mt-auto bg-white border-t border-slate-200 py-10 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-xs text-slate-500">
           <div className="space-y-1">

@@ -133,7 +133,34 @@ export function registerRestApiRoutes(app: Express): void {
       const page = Number(req.query.page || 0);
       const limit = Number(req.query.limit || 0);
       const isPaginated = page > 0 && limit > 0;
-      const resultData = isPaginated ? filtered.slice((page - 1) * limit, page * limit) : filtered;
+      const slicedData = isPaginated ? filtered.slice((page - 1) * limit, page * limit) : filtered;
+
+      const fieldsParam = String(req.query.fields || '').trim();
+      const requestedFields = fieldsParam
+        ? Array.from(
+            new Set([
+              'id',
+              '_sheetRowNumber',
+              ...fieldsParam
+                .split(',')
+                .map((f) => f.trim())
+                .filter(Boolean),
+            ])
+          )
+        : null;
+
+      const resultData = requestedFields
+        ? slicedData.map((row) => {
+            if (!row || typeof row !== 'object') return row;
+            const projected: Record<string, any> = {};
+            for (const key of requestedFields) {
+              if (key in row) {
+                projected[key] = row[key];
+              }
+            }
+            return projected;
+          })
+        : slicedData;
 
       const etag = computeWeakEtag({
         s: config.spreadsheetId,
@@ -144,6 +171,7 @@ export function registerRestApiRoutes(app: Express): void {
         sortDir,
         page,
         limit,
+        fields: fieldsParam,
         data: resultData,
       });
 

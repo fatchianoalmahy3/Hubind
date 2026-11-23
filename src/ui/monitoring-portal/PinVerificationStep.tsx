@@ -42,6 +42,21 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
   const [searchQuery, setSearchQuery] = useState(selectedPetugasNama || '');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const prevSelectedIdRef = useRef(selectedPetugasId);
+  const dropdownContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+    const handleOutsidePointerDown = (e: PointerEvent) => {
+      if (
+        dropdownContainerRef.current &&
+        !dropdownContainerRef.current.contains(e.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
+  }, [isDropdownOpen]);
 
   useEffect(() => {
     if (selectedPetugasId && selectedPetugasNama) {
@@ -135,7 +150,7 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
               <div className="h-3 skeleton-shimmer rounded w-3/5" />
             </div>
           ) : (
-            <div className="relative">
+            <div ref={dropdownContainerRef} className="relative">
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
@@ -145,7 +160,6 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
                   value={searchQuery}
                   disabled={petugasList.length === 0}
                   onFocus={() => setIsDropdownOpen(true)}
-                  onBlur={() => setTimeout(() => setIsDropdownOpen(false), 150)}
                   onChange={(e) => {
                     const nextVal = e.target.value;
                     setSearchQuery(nextVal);
@@ -174,12 +188,9 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
                 {(searchQuery || selectedPetugasId) && (
                   <button
                     type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleClearSearch();
-                    }}
+                    onClick={handleClearSearch}
                     aria-label="Hapus pencarian petugas"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -199,11 +210,8 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
                         <button
                           type="button"
                           key={`${p.id || 'petugas'}_${idx}`}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            handleSelectItem(p);
-                          }}
-                          className={`w-full min-h-[42px] text-left px-3.5 py-2 hover:bg-blue-50 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                          onClick={() => handleSelectItem(p)}
+                          className={`w-full min-h-[44px] text-left px-3.5 py-2 hover:bg-blue-50 active:bg-blue-100 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
                             isSelected ? 'bg-blue-50/80' : ''
                           }`}
                         >

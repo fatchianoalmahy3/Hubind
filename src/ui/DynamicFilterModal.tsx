@@ -1,6 +1,62 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FieldConfig, FilterState } from '../core/types/metadata';
+import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { X, Filter, RotateCcw, Check } from 'lucide-react';
+
+interface RelationLookupSpec {
+  sheetName: string;
+  fields: string[];
+  mapOptions: (rows: any[]) => Array<{ label: string; value: string }>;
+}
+
+const RELATION_LOOKUP_CONFIG: Record<string, RelationLookupSpec> = {
+  jurusan: {
+    sheetName: 'Master_Jurusan',
+    fields: ['ID', 'Kode', 'Nama_Jurusan', 'kode', 'nama'],
+    mapOptions: (rows) =>
+      Array.from(
+        new Map(
+          rows
+            .filter((r) => String(r.nama || r.Nama_Jurusan || '').trim())
+            .map((r) => {
+              const nama = String(r.nama || r.Nama_Jurusan || '').trim();
+              const kode = String(r.kode || r.Kode || '').trim();
+              return [nama, { label: kode ? `${kode} — ${nama}` : nama, value: nama }];
+            })
+        ).values()
+      ).sort((a, b) => a.label.localeCompare(b.label)),
+  },
+  kelas: {
+    sheetName: 'Master_Kelas_Walas',
+    fields: ['ID', 'Nama_Kelas', 'namaKelas'],
+    mapOptions: (rows) =>
+      Array.from(
+        new Set(rows.map((r) => String(r.namaKelas || r.Nama_Kelas || '').trim()).filter(Boolean))
+      )
+        .sort()
+        .map((nama) => ({ label: nama, value: nama })),
+  },
+  dudi: {
+    sheetName: 'Master_DUDI',
+    fields: ['ID', 'Nama_DUDI', 'namaDudi'],
+    mapOptions: (rows) =>
+      Array.from(
+        new Set(rows.map((r) => String(r.namaDudi || r.Nama_DUDI || '').trim()).filter(Boolean))
+      )
+        .sort()
+        .map((nama) => ({ label: nama, value: nama })),
+  },
+  guru: {
+    sheetName: 'Master_Guru_Pendamping',
+    fields: ['ID', 'Nama_Lengkap', 'nama'],
+    mapOptions: (rows) =>
+      Array.from(
+        new Set(rows.map((r) => String(r.nama || r.Nama_Lengkap || '').trim()).filter(Boolean))
+      )
+        .sort()
+        .map((nama) => ({ label: nama, value: nama })),
+  },
+};
 
 interface DynamicFilterModalProps<T = any> {
   isOpen: boolean;
@@ -21,6 +77,42 @@ export function DynamicFilterModal<T = any>({
 }: DynamicFilterModalProps<T>) {
   const filterableFields = fields.filter((f) => f.isFilterable);
   const [localFilter, setLocalFilter] = useState<FilterState>(currentFilter);
+  const [relationOptionsMap, setRelationOptionsMap] = useState<
+    Record<string, Array<{ label: string; value: string }>>
+  >({});
+
+  useEffect(() => {
+    setLocalFilter(currentFilter);
+  }, [currentFilter, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const sources = Array.from(
+      new Set(filterableFields.map((f) => f.relationSource).filter((s): s is NonNullable<typeof s> => Boolean(s)))
+    );
+    if (sources.length === 0) return;
+
+    let cancelled = false;
+    const client = GoogleSheetClient.getInstance();
+
+    const tasks = sources.map(async (source) => {
+      const spec = RELATION_LOOKUP_CONFIG[source];
+      if (!spec) return;
+      try {
+        const res = await client.fetchSheetData(spec.sheetName, false, { fields: spec.fields });
+        if (cancelled) return;
+        const opts = spec.mapOptions(Array.isArray(res.data) ? res.data : []);
+        setRelationOptionsMap((prev) => ({ ...prev, [source]: opts }));
+      } catch {
+        // Fallback silently to static metadata options if lookup fails
+      }
+    });
+
+    void Promise.all(tasks);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -89,20 +181,23 @@ export function DynamicFilterModal<T = any>({
             filterableFields.map((field) => {
               const key = String(field.key);
               const val = localFilter[key] ?? '';
+              const dynamicRelOpts = field.relationSource ? relationOptionsMap[field.relationSource] : undefined;
+              const resolvedOptions =
+                dynamicRelOpts && dynamicRelOpts.length > 0 ? dynamicRelOpts : field.options;
 
               return (
                 <div key={key}>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     {field.label}
                   </label>
-                  {field.type === 'select' && field.options ? (
+                  {resolvedOptions && resolvedOptions.length > 0 ? (
                     <select
                       value={val}
                       onChange={(e) => handleChange(key, e.target.value)}
                       className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
                     >
                       <option value="">Semua ({field.label})</option>
-                      {field.options.map((opt) => (
+                      {resolvedOptions.map((opt) => (
                         <option key={String(opt.value)} value={opt.value}>
                           {opt.label}
                         </option>

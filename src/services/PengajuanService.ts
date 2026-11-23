@@ -84,6 +84,136 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
     return updated;
   }
 
+  public async bulkApproveByKakomli(
+    ids: string[],
+    catatan?: string,
+    options?: { silentToast?: boolean }
+  ): Promise<number> {
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+    if (uniqueIds.length === 0) return 0;
+
+    const idSet = new Set(uniqueIds);
+    const [allPengajuan, dudiList, siswaList, existingPerizinan] = await Promise.all([
+      this.getAll(),
+      DudiService.getInstance().getAll().catch(() => []),
+      SiswaService.getInstance().getAll().catch(() => []),
+      PerizinanService.getInstance().getAll().catch(() => []),
+    ]);
+
+    const siswaByNis = new Map<string, (typeof siswaList)[number]>();
+    for (const s of siswaList) {
+      const digits = getCanonicalNisDigits(s.nis);
+      if (digits) siswaByNis.set(digits, s);
+    }
+
+    const perizinanNoPengajuan = new Set(
+      existingPerizinan.map((p) => String(p.noPengajuan || '').trim()).filter(Boolean)
+    );
+    const perizinanNisDudi = new Set(
+      existingPerizinan.map(
+        (p) => `${getCanonicalNisDigits(p.nis)}::${normalizeRelationText(p.dudiTujuan)}`
+      )
+    );
+
+    const pengajuanPatches: Array<{ id: string; updates: Partial<Pengajuan> }> = [];
+    const siswaPatchesMap = new Map<string, Partial<(typeof siswaList)[number]>>();
+    const newPerizinanRows: Array<Record<string, any>> = [];
+    const todayIso = getOffsetWibIsoDate(0);
+
+    for (const item of allPengajuan) {
+      if (!idSet.has(item.id)) continue;
+
+      const nisDigits = getCanonicalNisDigits(item.nis);
+      const matchedSiswa = nisDigits ? siswaByNis.get(nisDigits) : undefined;
+      const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
+      const matchedDudi =
+        (item.idDudi ? dudiList.find((d) => d.id === item.idDudi) : undefined) ||
+        dudiList.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
+
+      const patch: Partial<Pengajuan> = {
+        statusKakomli: 'Disetujui',
+        statusHubin: 'Siap Diberangkatkan',
+        catatanKakomli:
+          catatan || 'Disetujui oleh Ketua Kompetensi Keahlian (Kakomli). Sesuai standar industri.',
+      };
+      if (matchedSiswa?.nama) {
+        patch.namaSiswa = matchedSiswa.nama;
+        patch.nis = stripNisSymbols(matchedSiswa.nis) || matchedSiswa.nis;
+      }
+      if (matchedDudi) {
+        patch.idDudi = matchedDudi.id;
+        if (!item.guruPendamping && matchedDudi.guruPendamping) {
+          patch.guruPendamping = matchedDudi.guruPendamping;
+          if (matchedDudi.idGuruPendamping) patch.idGuruPendamping = matchedDudi.idGuruPendamping;
+        }
+      }
+      pengajuanPatches.push({ id: item.id, updates: patch });
+
+      if (matchedSiswa && matchedSiswa.statusPKL !== 'Sedang PKL' && matchedSiswa.statusPKL !== 'Diterima DUDI') {
+        siswaPatchesMap.set(matchedSiswa.id, { statusPKL: 'Diterima DUDI' });
+      }
+
+      const effectiveNoPengajuan = String(item.noPengajuan || item.id).trim();
+      const effectiveNis =
+        (matchedSiswa ? stripNisSymbols(matchedSiswa.nis) || matchedSiswa.nis : nisDigits) ||
+        String(item.nis || '').trim();
+      const nisDudiKey = `${getCanonicalNisDigits(effectiveNis)}::${targetDudiNorm}`;
+
+      if (
+        !perizinanNoPengajuan.has(effectiveNoPengajuan) &&
+        !perizinanNisDudi.has(nisDudiKey)
+      ) {
+        perizinanNoPengajuan.add(effectiveNoPengajuan);
+        perizinanNisDudi.add(nisDudiKey);
+        newPerizinanRows.push({
+          noPengajuan: effectiveNoPengajuan,
+          nis: effectiveNis,
+          namaSiswa: matchedSiswa?.nama || item.namaSiswa,
+          jurusan: matchedSiswa?.jurusan || item.jurusan,
+          kelas: matchedSiswa?.kelas || item.kelas,
+          namaOrtuWali: matchedSiswa?.namaOrtuWali || item.namaOrtuWali || '',
+          statusIzinOrtu: '',
+          tanggalMulaiIzin: '',
+          tanggalSelesaiIzin: '',
+          rentangTanggal: '',
+          idDudi: matchedDudi?.id || item.idDudi || '',
+          dudiTujuan: item.dudiTujuan,
+          alamatDudi: item.alamatDudi || matchedDudi?.alamat || '-',
+          tanggalKirimSurat: todayIso,
+          catatanPerizinan: 'Terbuat otomatis dari pengajuan ACC Kakomli.',
+          linkBuktiBalasan: '',
+        });
+      }
+    }
+
+    const updatedCount = await this.bulkUpdateMany(pengajuanPatches, options);
+
+    const siswaPatches = Array.from(siswaPatchesMap.entries()).map(([sId, updates]) => ({
+      id: sId,
+      updates,
+    }));
+    if (siswaPatches.length > 0) {
+      await SiswaService.getInstance()
+        .bulkUpdateMany(siswaPatches, { silentToast: true })
+        .catch(() => 0);
+    }
+
+    if (newPerizinanRows.length > 0) {
+      await PerizinanService.getInstance()
+        .importRows(newPerizinanRows, { silentToast: true })
+        .catch((err) => {
+          console.warn('Batch auto-create PerizinanPKL warning:', err);
+          return 0;
+        });
+    }
+
+    await RelationSyncService.getInstance()
+      .syncAfterMutation('pengajuan', 'update')
+      .catch(() => {});
+
+    return updatedCount;
+  }
+
   public async createPerizinanFromPengajuan(
     id: string,
     options?: { silentToast?: boolean }
@@ -238,10 +368,9 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       );
     }
 
-    await Promise.all([
-      RelationSyncService.getInstance().syncPlacementCounts({ silentToast: true }),
-      RelationSyncService.getInstance().syncJurusanCounts({ silentToast: true }),
-    ]).catch((err) => console.warn('Relation count sync warning:', err));
+    await RelationSyncService.getInstance()
+      .syncAfterMutation('pengajuan', 'update')
+      .catch((err) => console.warn('Relation sync warning:', err));
 
     return updated;
   }

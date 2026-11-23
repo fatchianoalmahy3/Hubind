@@ -21,12 +21,4 @@ export class DudiService extends BaseRepository<Dudi> {
     const list = await this.getAll();
     return list.filter((d) => d.terisi < d.kuotaMaksimal);
   }
-
-  public async incrementTerisi(dudiName: string): Promise<void> {
-    const list = await this.getAll();
-    const dudi = list.find((d) => d.namaDudi === dudiName);
-    if (dudi) {
-      await this.update(dudi.id, { terisi: Math.min(dudi.kuotaMaksimal, dudi.terisi + 1) });
-    }
-  }
 }

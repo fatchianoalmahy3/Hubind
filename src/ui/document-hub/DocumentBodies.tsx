@@ -1,11 +1,14 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, Lock } from 'lucide-react';
-import { Dudi, Guru, Pengajuan, PenempatanPKL, Siswa } from '../../core/types/schema';
+import { Dudi, Guru, Monitoring, Pengajuan, PenempatanPKL, Siswa } from '../../core/types/schema';
 import { formatIndonesianDate, formatIndonesianDateRange } from '../../core/utils/dateHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { getCanonicalNisDigits, isExcludedFromDudiListStatus, normalizeRelationText } from '../../core/utils/relationHelpers';
 import { getStageValueByNumber } from '../../core/utils/monitoringHelpers';
-import { formatPhoneDisplay, getWhatsAppHref } from '../../core/utils/autoIdHelpers';
+import {
+  formatPhoneDisplay,
+  getWhatsAppHref,
+} from '../../core/utils/autoIdHelpers';
 import { QrCodeSvg } from '../QrCodeSvg';
 import {
   PAPER_DIMENSIONS,
@@ -14,7 +17,6 @@ import {
   ResizablePaperPreview,
 } from '../ResizablePaperPreview';
 import {
-  BundleStudentItem,
   LembarMonitoring0701Sheet,
   LembarPenilaianKurmerSheet,
   SuratTugas0708Sheet,
@@ -26,6 +28,10 @@ import {
   resolveMapsLink,
   SuratTugasAuditResult,
 } from './documentHubConfig';
+import {
+  enrichBundleStudentsWithMonitoring,
+  extractGroupFormat0701Summary,
+} from './documentDataBuilders';
 
 export const PreviewPaginationBar: React.FC<{
   currentIdx: number;
@@ -96,9 +102,14 @@ export const BundlePageRenderer: React.FC<{
         alamatBengkel={page.bundle.alamatDudi}
         pemimpinBengkel={page.bundle.pemimpinDudi}
         noTelpBengkel={page.bundle.noTelpDudi}
+        hariKerja={page.bundle.hariKerja}
+        jamKerja={page.bundle.jamKerja}
         students={page.bundle.students}
         namaPetugas={page.bundle.guruNama}
         tanggalSurat={tanggalSurat}
+        kompetensiList={page.bundle.kompetensiList}
+        keadaanBengkel={page.bundle.keadaanBengkel}
+        catatanLain={page.bundle.catatanLain}
       />
     );
   }
@@ -217,6 +228,7 @@ export const DocumentBodyRenderer: React.FC<{
   penempatanList: PenempatanPKL[];
   dudiList: Dudi[];
   pengajuanList: Pengajuan[];
+  monitoringList?: Monitoring[];
   siswaByNis: Map<string, Siswa>;
   suratTugasStageNum: number;
 }> = ({
@@ -230,6 +242,7 @@ export const DocumentBodyRenderer: React.FC<{
   penempatanList,
   dudiList,
   pengajuanList,
+  monitoringList = [],
   siswaByNis,
   suratTugasStageNum,
 }) => {
@@ -453,17 +466,13 @@ export const DocumentBodyRenderer: React.FC<{
     '..........................................';
 
   if (docKey === 'doc_monitoring') {
-    const monStudents: BundleStudentItem[] = (groupPeers.length > 0 ? groupPeers : [penempatan]).map(
-      (s) => {
-        const siswaRec = siswaByNis.get(getCanonicalNisDigits(s.nis));
-        return {
-          nis: siswaRec?.nis || s.nis,
-          namaSiswa: siswaRec?.nama || s.namaSiswa,
-          kelas: siswaRec?.kelas || '-',
-          jurusan: siswaRec?.jurusan || dudiDetail?.bidangKeahlian || '-',
-        };
-      }
+    const monStudents = enrichBundleStudentsWithMonitoring(
+      groupPeers.length > 0 ? groupPeers : [penempatan],
+      siswaByNis,
+      monitoringList,
+      suratTugasStageNum
     );
+    const group0701 = extractGroupFormat0701Summary(monStudents);
 
     return (
       <LembarMonitoring0701Sheet
@@ -477,9 +486,14 @@ export const DocumentBodyRenderer: React.FC<{
         }
         pemimpinBengkel={dudiDetail?.namaPemimpin || dudiDetail?.namaPic || ''}
         noTelpBengkel={dudiDetail?.noTelpDudi || dudiDetail?.kontakPic || ''}
+        hariKerja={dudiDetail?.hariKerja || ''}
+        jamKerja={dudiDetail?.jamKerja || ''}
         students={monStudents}
         namaPetugas={penempatan.guruPendamping || ''}
         tanggalSurat={tanggalSurat}
+        kompetensiList={group0701.kompetensiList}
+        keadaanBengkel={group0701.keadaanBengkel}
+        catatanLain={group0701.catatanLain}
       />
     );
   }

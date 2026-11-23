@@ -61,6 +61,14 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     const noPerizinan = generateNextSequentialId('Data_Perizinan_PKL', existingList as any);
     const noSuratPermohonan = generateNextSuratPermohonan(existingList as any);
 
+    let resolvedDudiId = pengajuan.idDudi || '';
+    if (!resolvedDudiId && pengajuan.dudiTujuan) {
+      const dudiList = await DudiService.getInstance().getAll().catch(() => []);
+      const targetNorm = normalizeRelationText(pengajuan.dudiTujuan);
+      const matched = dudiList.find((d) => normalizeRelationText(d.namaDudi) === targetNorm);
+      if (matched) resolvedDudiId = matched.id;
+    }
+
     const canonicalNis = siswa ? stripNisSymbols(siswa.nis) || siswa.nis : pengajuanNis;
     const created = await this.create(
       {
@@ -77,6 +85,7 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
         tanggalSelesaiIzin: '',
         rentangTanggal: '',
         noSuratPermohonan,
+        idDudi: resolvedDudiId,
         dudiTujuan: pengajuan.dudiTujuan,
         alamatDudi: pengajuan.alamatDudi || '-',
         tanggalKirimSurat: getTodayIsoDate(),
@@ -87,7 +96,7 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     );
 
     await RelationSyncService.getInstance()
-      .syncJurusanCounts({ silentToast: true })
+      .syncAfterMutation('perizinan', 'create')
       .catch(() => {});
 
     return created;
@@ -137,9 +146,9 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
     const itemNis = getCanonicalNisDigits(siswaMaster?.nis || item.nis);
     const canonicalNama = siswaMaster?.nama || item.namaSiswa;
     const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
-    const matchedDudi = dudiList.find(
-      (d) => normalizeRelationText(d.namaDudi) === targetDudiNorm
-    );
+    const matchedDudi =
+      (item.idDudi ? dudiList.find((d) => d.id === item.idDudi) : undefined) ||
+      dudiList.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
     const effectiveDudiName = matchedDudi?.namaDudi || item.dudiTujuan;
     const effectiveGuruName = guru?.nama || guruPendamping || matchedDudi?.guruPendamping || '';
     const effectiveGuruId = guru?.id || matchedDudi?.idGuruPendamping || '';
@@ -224,10 +233,9 @@ export class PerizinanService extends BaseRepository<PerizinanPKL> {
       });
     }
 
-    await Promise.all([
-      RelationSyncService.getInstance().syncPlacementCounts({ silentToast: true }),
-      RelationSyncService.getInstance().syncJurusanCounts({ silentToast: true }),
-    ]).catch((err) => console.warn('Relation count sync warning:', err));
+    await RelationSyncService.getInstance()
+      .syncAfterMutation('perizinan', 'update')
+      .catch((err) => console.warn('Relation sync warning:', err));
 
     return penempatan;
   }

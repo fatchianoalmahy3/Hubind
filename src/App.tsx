@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { Navbar } from './ui/Navbar';
 import { Sidebar } from './ui/Sidebar';
-import { ModulePage } from './ui/ModulePage';
 import { UserRole } from './core/types/schema';
 import { GoogleSheetClient } from './core/GoogleSheetClient';
 import { IndexedDbSheetCache } from './core/cache/IndexedDbSheetCache';
@@ -34,7 +33,10 @@ import { PublicLandingPage } from './ui/PublicLandingPage';
 import type { DocumentHubKey } from './ui/DocumentHubPage';
 import { ToastManager } from './core/ToastManager';
 
-// Code-split heavy modals & secondary views for instant initial load
+// Code-split heavy modules, modals & secondary views for instant initial load
+const ModulePage = lazy(() =>
+  import('./ui/ModulePage').then((m) => ({ default: m.ModulePage }))
+);
 const StudentGFormSimulatorModal = lazy(() =>
   import('./ui/StudentGFormSimulatorModal').then((m) => ({ default: m.StudentGFormSimulatorModal }))
 );
@@ -602,25 +604,33 @@ export default function App() {
 
     const entry = getModuleEntry(currentModule);
     return (
-      <ModulePage
-        key={`${entry.id}_${configSnapshot.spreadsheetId}`}
-        metadata={entry.metadata}
-        repository={entry.getRepository()}
-        userRole={userRole}
-        onOpenDocsForStudent={
-          entry.docShortcutModule
-            ? () => setCurrentModule(entry.docShortcutModule!)
-            : entry.supportsStudentDocs
-              ? openDocsForStudent
-              : undefined
+      <Suspense
+        fallback={
+          <div className="py-12 flex items-center justify-center text-xs text-slate-500">
+            Memuat Modul {entry.metadata.title}...
+          </div>
         }
-        onOpenMonitoringBundle={
-          entry.supportsMonitoringBundle ? () => setCurrentModule('doc_paket_monitoring') : undefined
-        }
-        onOpenSimulator={() => setIsSimulatorOpen(true)}
-        onOpenGas={() => setIsGasOpen(true)}
-        onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
-      />
+      >
+        <ModulePage
+          key={`${entry.id}_${configSnapshot.spreadsheetId}`}
+          metadata={entry.metadata}
+          repository={entry.getRepository()}
+          userRole={userRole}
+          onOpenDocsForStudent={
+            entry.docShortcutModule
+              ? () => setCurrentModule(entry.docShortcutModule!)
+              : entry.supportsStudentDocs
+                ? openDocsForStudent
+                : undefined
+          }
+          onOpenMonitoringBundle={
+            entry.supportsMonitoringBundle ? () => setCurrentModule('doc_paket_monitoring') : undefined
+          }
+          onOpenSimulator={() => setIsSimulatorOpen(true)}
+          onOpenGas={() => setIsGasOpen(true)}
+          onOpenSheetConfig={() => setIsSheetConfigOpen(true)}
+        />
+      </Suspense>
     );
   };
 

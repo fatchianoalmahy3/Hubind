@@ -8,6 +8,7 @@ import {
   getTodayIsoDate,
 } from './utils/autoIdHelpers';
 import { stripNisSymbols } from './utils/nisHelpers';
+import { enrichRecordWithRelations } from './utils/relationJoinHelper';
 
 export interface MutationOptions {
   silentToast?: boolean;
@@ -27,7 +28,7 @@ export abstract class BaseRepository<T extends { id: string }> {
   private isRevalidating: boolean = false;
   private revalidatingPromise: Promise<void> | null = null;
   private dataUpdateListeners = new Set<(meta?: { revalidatingOnly?: boolean }) => void>();
-  private static readonly REVALIDATE_TTL_MS = 90_000;
+  private static readonly REVALIDATE_TTL_MS = 30_000;
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
     this.tableName = tableName;
@@ -107,6 +108,30 @@ export abstract class BaseRepository<T extends { id: string }> {
         // ignore subscriber errors
       }
     });
+  }
+
+  protected enrichOptimisticRecord(record: T): T {
+    const client = GoogleSheetClient.getInstance();
+    return enrichRecordWithRelations(this.tableName, record as Record<string, any>, {
+      siswaRows: client.getCachedSnapshotSync('Master_Siswa_XI')?.data,
+      jurusanRows: client.getCachedSnapshotSync('Master_Jurusan')?.data,
+      dudiRows: client.getCachedSnapshotSync('Master_DUDI')?.data,
+      guruRows: client.getCachedSnapshotSync('Master_Guru_Pendamping')?.data,
+      placementRows: client.getCachedSnapshotSync('Plotting_Pemberangkatan')?.data,
+    }) as T;
+  }
+
+  protected enrichLoadedRows(rows: T[]): T[] {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    const client = GoogleSheetClient.getInstance();
+    const maps = {
+      siswaRows: client.getCachedSnapshotSync('Master_Siswa_XI')?.data,
+      jurusanRows: client.getCachedSnapshotSync('Master_Jurusan')?.data,
+      dudiRows: client.getCachedSnapshotSync('Master_DUDI')?.data,
+      guruRows: client.getCachedSnapshotSync('Master_Guru_Pendamping')?.data,
+      placementRows: client.getCachedSnapshotSync('Plotting_Pemberangkatan')?.data,
+    };
+    return rows.map((row) => enrichRecordWithRelations(this.tableName, row as Record<string, any>, maps) as T);
   }
 
   public hasHydratedData(): boolean {
@@ -211,7 +236,7 @@ export abstract class BaseRepository<T extends { id: string }> {
           this.lastFetchedAt = Date.now();
           this.lastError = null;
           if (!res.notModified) {
-            this.memoryData = res.data as T[];
+            this.memoryData = this.enrichLoadedRows(res.data as T[]);
             hasNewData = true;
           }
         }
@@ -246,7 +271,9 @@ export abstract class BaseRepository<T extends { id: string }> {
 
       const res = await client.fetchSheetData(this.tableName, forceFresh);
       if (res.fromSpreadsheet) {
-        this.memoryData = Array.isArray(res.data) ? (res.data as T[]) : [];
+        this.memoryData = Array.isArray(res.data)
+          ? this.enrichLoadedRows(res.data as T[])
+          : [];
         this.loadedSpreadsheetId = activeId;
         this.lastFetchedAt = Date.now();
       } else {
@@ -329,11 +356,13 @@ export abstract class BaseRepository<T extends { id: string }> {
     }
 
     const normalizer = GoogleDriveSheetService.getInstance();
-    const prepared = normalizer.prepareOutgoingRecord(
-      this.tableName,
-      rawData,
-      Object.keys(rawData)
-    ) as T;
+    const prepared = this.enrichOptimisticRecord(
+      normalizer.prepareOutgoingRecord(
+        this.tableName,
+        rawData,
+        Object.keys(rawData)
+      ) as T
+    );
 
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
@@ -385,11 +414,13 @@ export abstract class BaseRepository<T extends { id: string }> {
     if (index === -1) return null;
 
     const normalizer = GoogleDriveSheetService.getInstance();
-    const candidate = normalizer.applyUpdatesAndPrepareRecord(
-      this.tableName,
-      this.memoryData[index] as Record<string, any>,
-      updates as Record<string, any>
-    ) as T;
+    const candidate = this.enrichOptimisticRecord(
+      normalizer.applyUpdatesAndPrepareRecord(
+        this.tableName,
+        this.memoryData[index] as Record<string, any>,
+        updates as Record<string, any>
+      ) as T
+    );
 
     const client = GoogleSheetClient.getInstance();
     const previousMemory = [...this.memoryData];
@@ -527,22 +558,29 @@ export abstract class BaseRepository<T extends { id: string }> {
     return matching.length;
   }
 
-  public async bulkUpdate(
-    ids: string[],
-    updates: Partial<T>,
+  public async bulkUpdateMany(
+    patches: Array<{ id: string; updates: Partial<T> }>,
     options?: MutationOptions
   ): Promise<number> {
     await this.ensureInitialized();
-    const idSet = new Set(ids);
+    const patchMap = new Map<string, Partial<T>>();
+    for (const p of patches) {
+      if (p?.id) patchMap.set(p.id, p.updates || {});
+    }
+    if (patchMap.size === 0) return 0;
+
     const normalizer = GoogleDriveSheetService.getInstance();
     const updatedRows: T[] = [];
     const nextMemory = this.memoryData.map((row) => {
-      if (idSet.has(row.id)) {
-        const updated = normalizer.applyUpdatesAndPrepareRecord(
-          this.tableName,
-          row as Record<string, any>,
-          updates as Record<string, any>
-        ) as T;
+      const updates = patchMap.get(row.id);
+      if (updates) {
+        const updated = this.enrichOptimisticRecord(
+          normalizer.applyUpdatesAndPrepareRecord(
+            this.tableName,
+            row as Record<string, any>,
+            updates as Record<string, any>
+          ) as T
+        );
         updatedRows.push(updated);
         return updated;
       }
@@ -568,7 +606,7 @@ export abstract class BaseRepository<T extends { id: string }> {
       const commitRes = await client.commitToSpreadsheet(
         this.tableName,
         'BULK_UPDATE',
-        { ids, updates, updatedRows },
+        { ids: Array.from(patchMap.keys()), updatedRows },
         options
       );
       if (!commitRes.success) {
@@ -590,47 +628,97 @@ export abstract class BaseRepository<T extends { id: string }> {
     return updatedRows.length;
   }
 
+  public async bulkUpdate(
+    ids: string[],
+    updates: Partial<T>,
+    options?: MutationOptions
+  ): Promise<number> {
+    return this.bulkUpdateMany(
+      ids.map((id) => ({ id, updates })),
+      options
+    );
+  }
+
   public async importRows(newRows: Partial<T>[], options?: MutationOptions): Promise<number> {
     await this.ensureInitialized();
+    if (!Array.isArray(newRows) || newRows.length === 0) return 0;
+
     const normalizer = GoogleDriveSheetService.getInstance();
-    const createdRows: T[] = newRows.map((item, idx) =>
-      normalizer.prepareOutgoingRecord(
-        this.tableName,
-        {
-          ...item,
-          id: item.id || `imp_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
-        },
-        Object.keys(item || {})
-      )
-    ) as T[];
+    const accumulatedRefRows: Array<Record<string, any>> = [...(this.memoryData as any[])];
+    const createdRows: T[] = [];
+
+    for (const item of newRows) {
+      const preparedInput: Record<string, any> = { ...(item as Record<string, any>) };
+      if (!String(preparedInput.id || '').trim()) {
+        preparedInput.id = generateNextSequentialId(this.tableName, accumulatedRefRows);
+      }
+      if (this.tableName === 'Master_Jurusan' && !String(preparedInput.kode || '').trim() && preparedInput.nama) {
+        preparedInput.kode = generateJurusanCode(String(preparedInput.nama));
+      }
+      if (this.tableName === 'Data_Pengajuan_PKL' && !String(preparedInput.noPengajuan || '').trim()) {
+        preparedInput.noPengajuan = preparedInput.id;
+      }
+      if (this.tableName === 'Data_Perizinan_PKL') {
+        if (!String(preparedInput.noPerizinan || '').trim()) {
+          preparedInput.noPerizinan = preparedInput.id;
+        }
+        if (!String(preparedInput.noSuratPermohonan || '').trim()) {
+          preparedInput.noSuratPermohonan = generateNextSuratPermohonan(accumulatedRefRows);
+        }
+      }
+      if (this.tableName === 'Plotting_Pemberangkatan' && !String(preparedInput.idPenempatan || '').trim()) {
+        preparedInput.idPenempatan = preparedInput.id;
+      }
+      if (preparedInput.nis !== undefined && preparedInput.nis !== null && String(preparedInput.nis).trim()) {
+        preparedInput.nis = stripNisSymbols(preparedInput.nis) || String(preparedInput.nis).trim();
+      }
+
+      const preparedRecord = this.enrichOptimisticRecord(
+        normalizer.prepareOutgoingRecord(
+          this.tableName,
+          preparedInput,
+          Object.keys(preparedInput)
+        ) as T
+      );
+      accumulatedRefRows.push(preparedRecord as Record<string, any>);
+      createdRows.push(preparedRecord);
+    }
 
     if (createdRows.length === 0) return 0;
 
     const client = GoogleSheetClient.getInstance();
-    this.lastLocalMutationAt = Date.now();
-    client.markSheetMutated(this.tableName);
+    const CHUNK_SIZE = 150;
+    let totalImported = 0;
+
     this.isCommittingSelf = true;
     try {
-      const commitRes = await client.commitToSpreadsheet(
-        this.tableName,
-        'IMPORT',
-        createdRows,
-        options
-      );
-      if (!commitRes.success) {
-        throw new Error(commitRes.error || 'Gagal mengimpor data ke Cloud Server.');
+      for (let i = 0; i < createdRows.length; i += CHUNK_SIZE) {
+        const chunk = createdRows.slice(i, i + CHUNK_SIZE);
+        this.lastLocalMutationAt = Date.now();
+        client.markSheetMutated(this.tableName);
+
+        const commitRes = await client.commitToSpreadsheet(
+          this.tableName,
+          'IMPORT',
+          chunk,
+          options
+        );
+        if (!commitRes.success) {
+          throw new Error(commitRes.error || 'Gagal mengimpor data ke Cloud Server.');
+        }
+        totalImported += chunk.length;
+        const committedAt = Date.now();
+        this.memoryData = [...chunk, ...this.memoryData];
+        this.lastFetchedAt = committedAt;
+        this.lastLocalMutationAt = committedAt;
       }
+      await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+      this.notifyDataUpdated();
     } finally {
       this.isCommittingSelf = false;
     }
 
-    const committedAt = Date.now();
-    this.memoryData = [...createdRows, ...this.memoryData];
-    this.lastFetchedAt = committedAt;
-    this.lastLocalMutationAt = committedAt;
-    await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
-    this.notifyDataUpdated();
-    return createdRows.length;
+    return totalImported;
   }
 
   public querySync(
@@ -702,6 +790,7 @@ export abstract class BaseRepository<T extends { id: string }> {
 
     return {
       data: paginatedData,
+      filteredData: result,
       total,
       page,
       pageSize,

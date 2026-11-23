@@ -164,6 +164,22 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       helperText: 'Otomatis terisi ke Pengajuan & Penempatan PKL baru di DUDI ini',
     },
     {
+      key: 'hariKerja',
+      label: 'Hari Kerja',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'Contoh: Senin s/d Sabtu',
+    },
+    {
+      key: 'jamKerja',
+      label: 'Jam Kerja',
+      type: 'text',
+      isTableColumn: true,
+      isFormInput: true,
+      placeholder: 'Contoh: 07:30 s/d 16:00',
+    },
+    {
       key: 'kuotaMaksimal',
       label: 'Kuota Maks',
       type: 'number',
@@ -179,6 +195,9 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       isTableColumn: true,
       isFormInput: true,
       isSortable: true,
+      disabled: true,
+      defaultValue: 0,
+      helperText: 'Otomatis terhitung dari penempatan PKL aktif',
     },
     {
       key: 'statusKerjasama',

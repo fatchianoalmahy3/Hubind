@@ -10,12 +10,18 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     const hydrated = repository.tryHydrateSync();
     if (hydrated || repository.hasHydratedData()) {
       const res = repository.querySync({}, { column: null, direction: 'asc' }, 1, 10, '');
-      return { data: res.data, total: res.total, hasCache: true };
+      return {
+        data: res.data,
+        filteredData: res.filteredData || res.data,
+        total: res.total,
+        hasCache: true,
+      };
     }
-    return { data: [] as T[], total: 0, hasCache: false };
+    return { data: [] as T[], filteredData: [] as T[], total: 0, hasCache: false };
   });
 
   const [data, setData] = useState<T[]>(initialSnapshot.data);
+  const [filteredData, setFilteredData] = useState<T[]>(initialSnapshot.filteredData);
   const [total, setTotal] = useState(initialSnapshot.total);
   const [loading, setLoading] = useState(false);
   const [revalidating, setRevalidating] = useState(() => repository.getIsRevalidating());
@@ -52,6 +58,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       }
       const res = repository.querySync(filter, sort, page, pageSize, search);
       setData(res.data);
+      setFilteredData(res.filteredData || res.data);
       setTotal(res.total);
       lastVisibleFetchRef.current = Date.now();
     } catch (e: any) {
@@ -81,7 +88,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     const onVisibilityOrFocus = () => {
       if (
         (typeof document === 'undefined' || document.visibilityState === 'visible') &&
-        Date.now() - lastVisibleFetchRef.current > 60_000
+        Date.now() - lastVisibleFetchRef.current > 20_000
       ) {
         fetchData(true);
       }
@@ -210,6 +217,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
 
   return {
     data,
+    filteredData,
     total,
     loading,
     revalidating,

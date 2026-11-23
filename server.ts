@@ -15,7 +15,7 @@ export type { WorkspaceConfig } from './server/types';
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-const jsonParser = express.json({ limit: '2mb' });
+const jsonParser = express.json({ limit: '6mb' });
 app.use((req, res, next) => {
   // Vercel @vercel/node may pre-parse req.body and drain the request stream before handing off to Express
   if (isServerlessRuntime && req.body !== undefined) {

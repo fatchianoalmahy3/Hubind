@@ -7,7 +7,7 @@ import {
   FileSignature,
   Layers,
 } from 'lucide-react';
-import { Dudi, Guru, Pengajuan, PenempatanPKL, Siswa } from '../../core/types/schema';
+import { Dudi, Guru, KondisiBengkelCheck, Pengajuan, PenempatanPKL, Siswa } from '../../core/types/schema';
 import { getCanonicalNisDigits, normalizeRelationText } from '../../core/utils/relationHelpers';
 import { BundleStudentItem } from '../DocumentPrintTemplates';
 
@@ -100,6 +100,11 @@ export interface DudiBundleItem {
   alamatDudi: string;
   pemimpinDudi: string;
   noTelpDudi: string;
+  hariKerja?: string;
+  jamKerja?: string;
+  kompetensiList?: string[];
+  keadaanBengkel?: KondisiBengkelCheck;
+  catatanLain?: string;
   students: BundleStudentItem[];
   isLocked: boolean;
   pendingStudents: string[];

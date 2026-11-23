@@ -1,4 +1,11 @@
-import { HUBIN_SHEETS_BLUEPRINT } from './types/sheetBlueprint';
+import {
+  FORMULA_MANAGED_COLUMNS,
+  HUBIN_SHEETS_BLUEPRINT,
+} from './types/sheetBlueprint';
+import {
+  generateJurusanCode,
+  resolveJurusanDisplayName,
+} from './utils/autoIdHelpers';
 import { isIsoTimestampString, normalizeToIsoDate } from './utils/dateHelpers';
 import { stripNisSymbols } from './utils/nisHelpers';
 
@@ -26,7 +33,7 @@ export class GoogleDriveSheetService {
     // Siswa / Guru Shared Nama & ID
     Nama_Lengkap: ['nama', 'namaLengkap', 'nama_lengkap', 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama_guru'],
     Jenis_Kelamin: ['jenisKelamin', 'jenis_kelamin', 'Jenis_Kelamin'],
-    ID_Jurusan: ['jurusan', 'idJurusan', 'id_jurusan', 'ID_Jurusan'],
+    ID_Jurusan: ['idJurusan', 'jurusan', 'id_jurusan', 'ID_Jurusan'],
     No_HP_Siswa: ['noHpSiswa', 'noHp', 'no_hp_siswa', 'No_HP_Siswa'],
     Alamat_Domisili: ['alamatDomisili', 'alamat_domisili', 'Alamat_Domisili', 'alamat'],
     Nama_Ortu_Wali: ['namaOrtuWali', 'nama_ortu_wali', 'Nama_Ortu_Wali', 'nama_orang_tua', 'namaOrtu'],
@@ -65,6 +72,8 @@ export class GoogleDriveSheetService {
     Kontak_PIC: ['kontakPic', 'kontak_pic', 'Kontak_PIC'],
     No_Telp_DUDI: ['noTelpDudi', 'no_telp_dudi', 'No_Telp_DUDI', 'teleponDudi'],
     Link_Maps: ['linkMaps', 'link_maps', 'Link_Maps', 'linkMapsDudi', 'googleMapsUrl'],
+    Hari_Kerja: ['hariKerja', 'hari_kerja', 'Hari_Kerja'],
+    Jam_Kerja: ['jamKerja', 'jam_kerja', 'Jam_Kerja'],
     Kuota_Maksimal: ['kuotaMaksimal', 'kuota_maksimal', 'Kuota_Maksimal'],
     Terisi: ['terisi', 'Terisi'],
     Status_Kerjasama: ['statusKerjasama', 'status_kerjasama', 'Status_Kerjasama'],
@@ -121,6 +130,13 @@ export class GoogleDriveSheetService {
     Sakit: ['sakit', 'Sakit'],
     Izin: ['izin', 'Izin'],
     Alpha: ['alpha', 'alfa', 'Alpha'],
+    Buku_Laporan: ['bukuLaporan', 'buku_laporan', 'Buku_Laporan'],
+    Aktivitas_DP: ['aktivitasDp', 'aktivitas_dp', 'Aktivitas_DP'],
+    Aktivitas_MT: ['aktivitasMt', 'aktivitas_mt', 'Aktivitas_MT'],
+    Aktivitas_KRT: ['aktivitasKrt', 'aktivitas_krt', 'Aktivitas_KRT'],
+    Kompetensi_Didapat: ['kompetensiDidapat', 'kompetensi_didapat', 'kompetensi_siswa', 'Kompetensi_Didapat'],
+    Kondisi_Bengkel: ['kondisiBengkel', 'kondisi_bengkel', 'Kondisi_Bengkel'],
+    TTD_Siswa: ['ttdSiswa', 'ttd_siswa', 'TTD_Siswa'],
     Nilai_PKL_Muncul: ['nilaiPklMuncul', 'nilai_pkl_muncul', 'Nilai_PKL_Muncul'],
     // Monitoring & Sertifikat Nilai (4 Kategori DUDI + Rata-rata)
     Nilai_K3LH: ['nilaiK3lh', 'nilai_k3lh', 'Nilai_K3LH'],
@@ -352,6 +368,9 @@ export class GoogleDriveSheetService {
         } else if (cleanHeader === 'nis' && formatted !== '') {
           const digits = stripNisSymbols(formatted);
           if (digits) formatted = digits;
+        } else if (cleanHeader === 'idjurusan' && formatted !== '') {
+          const code = generateJurusanCode(String(formatted));
+          if (code) formatted = code;
         }
         out[header] = formatted;
         // Also keep legacy/variant header aliases in sync so older/custom sheet headers receive updates too
@@ -369,6 +388,62 @@ export class GoogleDriveSheetService {
     }
 
     return out;
+  }
+
+  private static readonly PROTECTED_KEY_HEADERS = new Set<string>([
+    'id',
+    'nis',
+    'idjurusan',
+    'kode',
+    'iddudi',
+    'idgurupendamping',
+    'idguru',
+    'idpenempatan',
+    'nopengajuan',
+    'idperizinan',
+    'noperizinan',
+    'idmonitoring',
+    'sheetrownumber',
+  ]);
+
+  /**
+   * Strips formula-managed read-only columns from an outgoing Spreadsheet/GAS write payload
+   * while preserving Primary Keys, Foreign Keys, and native transaction columns.
+   */
+  public stripFormulaManagedFields(
+    sheetName: string,
+    record: Record<string, any>
+  ): Record<string, any> {
+    if (!record || typeof record !== 'object') return record;
+    const managedHeaders = FORMULA_MANAGED_COLUMNS[sheetName];
+    if (!managedHeaders || managedHeaders.length === 0) return record;
+
+    const stripKeySet = new Set<string>();
+    for (const h of managedHeaders) {
+      stripKeySet.add(GoogleDriveSheetService.normalizeKey(h));
+      const aliases = this.getFieldAliases(sheetName, h);
+      for (const alias of aliases) {
+        // Avoid stripping overly generic fallback alias like 'nama' that may belong to primary entity
+        if (alias === 'nama') continue;
+        stripKeySet.add(GoogleDriveSheetService.normalizeKey(alias));
+      }
+    }
+
+    const sanitized: Record<string, any> = {};
+    for (const [k, v] of Object.entries(record)) {
+      if (k === '_sheetRowNumber' || k === 'id') {
+        sanitized[k] = v;
+        continue;
+      }
+      const normK = GoogleDriveSheetService.normalizeKey(k);
+      if (
+        GoogleDriveSheetService.PROTECTED_KEY_HEADERS.has(normK) ||
+        !stripKeySet.has(normK)
+      ) {
+        sanitized[k] = v;
+      }
+    }
+    return sanitized;
   }
 
   /**
@@ -507,8 +582,25 @@ export class GoogleDriveSheetService {
       if (record[primaryKey] === undefined || record[primaryKey] === '' || parsedVal !== '') {
         record[primaryKey] = parsedVal;
       }
+      if (cleanHeader === 'idjurusan' && normalizedRawCell) {
+        const code = generateJurusanCode(String(normalizedRawCell)) || String(normalizedRawCell).trim();
+        record.idJurusan = code;
+        if (!record.jurusan) {
+          record.jurusan = resolveJurusanDisplayName(normalizedRawCell);
+        }
+      } else if (cleanHeader === 'jurusan') {
+        const resolved = resolveJurusanDisplayName(normalizedRawCell || record.idJurusan);
+        if (resolved) record.jurusan = resolved;
+      }
       record[header] = normalizedRawCell;
     });
+
+    if (!record.jurusan && record.idJurusan) {
+      record.jurusan = resolveJurusanDisplayName(record.idJurusan);
+    }
+    if (!record.idJurusan && record.jurusan && (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa' || sheetName === 'Master_Kelas_Walas')) {
+      record.idJurusan = generateJurusanCode(String(record.jurusan));
+    }
 
     const sheetRowNum = rowIndex + 2;
     record._sheetRowNumber = sheetRowNum;

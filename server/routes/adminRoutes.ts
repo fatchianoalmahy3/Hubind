@@ -264,9 +264,14 @@ export function registerAdminRoutes(app: Express): void {
 
   // Invalidate server-side short-lived caches immediately after admin changes settings/data
   app.post('/api/cache/invalidate', async (req: Request, res: Response) => {
-    const sheetParam = String(req.query.sheet || req.body?.sheet || '').trim();
-    await invalidateServerCaches(sheetParam || undefined);
-    res.json({ success: true, scope: sheetParam || 'all' });
+    try {
+      await requireAdminAuth(req);
+      const sheetParam = String(req.query.sheet || req.body?.sheet || '').trim();
+      await invalidateServerCaches(sheetParam || undefined);
+      res.json({ success: true, scope: sheetParam || 'all' });
+    } catch (err: any) {
+      handlePortalError(res, err);
+    }
   });
 
   // Admin Proxy: Verify GAS Web App connection without requiring per-device Google OAuth popup

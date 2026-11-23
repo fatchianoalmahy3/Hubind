@@ -16,12 +16,14 @@ Dokumen ini merupakan **Single Source of Truth (SSOT)** untuk arsitektur sistem,
 ## 2. Arsitektur Sistem & Single Source of Truth (SSOT)
 
 ### 2.1 Lapisan Penyimpanan & Infrastruktur
-- **Google Spreadsheet (SSOT Operasional)**: Menyimpan seluruh data operasional PKL (`Master_Jurusan`, `Master_Kelas_Walas`, `Master_DUDI`, `Master_Guru_Pendamping`, `Master_Siswa_XI`, `Data_Pengajuan_PKL`, `Data_Perizinan_PKL`, `Plotting_Pemberangkatan`, `Monitoring_5_Tahap`, `Nilai_Dan_Sertifikat`, `Master_Akun`).
+- **Google Spreadsheet (SSOT Operasional — Arsitektur Hibrida Relasional + Row-1 `ARRAYFORMULA`)**: Menyimpan seluruh data operasional PKL (`Master_Jurusan`, `Master_Kelas_Walas`, `Master_DUDI`, `Master_Guru_Pendamping`, `Master_Siswa_XI`, `Data_Pengajuan_PKL`, `Data_Perizinan_PKL`, `Plotting_Pemberangkatan`, `Monitoring_5_Tahap`, `Nilai_Dan_Sertifikat`, `Master_Akun`).
+  - **FK-First Persistence**: Penulisan ke sheet hanya menyimpan Primary Key, Foreign Key (`NIS`, kode kanonik `ID_Jurusan`, `ID_DUDI`, `ID_Guru_Pendamping`, `ID_Penempatan`), dan data transaksi asli. Kolom tampilan hasil lookup (`Nama_Siswa`, `Jurusan`, `Kelas`, `Nama_Ortu_Wali`, `No_Ortu_Wali`, `Nama_DUDI`, `DUDI_Tujuan`, `Alamat_DUDI`, `Guru_Pendamping`) dan agregat (`Kuota_Siswa`, `Total_Terdaftar`, `Jumlah_Siswa`, `Terisi`, `Jumlah_Bimbingan`, `Rentang_Tanggal`, `Nilai_rata_rata`, `Predikat`) dikelola *read-only* oleh `ARRAYFORMULA` baris-1 Spreadsheet (didefinisikan di `FORMULA_MANAGED_COLUMNS` pada `sheetBlueprint.ts` dan di-strip saat write). Pengecualian pada `Data_Pengajuan_PKL`: detail DUDI (`DUDI_Tujuan`, `Alamat_DUDI`, `Bidang_Pekerjaan`, `Nama_Pemimpin`, `Nama_PIC`, `No_Telp_DUDI`, `Link_Maps`) tetap *writable* untuk pengajuan DUDI baru/belum terdaftar.
+  - **App-Side Optimistic Join**: Untuk responsivitas UI instan sebelum spreadsheet selesai mengevaluasi formula, `BaseRepository` memperkaya record via `enrichRecordWithRelations` (`relationJoinHelper.ts`).
 - **Firestore (`src/core/firebase/`, `firestore.rules`, `security_spec.md`)**:
   - `/config/workspace`: Hanya menyimpan konfigurasi infrastruktur non-PII (`activeYear`, `spreadsheetId`, `spreadsheetName`, `spreadsheetUrl`, `driveFolderUrl`, `gasDeployUrl`, `academicYears` maks 20, `templates` maks 15, `monitoringStageControl`, `updatedBy`, `updatedAt`).
   - `/admins/{uid}`: Registry admin & peran RBAC (terisolasi, `allow list: false`, pencegahan *self-escalation*).
   - **Larangan Keras**: Data PII siswa, NIK, no HP, nilai, atau status PKL tidak boleh disimpan ke Firestore.
-- **Google Apps Script (GAS Web App)**: Bertindak sebagai adapter baca/tulis Spreadsheet dan generator PDF (Surat Perizinan & Paket Monitoring Google Docs).
+- **Google Apps Script (GAS Web App)**: Bertindak sebagai adapter baca/tulis Spreadsheet (dengan deteksi kolom `ARRAYFORMULA` agar formula baris-1 tidak tertimpa dan span-based writes), generator PDF, serta migrator formula relasional (`setupRelationalFormulasAndMigrate` / `MIGRATE_RELATIONAL_FORMULAS`).
 
 ### 2.2 Arsitektur Dual-Mode Transport (Proxy + Static SPA Fallback)
 - **Primary Path**: Client -> Express/Vercel Serverless (`/api/v1/*`, `/api/public/*`, `/api/admin/*`, `/api/perizinan/*`, `/api/documents/*`) -> GAS Web App.
@@ -110,8 +112,8 @@ Selalu gunakan helper terpusat alih-alih menulis ulang parsing/validasi di kompo
 - `server/services/`:
   - `adminAuthService.ts`: Verifikasi token Firebase ID / sesi lokal & otorisasi peran.
   - `monitoringDomainService.ts`: Aturan domain monitoring, validasi tahap, kalkulasi nilai rata-rata & predikat, sinkronisasi `Nilai_Dan_Sertifikat` & kontak DUDI.
-  - `relationRecalculator.ts`: Rekalkulasi kuota DUDI (`Terisi`), jumlah bimbingan guru, dan status siswa.
-  - `sheetsTransport.ts`: Transport server-to-GAS, cache in-memory server, ETag, dan pemetaan sheet.
+  - `relationRecalculator.ts`: Backfill Foreign Key (`ID_Jurusan`, `ID_DUDI`, `ID_Guru_Pendamping`, `ID_Penempatan`, `Status_PKL`) dan pemicu migrasi `ARRAYFORMULA` GAS tanpa menimpa kolom agregat formula-managed.
+  - `sheetsTransport.ts`: Transport server-to-GAS, sanitasi payload *formula-managed*, cache in-memory server + invalidasi berantai (`SHEET_DEPENDENTS_MAP`), ETag, dan pemetaan sheet.
 - `server/utils/httpHelpers.ts`: Helper respons JSON standar dan error code terstruktur.
 
 ---
@@ -129,9 +131,10 @@ Selalu gunakan helper terpusat alih-alih menulis ulang parsing/validasi di kompo
 4. **Kasus Siswa Pindah PKL & Durasi Habis**:
    - Penempatan dengan status `Dibatalkan`, `Batal`, atau `Pindah DUDI` tidak dihitung sebagai penempatan aktif pada rekap DUDI binaan, kuota `Terisi`, maupun daftar monitoring aktif (`isActivePlacementStatus`).
    - Kasus perpindahan DUDI atau penarikan/penyesuaian durasi dikelola melalui status penempatan (`Pindah DUDI`, `Selesai PKL`, `Tanggal_Rencana_Tarik`) pada modul Penempatan PKL & rekalkulasi relasi (`RelationSyncService` / `relationRecalculator`).
-5. **Sinkronisasi Nilai PKL (4 Komponen Bobot Setara)**:
+5. **Sinkronisasi Nilai PKL (`Monitoring_5_Tahap` sebagai Grade SSOT, 4 Komponen Bobot Setara)**:
    - Nilai terdiri dari 4 komponen (`Nilai_K3LH`, `Nilai_Softskill`, `Nilai_Kompetensi_Teknis`, `Nilai_Alur_Bisnis`) dengan rata-rata berbobot setara via `calculateEqualWeightedAverage` dan predikat via `getPredikatFromScore`.
-   - Saat nilai disimpan dari monitoring maupun edit nilai, sistem menyinkronkan ke `Monitoring_5_Tahap` dan melakukan *upsert* ke `Nilai_Dan_Sertifikat`.
+   - **`Monitoring_5_Tahap` adalah Single Source of Truth (SSOT) seluruh nilai PKL**. Seluruh input/perubahan nilai (baik dari Portal Guru Monitoring, Admin Monitoring, maupun Admin Raport & Sertifikat) wajib menulis 4 komponen nilai ke `Monitoring_5_Tahap`.
+   - `Nilai_Dan_Sertifikat` hanya menyimpan kunci relasi & data administratif sertifikat (`ID_Penempatan`, `NIS`, `ID_DUDI`, `No_Seri_Blangko`, `Status_Blangko`, `Status_Raport`, `Tgl_Terbit`), sedangkan kolom tampilan siswa/DUDI, 4 komponen nilai, rata-rata, dan predikat ditarik otomatis dari `Monitoring_5_Tahap` via `ARRAYFORMULA`.
 6. **RBAC & Keamanan**:
    - Role terdaftar: `'SuperAdmin' | 'Hubin' | 'Kepsek' | 'Waka' | 'Pokja' | 'Kakomli' | 'GuruPendamping' | 'Siswa'`.
    - `SuperAdmin` selalu memiliki akses penuh terhadap seluruh modul di `MODULE_REGISTRY` serta pengaturan kunci tahap & registry admin.
@@ -148,7 +151,7 @@ Selalu gunakan helper terpusat alih-alih menulis ulang parsing/validasi di kompo
    - Gunakan **Tailwind CSS** (`src/index.css` via `@import "tailwindcss";`).
    - Dilarang membuat file CSS terpisah baru dan hindari *inline style* baru (kecuali atribut dinamis ukuran kertas cetak yang sudah ada di template cetak).
 3. **Caching & Invalidation**:
-   - Setiap operasi tulis (`CREATE`, `UPDATE`, `DELETE`) pada sheet wajib menginvalidasi cache relevan: `directSheetCache`, `GoogleSheetClient.invalidateClientSheetCache(sheetName)`, `invalidatePublicTeacherCaches`, dan endpoint `/api/cache/invalidate`.
+   - Setiap operasi tulis (`CREATE`, `UPDATE`, `DELETE`) pada sheet wajib menginvalidasi cache sheet terkait **beserta seluruh sheet turunannya** sesuai `SHEET_DEPENDENTS_MAP` (`getDependentSheets`): `directSheetCache`, `GoogleSheetClient.invalidateClientSheetCache(sheetName)`, `invalidatePublicTeacherCaches`, dan `invalidateServerCaches` / endpoint `/api/cache/invalidate`.
 4. **Checklist Verifikasi Sebelum Menyelesaikan Tugas**:
    - Jalankan `npm run lint` (`tsc --noEmit`) — **wajib exit 0 tanpa error**.
    - Jalankan `npm run build` (`vite build && npm run build:api`) — **wajib sukses membangun client + `api/_server.mjs`**.
