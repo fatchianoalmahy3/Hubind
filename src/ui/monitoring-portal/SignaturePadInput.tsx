@@ -5,6 +5,11 @@ import { normalizeSignatureSvgPath } from '../../core/utils/monitoringHelpers';
 interface SignaturePadInputProps {
   value: string;
   studentName?: string;
+  label?: string;
+  placeholderText?: string;
+  helperFilled?: string;
+  helperEmpty?: string;
+  emptyDisabledText?: string;
   disabled?: boolean;
   onChange: (svgPathValue: string) => void;
 }
@@ -53,6 +58,11 @@ function parseSvgPathToStrokes(pathD: string): StrokePoint[][] {
 export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
   value,
   studentName,
+  label,
+  placeholderText,
+  helperFilled,
+  helperEmpty,
+  emptyDisabledText,
   disabled = false,
   onChange,
 }) => {
@@ -164,7 +174,7 @@ export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
         <div className="flex items-start gap-1.5 text-xs font-bold text-slate-900 min-w-0">
           <PenTool className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
           <span className="leading-snug">
-            Tanda Tangan Siswa {studentName ? `(${studentName})` : ''} *
+            {label || `Tanda Tangan Siswa ${studentName ? `(${studentName})` : ''}`} *
           </span>
         </div>
 
@@ -197,7 +207,7 @@ export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
             <svg
               viewBox={parsedValue.viewBox}
               className="w-full h-full"
-              aria-label="Tanda tangan siswa"
+              aria-label={label || 'Tanda tangan'}
             >
               <path
                 d={parsedValue.pathD}
@@ -209,7 +219,9 @@ export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
               />
             </svg>
           ) : (
-            <span className="text-[11px] text-slate-400 italic">Belum ada tanda tangan siswa</span>
+            <span className="text-[11px] text-slate-400 italic">
+              {emptyDisabledText || 'Belum ada tanda tangan'}
+            </span>
           )}
         </div>
       ) : (
@@ -225,8 +237,8 @@ export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
             className="w-full h-[116px] sm:h-[112px] rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 hover:border-blue-400 cursor-crosshair touch-none block"
           />
           {!hasStroke && (
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-[11px]">
-              <span>Goreskan tanda tangan siswa di area ini</span>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-slate-400 text-[11px] px-3 text-center">
+              <span>{placeholderText || 'Goreskan tanda tangan siswa di area ini'}</span>
             </div>
           )}
           <div className="pointer-events-none absolute left-4 right-4 bottom-3 border-b border-slate-300/80" />
@@ -235,8 +247,8 @@ export const SignaturePadInput: React.FC<SignaturePadInputProps> = ({
 
       <p className="text-[11px] text-slate-500">
         {hasStroke
-          ? 'Tanda tangan tersimpan ringan dalam format vektor untuk dicetak pada Lembar Monitoring 07.01.'
-          : 'Minta siswa menandatangani langsung di kotak di atas setelah absensi diperiksa.'}
+          ? helperFilled || 'Tanda tangan tersimpan ringan dalam format vektor untuk dicetak pada Lembar Monitoring 07.01.'
+          : helperEmpty || 'Minta siswa menandatangani langsung di kotak di atas setelah absensi diperiksa.'}
       </p>
     </div>
   );

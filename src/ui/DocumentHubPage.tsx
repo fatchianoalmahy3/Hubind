@@ -71,6 +71,7 @@ import {
 } from './document-hub/DocumentBodies';
 import { DocumentPickerSidebar } from './document-hub/DocumentPickerSidebar';
 import { DocumentParametersModal } from './document-hub/DocumentParametersModal';
+import { TopProgressBar } from './CrudProgressFeedback';
 
 export type { DocumentHubKey };
 
@@ -1066,6 +1067,12 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
           </div>
         </div>
       </div>
+
+      <TopProgressBar
+        active={loading || issuingBusy || generatingDocsPdf}
+        label="Memproses dokumen dengan Cloud Server"
+        className="rounded-full no-print"
+      />
 
       {error && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2 no-print">

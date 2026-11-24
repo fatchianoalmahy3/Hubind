@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { FileText, Loader2, X } from 'lucide-react';
+import { FileText, X } from 'lucide-react';
 import { useStudentWizard } from './student-wizard/useStudentWizard';
 import { WizardSuccessView } from './student-wizard/WizardSuccessView';
 import { WizardStep1Identity } from './student-wizard/WizardStep1Identity';
 import { WizardStep2Bio } from './student-wizard/WizardStep2Bio';
 import { WizardStep3DudiMap } from './student-wizard/WizardStep3DudiMap';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface StudentApplicationWizardProps {
   isOpen: boolean;
@@ -76,15 +77,10 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
           </button>
         </div>
 
-        {(wizard.searching || wizard.loadingDudi || wizard.submitting) && (
-          <div
-            className="progress-sweep-track shrink-0"
-            role="progressbar"
-            aria-label="Memproses data Cloud Server"
-          >
-            <div className="progress-sweep-bar" />
-          </div>
-        )}
+        <TopProgressBar
+          active={wizard.searching || wizard.loadingDudi || wizard.submitting}
+          label="Memproses data pengajuan dengan Cloud Server"
+        />
 
         {/* Step Indicator */}
         {!wizard.submissionResult && (
@@ -272,25 +268,12 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
             </form>
           )}
         </div>
-        {wizard.submitting && (
-          <div
-            role="status"
-            aria-live="assertive"
-            className="absolute inset-0 z-30 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-4"
-          >
-            <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg">
-              <Loader2 className="w-7 h-7 animate-spin" />
-            </div>
-            <div className="space-y-1.5 max-w-sm">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                Sedang Menyimpan &amp; Memverifikasi ke Spreadsheet...
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Mohon tunggu sejenak dan <b>jangan tutup halaman atau browser Anda</b> sampai bukti konfirmasi resmi muncul.
-              </p>
-            </div>
-          </div>
-        )}
+        <CrudLoadingOverlay
+          visible={wizard.submitting}
+          zIndexClass="z-30"
+          title="Sedang Menyimpan & Memverifikasi ke Cloud Server..."
+          subtitle="Mohon tunggu sejenak dan jangan tutup halaman atau browser Anda sampai bukti konfirmasi resmi muncul."
+        />
       </div>
     </div>
   );

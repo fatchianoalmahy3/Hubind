@@ -13,6 +13,7 @@ import { getTodayIsoDate, normalizeWhatsAppNumber } from '../../core/utils/autoI
 import { formatIndonesianDate, formatPerizinanDateRange } from '../../core/utils/dateHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { PerizinanService } from '../../services/PerizinanService';
+import { CrudLoadingOverlay, TopProgressBar } from '../CrudProgressFeedback';
 
 export interface PerizinanWaModalState {
   isOpen: boolean;
@@ -120,7 +121,7 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
       onClick={() => !state.generatingPdf && setState((p) => ({ ...p, isOpen: false }))}
     >
       <div
-        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden"
+        className="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-emerald-50/70 shrink-0">
@@ -143,12 +144,17 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
             type="button"
             disabled={state.generatingPdf}
             onClick={() => setState((p) => ({ ...p, isOpen: false }))}
-            className="w-9 h-9 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40"
+            className="w-9 h-9 rounded-lg hover:bg-slate-200/70 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Tutup modal WhatsApp"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <TopProgressBar
+          active={state.generatingPdf}
+          label="Membuat dokumen PDF di Cloud Server"
+        />
 
         <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
           <div>
@@ -158,6 +164,7 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
+                disabled={state.generatingPdf}
                 onClick={() => {
                   setState((prev) => ({
                     ...prev,
@@ -185,6 +192,7 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
 
               <button
                 type="button"
+                disabled={state.generatingPdf}
                 onClick={() => {
                   setState((prev) => ({
                     ...prev,
@@ -374,7 +382,7 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
               type="button"
               disabled={state.generatingPdf}
               onClick={() => setState((p) => ({ ...p, isOpen: false }))}
-              className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
+              className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Tutup
             </button>
@@ -426,6 +434,13 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
             )}
           </div>
         </div>
+
+        <CrudLoadingOverlay
+          visible={state.generatingPdf}
+          tone="emerald"
+          title="Membuat Dokumen PDF di Cloud Server..."
+          subtitle="Mohon tunggu sejenak hingga tautan PDF siap dilampirkan ke WhatsApp."
+        />
       </div>
     </div>
   );

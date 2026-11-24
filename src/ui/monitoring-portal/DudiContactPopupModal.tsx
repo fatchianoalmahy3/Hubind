@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, Building2, Loader2, Save } from 'lucide-react';
 import { WorkScheduleRangeInputs } from './WorkScheduleRangeInputs';
+import { CrudLoadingOverlay, TopProgressBar } from '../CrudProgressFeedback';
 
 interface DudiContactPopupModalProps {
   isOpen: boolean;
@@ -59,10 +60,10 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
       onClick={(e) => e.stopPropagation()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[94dvh] sm:max-h-[92vh] overflow-y-auto"
+        className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[94dvh] sm:max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-slate-200 bg-amber-50/80 flex items-start gap-3">
+        <div className="px-5 py-4 border-b border-slate-200 bg-amber-50/80 flex items-start gap-3 shrink-0">
           <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0">
             <Building2 className="w-4 h-4" />
           </div>
@@ -76,7 +77,9 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="p-5 space-y-3.5 text-xs">
+        <TopProgressBar active={saving} label="Menyimpan kontak resmi DUDI ke Cloud Server" />
+
+        <form onSubmit={onSubmit} className="p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
           <div>
             <label className="block font-bold text-slate-700 mb-1">
               Nama Pemimpin / Direktur DUDI <span className="text-rose-500">*</span>
@@ -128,6 +131,7 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
             hariSelesai={hariSelesai}
             jamMulai={jamMulai}
             jamSelesai={jamSelesai}
+            layout="stacked"
             disabled={saving}
             onChangeHariMulai={onChangeHariMulai}
             onChangeHariSelesai={onChangeHariSelesai}
@@ -183,6 +187,12 @@ export const DudiContactPopupModal: React.FC<DudiContactPopupModalProps> = ({
             </button>
           </div>
         </form>
+
+        <CrudLoadingOverlay
+          visible={saving}
+          title="Menyimpan Kontak DUDI ke Cloud Server..."
+          subtitle="Mohon tunggu sejenak sementara data kontak diverifikasi."
+        />
       </div>
     </div>
   );

@@ -41,6 +41,7 @@ import {
   directLookupStudentByNis,
   directSaveDudiContactVerification,
   directSubmitApplication,
+  directSubmitDeliveryValidation,
   directSubmitMonitoring,
   directUpdateMonitoringGrades,
   directVerifyPetugasPin,
@@ -474,6 +475,83 @@ export const PublicPortalClient = {
       ToastManager.getInstance().update(
         toastId,
         'Gagal Menyimpan Supervisi',
+        'error',
+        err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
+      );
+      throw err;
+    }
+  },
+
+  async submitDeliveryValidation(payload: any): Promise<{
+    success: boolean;
+    verifiedInSpreadsheet?: boolean;
+    sheetRowNumber?: number;
+    savedAt?: string;
+    dudiContactSynced?: boolean;
+    dudiContact?: {
+      namaPemimpin: string;
+      pic: string;
+      kontak: string;
+      hariKerja?: string;
+      jamKerja?: string;
+    };
+    savedCount: number;
+    results: Array<{
+      nis: string;
+      namaSiswa: string;
+      idPenempatan: string;
+      idMonitoring: string;
+      tanggal: string;
+      ttdSiswa: string;
+      catatan: string;
+      status: string;
+      sheetRowNumber?: number;
+    }>;
+    message: string;
+  }> {
+    const studentCount = Array.isArray(payload?.students) ? payload.students.length : 1;
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan Validasi & Pengantaran DUDI...',
+      'pending',
+      `Menyinkronkan data petugas ${payload?.nama_dudi || 'DUDI'} & ${studentCount} siswa ke Cloud Server`
+    );
+
+    try {
+      const res = await callPublicEndpoint(
+        () =>
+          safeFetchJson('/api/public/submit-delivery', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        () => directSubmitDeliveryValidation(payload)
+      );
+
+      if (res?.success) {
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
+        invalidatePublicTeacherCaches();
+        ToastManager.getInstance().update(
+          toastId,
+          'Validasi & Pengantaran DUDI Tersimpan!',
+          'success',
+          `${payload?.nama_dudi || 'DUDI'} · ${res.savedCount || studentCount} siswa tercatat selesai Pengantaran`
+        );
+      } else {
+        ToastManager.getInstance().update(
+          toastId,
+          'Gagal Menyimpan Pengantaran',
+          'error',
+          res?.message || 'Gagal menyimpan validasi ke Cloud Server.'
+        );
+      }
+
+      return res;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Menyimpan Pengantaran',
         'error',
         err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
       );

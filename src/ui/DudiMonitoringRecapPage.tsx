@@ -46,6 +46,7 @@ import { SertifikatService } from '../services/SertifikatService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
 import { AppleConfirmModal } from './AppleConfirmModal';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface DudiMonitoringRecapPageProps {
   userRole: UserRole;
@@ -196,6 +197,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     variant: 'success',
     onConfirm: async () => {},
   });
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const canVerifyKakomli = userRole === 'Kakomli' || userRole === 'SuperAdmin';
   const canVerifyHubin = userRole === 'Waka' || userRole === 'Hubin' || userRole === 'SuperAdmin';
@@ -738,7 +740,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         <button
           type="button"
           onClick={() => loadAllData(true)}
-          disabled={loading || revalidating}
+          disabled={loading || revalidating || batchSaving}
           className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
         >
           <RefreshCw
@@ -749,6 +751,12 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           <span>{revalidating ? 'Menyegarkan...' : 'Segarkan Data'}</span>
         </button>
       </div>
+
+      <TopProgressBar
+        active={loading || revalidating || batchSaving || Boolean(savingId)}
+        label="Menyinkronkan rekap monitoring dengan Cloud Server"
+        className="rounded-full"
+      />
 
       {/* Filter & Jurusan Context Bar (shown on Level 1 & shows Jurusan lock info on Level 2 too) */}
       <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center gap-2.5">
@@ -1305,10 +1313,10 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       {inspectTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/55 backdrop-blur-[2px]"
-          onClick={() => setInspectTarget(null)}
+          onClick={() => savingId !== inspectTarget.log.monitoringId && setInspectTarget(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+            className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
@@ -1322,13 +1330,19 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
               </div>
               <button
                 type="button"
+                disabled={savingId === inspectTarget.log.monitoringId}
                 onClick={() => setInspectTarget(null)}
                 aria-label="Tutup detail supervisi"
-                className="w-8 h-8 rounded-lg hover:bg-slate-200/70 text-slate-500 flex items-center justify-center cursor-pointer shrink-0"
+                className="w-8 h-8 rounded-lg hover:bg-slate-200/70 text-slate-500 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            <TopProgressBar
+              active={savingId === inspectTarget.log.monitoringId}
+              label="Menyimpan verifikasi supervisi ke Cloud Server"
+            />
 
             <div className="p-5 overflow-y-auto space-y-3.5 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/70">
@@ -1394,8 +1408,9 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
+                disabled={savingId === inspectTarget.log.monitoringId}
                 onClick={() => setInspectTarget(null)}
-                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer"
+                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Tutup
               </button>
@@ -1412,10 +1427,18 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                         'Tervalidasi Kakomli'
                       )
                     }
-                    className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Verifikasi Kakomli</span>
+                    {savingId === inspectTarget.log.monitoringId ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {savingId === inspectTarget.log.monitoringId
+                        ? 'Menyimpan...'
+                        : 'Verifikasi Kakomli'}
+                    </span>
                   </button>
                 )}
 
@@ -1431,13 +1454,28 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                         'Tervalidasi Hubin'
                       )
                     }
-                    className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <CheckCheck className="w-3.5 h-3.5" />
-                    <span>Verifikasi Hubin</span>
+                    {savingId === inspectTarget.log.monitoringId ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {savingId === inspectTarget.log.monitoringId
+                        ? 'Menyimpan...'
+                        : 'Verifikasi Hubin'}
+                    </span>
                   </button>
                 )}
             </div>
+
+            <CrudLoadingOverlay
+              visible={savingId === inspectTarget.log.monitoringId}
+              tone="emerald"
+              title="Menyimpan Verifikasi ke Cloud Server..."
+              subtitle="Mohon tunggu sejenak hingga status verifikasi diperbarui."
+            />
           </div>
         </div>
       )}
@@ -1445,10 +1483,21 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       {/* Confirmation Modal */}
       <AppleConfirmModal
         isOpen={confirmModal.isOpen}
-        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        loading={confirmLoading || batchSaving}
+        onClose={() =>
+          !confirmLoading &&
+          !batchSaving &&
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }))
+        }
         onConfirm={async () => {
-          await confirmModal.onConfirm();
-          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+          if (confirmLoading) return;
+          setConfirmLoading(true);
+          try {
+            await confirmModal.onConfirm();
+            setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+          } finally {
+            setConfirmLoading(false);
+          }
         }}
         title={confirmModal.title}
         description={confirmModal.description}

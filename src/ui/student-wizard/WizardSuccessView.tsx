@@ -32,7 +32,7 @@ export const WizardSuccessView: React.FC<WizardSuccessViewProps> = ({
       <div className="space-y-2">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <span>Tercatat Resmi di Spreadsheet Google Sheets</span>
+          <span>Tercatat Resmi di Cloud Server</span>
         </div>
         <h3 className="text-lg sm:text-xl font-bold text-slate-900">
           {submissionResult.deduplicated
@@ -44,8 +44,8 @@ export const WizardSuccessView: React.FC<WizardSuccessViewProps> = ({
           {(submissionResult.sheetRowNumber || formattedSavedAt) && (
             <span className="block mt-1 font-mono text-[11px] text-emerald-700 font-semibold">
               {submissionResult.sheetRowNumber
-                ? `Baris Spreadsheet #${submissionResult.sheetRowNumber}`
-                : 'Tersimpan di Spreadsheet'}
+                ? `Record Cloud Server #${submissionResult.sheetRowNumber}`
+                : 'Tersimpan di Cloud Server'}
               {formattedSavedAt ? ` · Pukul ${formattedSavedAt} WIB` : ''}
             </span>
           )}

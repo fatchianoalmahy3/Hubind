@@ -17,6 +17,7 @@ import {
 } from '../core/types/schema';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { PublicPortalClient } from '../core/PublicPortalClient';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface MonitoringStageControlModalProps {
   isOpen: boolean;
@@ -107,7 +108,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
       onClick={() => !saving && onClose()}
     >
       <div
-        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -129,12 +130,17 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
             type="button"
             disabled={saving}
             onClick={onClose}
-            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-40"
+            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Tutup modal kontrol tahapan"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <TopProgressBar
+          active={saving}
+          label="Menyimpan kebijakan tahapan monitoring ke Cloud Server"
+        />
 
         {/* Body */}
         <form onSubmit={handleSave} className="flex-1 flex flex-col min-h-0">
@@ -353,14 +359,14 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
                 type="button"
                 disabled={saving}
                 onClick={onClose}
-                className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
+                className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Batal
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? (
                   <>
@@ -377,6 +383,12 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
             </div>
           </div>
         </form>
+
+        <CrudLoadingOverlay
+          visible={saving}
+          title="Menyimpan Kebijakan Tahap ke Cloud Server..."
+          subtitle="Kebijakan baru akan langsung diterapkan pada Portal Supervisi Guru."
+        />
       </div>
     </div>
   );

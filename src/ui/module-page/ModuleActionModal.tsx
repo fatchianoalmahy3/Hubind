@@ -1,8 +1,9 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { Dudi, Guru } from '../../core/types/schema';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { normalizeRelationText } from '../../core/utils/relationHelpers';
+import { CrudLoadingOverlay, TopProgressBar } from '../CrudProgressFeedback';
 
 export interface ModuleActionModalState {
   isOpen: boolean;
@@ -39,7 +40,7 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
       onClick={() => !state.submitting && setState((p) => ({ ...p, isOpen: false }))}
     >
       <div
-        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden"
+        className="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
@@ -59,12 +60,14 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
             type="button"
             disabled={state.submitting}
             onClick={() => setState((p) => ({ ...p, isOpen: false }))}
-            className="w-9 h-9 rounded-lg hover:bg-slate-200/80 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+            className="w-9 h-9 rounded-lg hover:bg-slate-200/80 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Tutup modal"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <TopProgressBar active={state.submitting} label="Menyimpan aksi modul ke Cloud Server" />
 
         <form onSubmit={onSubmit} className="p-5 space-y-4 text-xs">
           {state.type === 'reject_kakomli' ? (
@@ -239,14 +242,14 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
               type="button"
               disabled={state.submitting}
               onClick={() => setState((p) => ({ ...p, isOpen: false }))}
-              className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+              className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Batal
             </button>
             <button
               type="submit"
               disabled={state.submitting}
-              className={`h-9 px-4 rounded-lg text-white font-semibold cursor-pointer disabled:opacity-50 ${
+              className={`h-9 px-4 rounded-lg text-white font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                 state.type === 'reject_kakomli'
                   ? 'bg-rose-600 hover:bg-rose-700'
                   : state.type === 'transfer_dudi'
@@ -254,18 +257,33 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
                   : 'bg-blue-600 hover:bg-blue-700'
               }`}
             >
-              {state.submitting
-                ? 'Menyimpan...'
-                : state.type === 'reject_kakomli'
-                ? 'Tolak Pengajuan'
-                : state.type === 'promote_to_pkl'
-                ? 'Terbitkan ke Data Siswa PKL'
-                : state.type === 'transfer_dudi'
-                ? 'Proses Pindah DUDI'
-                : 'Simpan Jadwal'}
+              {state.submitting && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+              <span>
+                {state.submitting
+                  ? 'Menyimpan...'
+                  : state.type === 'reject_kakomli'
+                  ? 'Tolak Pengajuan'
+                  : state.type === 'promote_to_pkl'
+                  ? 'Terbitkan ke Data Siswa PKL'
+                  : state.type === 'transfer_dudi'
+                  ? 'Proses Pindah DUDI'
+                  : 'Simpan Jadwal'}
+              </span>
             </button>
           </div>
         </form>
+
+        <CrudLoadingOverlay
+          visible={state.submitting}
+          tone={state.type === 'reject_kakomli' ? 'rose' : 'blue'}
+          title={
+            state.type === 'reject_kakomli'
+              ? 'Menyimpan Penolakan ke Cloud Server...'
+              : state.type === 'transfer_dudi'
+              ? 'Memproses Mutasi DUDI di Cloud Server...'
+              : 'Menyimpan Perubahan ke Cloud Server...'
+          }
+        />
       </div>
     </div>
   );

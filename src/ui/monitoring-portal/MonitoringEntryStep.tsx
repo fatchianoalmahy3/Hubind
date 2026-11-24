@@ -36,8 +36,8 @@ import { WorkScheduleRangeInputs } from './WorkScheduleRangeInputs';
 import { WorkshopSharedInspectionCard } from './WorkshopSharedInspectionCard';
 import {
   CATATAN_QUICK_PRESETS,
+  DELIVERY_CATATAN_PRESETS,
   getStudentKey,
-  isDudiContactIncomplete,
   type GradeScoresDraft,
   type StudentStageDraft,
   type WorkshopStageDraft,
@@ -81,6 +81,10 @@ interface MonitoringEntryStepProps {
   dudiJamMulai: string;
   dudiJamSelesai: string;
   showDudiContactEditor: boolean;
+  deliveryTtdByKey: Record<string, string>;
+  deliveryCatatan: string;
+  deliveryContactConfirmed: boolean;
+  deliverySelectedKeys: string[];
   canCopyWorkshopFromPrevStage: boolean;
   onChangeStepToDudiList: () => void;
   onSelectStudentIndex: (idx: number) => void;
@@ -99,6 +103,10 @@ interface MonitoringEntryStepProps {
   onChangeDudiJamSelesai: (val: string) => void;
   onCloseDudiContactEditor: () => void;
   onOpenDudiPopupForEdit: () => void;
+  onChangeDeliveryStudentTtd: (stuKey: string, val: string) => void;
+  onChangeDeliveryCatatan: (val: string) => void;
+  onChangeDeliveryContactConfirmed: (val: boolean) => void;
+  onToggleDeliveryStudentKey: (stuKey: string) => void;
   onStartEditGrade: () => void;
   onCancelEditGrade: () => void;
   onUpdateGradeEditDraft: (patch: Partial<GradeScoresDraft>) => void;
@@ -144,6 +152,10 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   dudiJamMulai,
   dudiJamSelesai,
   showDudiContactEditor,
+  deliveryTtdByKey,
+  deliveryCatatan,
+  deliveryContactConfirmed,
+  deliverySelectedKeys,
   canCopyWorkshopFromPrevStage,
   onChangeStepToDudiList,
   onSelectStudentIndex,
@@ -162,6 +174,10 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   onChangeDudiJamSelesai,
   onCloseDudiContactEditor,
   onOpenDudiPopupForEdit,
+  onChangeDeliveryStudentTtd,
+  onChangeDeliveryCatatan,
+  onChangeDeliveryContactConfirmed,
+  onToggleDeliveryStudentKey,
   onStartEditGrade,
   onCancelEditGrade,
   onUpdateGradeEditDraft,
@@ -196,13 +212,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   const activeStudentKey = activeStudent
     ? getStudentKey(activeStudent, selectedStudentIndex)
     : '';
-  const isDudiScheduleComplete = Boolean(
-    dudiHariMulai && dudiHariSelesai && dudiJamMulai && dudiJamSelesai
-  );
-  const isDudiBioComplete =
-    !isDudiContactIncomplete(dudiPemimpin, dudiPic, dudiTelp) && isDudiScheduleComplete;
-  const shouldShowDudiEditor =
-    showDudiContactEditor || (activeStageNum === 1 && !isDudiBioComplete);
+  const isDeliveryStage = activeStageNum === 1;
+  const shouldShowDudiEditor = showDudiContactEditor || isDeliveryStage;
 
   return (
     <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-150">
@@ -626,15 +637,23 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 <div className="p-3.5 sm:p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h5 className="text-xs font-bold text-slate-900">
-                        Data Penanggung Jawab &amp; Jadwal Kerja DUDI{' '}
-                        {activeStageNum === 1 ? '(Lengkapi 1x Saat Pengantaran)' : '(Pembaruan Kontak)'}
+                      <div className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-700 mb-0.5">
+                        <span>
+                          {isDeliveryStage
+                            ? '1× Per DUDI · Fokus Validasi Pengantaran'
+                            : 'Pembaruan Kontak Resmi DUDI'}
+                        </span>
+                      </div>
+                      <h5 className="text-xs sm:text-sm font-bold text-slate-900">
+                        Validasi Petugas &amp; Jadwal Kerja DUDI
                       </h5>
-                      <p className="text-[11px] text-slate-600">
-                        Data ini otomatis menyinkronkan profil Master DUDI &amp; berkas pengajuan siswa.
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        {isDeliveryStage
+                          ? 'Pastikan ejaan nama pimpinan, pembimbing DUDI, nomor telepon, serta hari & jam kerja sesuai kondisi bengkel/perusahaan. Data otomatis tersinkron ke Master DUDI, Surat Tugas, & Sertifikat.'
+                          : 'Data ini otomatis menyinkronkan profil Master DUDI & berkas pengajuan siswa.'}
                       </p>
                     </div>
-                    {(activeStageNum !== 1 || isDudiBioComplete) && (
+                    {!isDeliveryStage && (
                       <button
                         type="button"
                         onClick={onCloseDudiContactEditor}
@@ -692,12 +711,26 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     jamMulai={dudiJamMulai}
                     jamSelesai={dudiJamSelesai}
                     disabled={isStageReadOnly}
-                    required={activeStageNum === 1}
+                    required={isDeliveryStage}
                     onChangeHariMulai={onChangeDudiHariMulai}
                     onChangeHariSelesai={onChangeDudiHariSelesai}
                     onChangeJamMulai={onChangeDudiJamMulai}
                     onChangeJamSelesai={onChangeDudiJamSelesai}
                   />
+                  {isDeliveryStage && (
+                    <label className="p-3 rounded-xl border border-blue-200 bg-white flex items-start gap-2.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        disabled={isStageReadOnly}
+                        checked={deliveryContactConfirmed}
+                        onChange={(e) => onChangeDeliveryContactConfirmed(e.target.checked)}
+                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 w-4 h-4 shrink-0 cursor-pointer"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-800 leading-relaxed">
+                        Saya mengonfirmasi seluruh data Pemimpin, Pembimbing DUDI, nomor telepon/WA, dan jadwal kerja di atas sudah divalidasi di lokasi DUDI.
+                      </span>
+                    </label>
+                  )}
                 </div>
               ) : (
                 <div className="p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -737,12 +770,188 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 </div>
               )}
 
-              {/* ZONA A: Data Umum Bengkel DUDI — Diisi 1x Per DUDI Per Tahap (Auto-Collapse bila sudah lengkap) */}
-              <WorkshopSharedInspectionCard
-                dudiNama={selectedDudi.nama}
-                stageNum={activeStageNum}
-                studentKey={activeStudentKey}
-                studentCount={dudiStudents.length}
+              {isDeliveryStage ? (
+                <div className="space-y-3.5">
+                  {/* Daftar Siswa yang Diantar & Tanda Tangan Siswa (1x Simpan per DUDI) */}
+                  <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h5 className="text-xs font-bold text-slate-900">
+                          Daftar Siswa yang Diantar &amp; Tanda Tangan Siswa ({deliverySelectedKeys.length}/{dudiStudents.length} dipilih)
+                        </h5>
+                        <p className="text-[11px] text-slate-500">
+                          Centang siswa yang diantar dan minta masing-masing siswa menandatangani langsung di bawah namanya, lalu klik 1× Simpan untuk <b>{selectedDudi.nama}</b>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-2.5">
+                      {dudiStudents.map((stu, idx) => {
+                        const stuKey = getStudentKey(stu, idx);
+                        const isChecked = deliverySelectedKeys.includes(stuKey);
+                        const isAlreadyDelivered =
+                          Array.isArray(stu.completedStages) && stu.completedStages.includes(1);
+                        const stuTtd = deliveryTtdByKey[stuKey] || '';
+                        return (
+                          <div
+                            key={stuKey}
+                            className={`p-3 rounded-xl border transition-colors space-y-2.5 ${
+                              isChecked
+                                ? 'border-blue-300 bg-blue-50/40'
+                                : 'border-slate-200 bg-slate-50/60'
+                            }`}
+                          >
+                            <label
+                              className={`flex items-start gap-2.5 cursor-pointer ${
+                                isStageReadOnly ? 'opacity-70 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                disabled={isStageReadOnly}
+                                checked={isChecked}
+                                onChange={() => onToggleDeliveryStudentKey(stuKey)}
+                                className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 w-4 h-4 shrink-0 cursor-pointer"
+                              />
+                              <div className="min-w-0 flex-1 text-xs">
+                                <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                  <span className="font-bold text-slate-900 leading-snug">
+                                    {stu.nama}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {isAlreadyDelivered && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                        Sudah Diantar
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
+                                  NIS: {formatNisVisual(stu.nis)} · {stu.kelas}
+                                </div>
+                              </div>
+                            </label>
+
+                            {isChecked && (
+                              <SignaturePadInput
+                                value={stuTtd}
+                                studentName={stu.nama}
+                                helperFilled="Tanda tangan siswa tersimpan ringan dalam format vektor."
+                                helperEmpty="Minta siswa bersangkutan menandatangani langsung pada kotak di atas sebagai bukti serah terima pengantaran."
+                                emptyDisabledText="Belum ada tanda tangan siswa"
+                                disabled={isStageReadOnly}
+                                onChange={(nextSvg) => onChangeDeliveryStudentTtd(stuKey, nextSvg)}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Catatan Pengantaran + Dikte Suara */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Catatan Pengantaran ({selectedDudi.nama}) — Opsional:
+                      </label>
+                      {!isStageReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLastVoiceZone('catatan');
+                            voice.toggleListening('catatan', (spoken) => {
+                              onChangeDeliveryCatatan(
+                                appendVoiceTranscript(deliveryCatatan, spoken)
+                              );
+                            });
+                          }}
+                          title={
+                            voice.isSupported
+                              ? 'Dikte catatan pengantaran dengan suara Bahasa Indonesia'
+                              : 'Browser tidak mendukung dikte suara'
+                          }
+                          className={`min-h-[32px] px-3 py-1 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all ${
+                            voice.activeFieldId === 'catatan'
+                              ? 'border-rose-500 bg-rose-600 text-white animate-pulse shadow-xs'
+                              : 'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {voice.activeFieldId === 'catatan' ? (
+                            <>
+                              <MicOff className="w-3.5 h-3.5" />
+                              <span>Stop Dikte</span>
+                            </>
+                          ) : (
+                            <>
+                              <Mic className="w-3.5 h-3.5" />
+                              <span>Dikte Suara</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {voice.activeFieldId === 'catatan' && (
+                      <p className="text-[11px] font-medium text-rose-700 flex items-center gap-1.5 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5">
+                        <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping shrink-0" />
+                        <span>
+                          {voice.interimText
+                            ? `Mendengarkan: "${voice.interimText}"`
+                            : 'Silakan ucapkan catatan pengantaran (Bahasa Indonesia)...'}
+                        </span>
+                      </p>
+                    )}
+
+                    {lastVoiceZone === 'catatan' && voice.voiceError && (
+                      <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                        {voice.voiceError}
+                      </p>
+                    )}
+
+                    <textarea
+                      rows={2}
+                      disabled={isStageReadOnly}
+                      value={deliveryCatatan}
+                      onChange={(e) => onChangeDeliveryCatatan(e.target.value)}
+                      placeholder="Tuliskan catatan serah terima, penyesuaian jadwal, atau pesan dari DUDI saat pengantaran..."
+                      className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 disabled:bg-slate-100 disabled:text-slate-500 ${
+                        voice.activeFieldId === 'catatan'
+                          ? 'border-rose-400 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-blue-600'
+                      }`}
+                    />
+
+                    {!isStageReadOnly && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-slate-500 mr-0.5">
+                          Isi Cepat:
+                        </span>
+                        {DELIVERY_CATATAN_PRESETS.map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() =>
+                              onChangeDeliveryCatatan(
+                                appendVoiceTranscript(deliveryCatatan, preset)
+                              )
+                            }
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-700 cursor-pointer text-left transition-colors"
+                          >
+                            + {preset}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* ZONA A: Data Umum Bengkel DUDI — Diisi 1x Per DUDI Per Tahap (Auto-Collapse bila sudah lengkap) */}
+                  <WorkshopSharedInspectionCard
+                    dudiNama={selectedDudi.nama}
+                    stageNum={activeStageNum}
+                    studentKey={activeStudentKey}
+                    studentCount={dudiStudents.length}
                 kompetensiList={activeWorkshopDraft.kompetensiList}
                 kondisiBengkel={activeWorkshopDraft.kondisiBengkel}
                 disabled={isStageReadOnly}
@@ -1123,6 +1332,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   </div>
                 )}
               </div>
+                </>
+              )}
 
               {formError && (
                 <div
@@ -1162,7 +1373,9 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                       <>
                         <Save className="w-4 h-4" />
                         <span>
-                          {showGradeInputs
+                          {isDeliveryStage
+                            ? `Simpan Validasi & Pengantaran (${deliverySelectedKeys.length} Siswa)`
+                            : showGradeInputs
                             ? 'Simpan Absensi & Nilai PKL Siswa Ini'
                             : `Simpan Supervisi Tahap ${activeStageNum}`}
                         </span>

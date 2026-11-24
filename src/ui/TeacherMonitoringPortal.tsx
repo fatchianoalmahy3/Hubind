@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Building2, ChevronRight, Loader2, X } from 'lucide-react';
+import { Building2, ChevronRight, X } from 'lucide-react';
 import { PinVerificationStep } from './monitoring-portal/PinVerificationStep';
 import { DudiSelectionStep } from './monitoring-portal/DudiSelectionStep';
 import { MonitoringEntryStep } from './monitoring-portal/MonitoringEntryStep';
@@ -7,6 +7,7 @@ import { DudiContactPopupModal } from './monitoring-portal/DudiContactPopupModal
 import { OfficerComplianceNoticeModal } from './monitoring-portal/OfficerComplianceNoticeModal';
 import { MonitoringSaveSuccessModal } from './monitoring-portal/MonitoringSaveSuccessModal';
 import { useTeacherMonitoring } from './monitoring-portal/useTeacherMonitoring';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface TeacherMonitoringPortalProps {
   isOpen: boolean;
@@ -93,20 +94,17 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           </div>
         </div>
 
-        {(m.loadingPetugas ||
-          m.verifyingPin ||
-          m.loadingDudi ||
-          m.loadingStudents ||
-          m.submitting ||
-          m.savingGradeEdit) && (
-          <div
-            className="progress-sweep-track shrink-0"
-            role="progressbar"
-            aria-label="Menyinkronkan data supervisi"
-          >
-            <div className="progress-sweep-bar" />
-          </div>
-        )}
+        <TopProgressBar
+          active={
+            m.loadingPetugas ||
+            m.verifyingPin ||
+            m.loadingDudi ||
+            m.loadingStudents ||
+            m.submitting ||
+            m.savingGradeEdit
+          }
+          label="Menyinkronkan data supervisi dengan Cloud Server"
+        />
 
         {/* Step Progress Bar (Desktop & Tablet) */}
         <div className="hidden sm:flex px-6 py-2.5 bg-slate-100/70 border-b border-slate-200/70 items-center justify-between text-xs font-semibold shrink-0 gap-2">
@@ -255,6 +253,10 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               dudiJamMulai={m.dudiJamMulai}
               dudiJamSelesai={m.dudiJamSelesai}
               showDudiContactEditor={m.showDudiContactEditor}
+              deliveryTtdByKey={m.deliveryTtdByKey}
+              deliveryCatatan={m.deliveryCatatan}
+              deliveryContactConfirmed={m.deliveryContactConfirmed}
+              deliverySelectedKeys={m.deliverySelectedKeys}
               canCopyWorkshopFromPrevStage={m.canCopyWorkshopFromPrevStage}
               onChangeStepToDudiList={() => m.setCurrentStep(2)}
               onSelectStudentIndex={(idx) => {
@@ -308,6 +310,13 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
                 m.setPopupError('');
                 m.setDudiPopupOpen(true);
               }}
+              onChangeDeliveryStudentTtd={m.updateDeliveryStudentTtd}
+              onChangeDeliveryCatatan={m.updateDeliveryCatatan}
+              onChangeDeliveryContactConfirmed={(val) => {
+                m.setDeliveryContactConfirmed(val);
+                m.setFormError('');
+              }}
+              onToggleDeliveryStudentKey={m.toggleDeliveryStudentKey}
               onStartEditGrade={m.startEditGrade}
               onCancelEditGrade={m.cancelEditGrade}
               onUpdateGradeEditDraft={m.updateGradeEditDraft}
@@ -340,25 +349,11 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           </button>
         </div>
 
-        {(m.submitting || m.savingGradeEdit) && (
-          <div
-            role="status"
-            aria-live="assertive"
-            className="absolute inset-0 z-40 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-4"
-          >
-            <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg">
-              <Loader2 className="w-7 h-7 animate-spin" />
-            </div>
-            <div className="space-y-1.5 max-w-sm">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                Sedang Menyimpan &amp; Memverifikasi ke Spreadsheet...
-              </h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Mohon tunggu sejenak dan <b>jangan tutup halaman atau browser Anda</b> sampai bukti konfirmasi resmi muncul.
-              </p>
-            </div>
-          </div>
-        )}
+        <CrudLoadingOverlay
+          visible={m.submitting || m.savingGradeEdit}
+          title="Sedang Menyimpan & Memverifikasi ke Cloud Server..."
+          subtitle="Mohon tunggu sejenak dan jangan tutup halaman atau browser Anda sampai bukti konfirmasi resmi muncul."
+        />
 
         <MonitoringSaveSuccessModal
           receipt={m.saveReceipt}

@@ -100,6 +100,7 @@ export interface DudiBundleItem {
   namaDudi: string;
   alamatDudi: string;
   pemimpinDudi: string;
+  pembimbingDudi?: string;
   noTelpDudi: string;
   hariKerja?: string;
   jamKerja?: string;

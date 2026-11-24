@@ -38,6 +38,12 @@ export const CATATAN_QUICK_PRESETS: string[] = [
   'Perlu peningkatan ketelitian & inisiatif kerja.',
 ];
 
+export const DELIVERY_CATATAN_PRESETS: string[] = [
+  'Siswa telah diserahkan resmi dan diterima baik oleh pihak DUDI.',
+  'Tata tertib, SOP keselamatan kerja (K3), dan jadwal kerja telah disepakati.',
+  'Data pimpinan, pembimbing lapangan, dan kontak darurat DUDI terverifikasi.',
+];
+
 export interface GradeScoresDraft {
   nilaiK3lh: number;
   nilaiSoftskill: number;
@@ -115,6 +121,11 @@ export interface MonitoringSaveReceipt {
   alpha: number;
   bukuLaporan: string;
   ttdSigned: boolean;
+  isDeliveryBatch?: boolean;
+  deliveredStudents?: Array<{ nama: string; nis: string }>;
+  dudiPemimpin?: string;
+  dudiPic?: string;
+  dudiKontak?: string;
   gradeAvg?: number;
   gradePredikat?: string;
   gradeSynced?: boolean;

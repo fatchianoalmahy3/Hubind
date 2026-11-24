@@ -2,11 +2,11 @@ import { useEffect } from 'react';
 
 /**
  * Prevents accidental tab closure / page reload while critical
- * Spreadsheet write mutations are still in-flight.
+ * Cloud Server write mutations are still in-flight.
  */
 export function useUnloadGuard(
   isLocked: boolean,
-  warningText = 'Data sedang disimpan ke Spreadsheet Google Sheets. Mohon tunggu hingga proses selesai sebelum menutup halaman.'
+  warningText = 'Data sedang disimpan ke Cloud Server. Mohon tunggu hingga proses selesai sebelum menutup halaman.'
 ): void {
   useEffect(() => {
     if (!isLocked || typeof window === 'undefined') return;

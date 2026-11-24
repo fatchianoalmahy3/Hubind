@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ToastManager, ToastMessage } from '../core/ToastManager';
 import { CheckCircle2, AlertTriangle, Loader2, Info, X, Database } from 'lucide-react';
 import { getStoredAdminSession } from '../core/auth/LocalAccountAuthService';
+import { TopProgressBar } from './CrudProgressFeedback';
 
 export const AppleToastContainer: React.FC = () => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -30,8 +31,9 @@ export const AppleToastContainer: React.FC = () => {
     >
       <div
         key={toast.id}
-        className="pointer-events-auto w-full bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-2xl shadow-xl p-3.5 flex items-start gap-3 transition-all duration-200 animate-in fade-in slide-in-from-top-3"
+        className="pointer-events-auto relative w-full bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-2xl shadow-xl overflow-hidden transition-all duration-200 animate-in fade-in slide-in-from-top-3"
       >
+        <div className="p-3.5 flex items-start gap-3">
         {/* Status Icon */}
         <div className="mt-0.5 shrink-0">
           {isPending && (
@@ -99,6 +101,8 @@ export const AppleToastContainer: React.FC = () => {
         >
           <X className="w-3.5 h-3.5" />
         </button>
+        </div>
+        <TopProgressBar active={isPending} label="Menyimpan data ke Cloud Server" />
       </div>
     </div>
   );

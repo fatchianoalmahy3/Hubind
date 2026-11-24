@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Layers, CheckCircle2, Trash2, Download, UserCheck, AlertTriangle, Printer } from 'lucide-react';
+import { X, Layers, CheckCircle2, Trash2, Download, UserCheck, AlertTriangle, Printer, Loader2 } from 'lucide-react';
 import { GuruService } from '../services/GuruService';
 import { Guru } from '../core/types/schema';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface BulkActionModalProps {
   isOpen: boolean;
@@ -87,10 +88,10 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
-      onClick={onClose}
+      onClick={!loading ? onClose : undefined}
     >
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 flex flex-col"
+        className="relative bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -108,13 +109,16 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
           </div>
           <button
             type="button"
+            disabled={loading}
             onClick={onClose}
-            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Tutup modal"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <TopProgressBar active={loading} label="Memproses aksi massal di Cloud Server" />
 
         {/* Action List */}
         <div className="p-5 space-y-2.5">
@@ -123,10 +127,14 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
               type="button"
               onClick={handleApprove}
               disabled={loading}
-              className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-emerald-50/70 border border-slate-200 hover:border-emerald-300 rounded-xl text-left transition-colors cursor-pointer disabled:opacity-50"
+              className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-emerald-50/70 border border-slate-200 hover:border-emerald-300 rounded-xl text-left transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center shrink-0">
-                <CheckCircle2 className="w-4 h-4" />
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-bold text-slate-900">
@@ -171,9 +179,10 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
                   type="button"
                   onClick={handleAssign}
                   disabled={loading || !selectedTeacher.trim()}
-                  className="h-9 px-3.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                  className="h-9 px-3.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5 whitespace-nowrap"
                 >
-                  Terapkan
+                  {loading && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+                  <span>Terapkan</span>
                 </button>
               </div>
             </div>
@@ -182,11 +191,12 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
           {onBulkPrint && (
             <button
               type="button"
+              disabled={loading}
               onClick={() => {
                 onBulkPrint();
                 onClose();
               }}
-              className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left transition-colors cursor-pointer"
+              className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="w-9 h-9 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center shrink-0">
                 <Printer className="w-4 h-4" />
@@ -204,11 +214,12 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
 
           <button
             type="button"
+            disabled={loading}
             onClick={() => {
               onExportSelected();
               onClose();
             }}
-            className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left transition-colors cursor-pointer"
+            className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-left transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <div className="w-9 h-9 bg-slate-100 text-slate-700 rounded-lg flex items-center justify-center shrink-0">
               <Download className="w-4 h-4" />
@@ -229,8 +240,9 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
               {!confirmDelete ? (
                 <button
                   type="button"
+                  disabled={loading}
                   onClick={() => setConfirmDelete(true)}
-                  className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-rose-50 border border-rose-200 rounded-xl text-left transition-colors cursor-pointer"
+                  className="w-full min-h-12 flex items-center gap-3 p-3.5 bg-white hover:bg-rose-50 border border-rose-200 rounded-xl text-left transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="w-9 h-9 bg-rose-50 text-rose-600 rounded-lg flex items-center justify-center shrink-0">
                     <Trash2 className="w-4 h-4" />
@@ -256,8 +268,9 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
                   <div className="flex items-center justify-center gap-2">
                     <button
                       type="button"
+                      disabled={loading}
                       onClick={() => setConfirmDelete(false)}
-                      className="h-9 px-4 bg-white border border-rose-200 text-rose-800 text-xs font-semibold rounded-lg hover:bg-rose-100/60 cursor-pointer"
+                      className="h-9 px-4 bg-white border border-rose-200 text-rose-800 text-xs font-semibold rounded-lg hover:bg-rose-100/60 cursor-pointer disabled:opacity-50"
                     >
                       Batal
                     </button>
@@ -265,9 +278,10 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
                       type="button"
                       onClick={handleDelete}
                       disabled={loading}
-                      className="h-9 px-4 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 cursor-pointer disabled:opacity-50"
+                      className="h-9 px-4 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
                     >
-                      {loading ? 'Menghapus...' : 'Ya, Hapus Sekarang'}
+                      {loading && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+                      <span>{loading ? 'Menghapus...' : 'Ya, Hapus Sekarang'}</span>
                     </button>
                   </div>
                 </div>
@@ -280,12 +294,23 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
         <div className="px-6 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end">
           <button
             type="button"
+            disabled={loading}
             onClick={onClose}
-            className="h-9 px-4 border border-slate-200 bg-white hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer transition-colors"
+            className="h-9 px-4 border border-slate-200 bg-white hover:bg-slate-100 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Tutup
           </button>
         </div>
+
+        <CrudLoadingOverlay
+          visible={loading}
+          tone={confirmDelete ? 'rose' : 'blue'}
+          title={
+            confirmDelete
+              ? 'Menghapus Data Terpilih di Cloud Server...'
+              : 'Memproses Aksi Massal di Cloud Server...'
+          }
+        />
       </div>
     </div>
   );

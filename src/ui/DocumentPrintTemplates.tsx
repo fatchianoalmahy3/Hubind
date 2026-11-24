@@ -691,6 +691,7 @@ export interface LembarPenilaianKurmerProps {
   jurusan: string;
   kelas: string;
   namaDudi: string;
+  namaPembimbingDudi?: string;
 }
 
 export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = ({
@@ -698,6 +699,7 @@ export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = 
   jurusan,
   kelas,
   namaDudi,
+  namaPembimbingDudi,
 }) => {
   return (
     <table className="hubin-doc-shell font-sans text-slate-950 text-[12pt] leading-[1.16]">
@@ -854,6 +856,22 @@ export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = 
               </tr>
               </tbody>
             </table>
+          </div>
+
+          <div className="flex justify-end pt-3 pr-2 text-[12pt] leading-[1.2] print-avoid-break">
+            <div className="text-center min-w-[230px] max-w-[340px]">
+              <div>Mengetahui,</div>
+              <div className="font-semibold">Pembimbing DUDI</div>
+              <div className="text-[11pt] text-slate-700 mt-0.5">
+                {namaDudi && namaDudi !== '-' ? namaDudi : '..........................................'}
+              </div>
+              <div className="h-14" />
+              <div className="font-bold underline">
+                {namaPembimbingDudi && namaPembimbingDudi !== '-'
+                  ? namaPembimbingDudi
+                  : '..........................................'}
+              </div>
+            </div>
           </div>
         </div>
           </td>

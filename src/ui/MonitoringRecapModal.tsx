@@ -26,6 +26,7 @@ import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelp
 import { buildStudentMonitoringSummary, getStageValueByNumber } from '../core/utils/monitoringHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { PrintPortal } from './PrintPortal';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface MonitoringRecapModalProps {
   isOpen: boolean;
@@ -325,7 +326,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
+        className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -352,7 +353,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
               className="h-9 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
-              <span>Segarkan</span>
+              <span>{loading ? 'Memuat...' : 'Segarkan'}</span>
             </button>
             <button
               type="button"
@@ -364,6 +365,11 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
             </button>
           </div>
         </div>
+
+        <TopProgressBar
+          active={loading}
+          label="Memuat rekap monitoring dari Cloud Server"
+        />
 
         {/* Body */}
         <div className="p-5 overflow-y-auto flex-1 space-y-5 text-xs">
@@ -657,6 +663,12 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
             )}
           </div>
         </div>
+
+        <CrudLoadingOverlay
+          visible={loading && jurusanList.length > 0}
+          title="Menyegarkan Rekap Monitoring dari Cloud Server..."
+          subtitle="Mohon tunggu sejenak sementara data terbaru disinkronkan."
+        />
       </div>
 
       {/* Print Portal for clean printed recap sheet */}

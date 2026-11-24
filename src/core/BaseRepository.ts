@@ -12,6 +12,7 @@ import { enrichBatchWithRelations, enrichRecordWithRelations } from './utils/rel
 
 export interface MutationOptions {
   silentToast?: boolean;
+  onProgress?: (done: number, total: number) => void;
 }
 
 export abstract class BaseRepository<T extends { id: string }> {
@@ -708,6 +709,7 @@ export abstract class BaseRepository<T extends { id: string }> {
           throw new Error(commitRes.error || 'Gagal mengimpor data ke Cloud Server.');
         }
         totalImported += chunk.length;
+        options?.onProgress?.(totalImported, createdRows.length);
         const committedAt = Date.now();
         this.memoryData = [...chunk, ...this.memoryData];
         this.lastFetchedAt = committedAt;

@@ -5863,6 +5863,241 @@ function registerPublicTeacherMonitoringRoutes(app2) {
       handlePortalError(res, err);
     }
   });
+  app2.post("/api/public/submit-delivery", async (req, res) => {
+    try {
+      const payload = req.body || {};
+      const targetDudiId = String(payload.dudi_id || "").trim();
+      const targetDudiNama = String(payload.nama_dudi || "").trim();
+      const inputPemimpin = String(payload.nama_pemimpin || "").trim();
+      const inputPic = String(payload.nama_pic || "").trim();
+      const inputTelpDudi = String(payload.no_telp_dudi || "").trim();
+      const inputHariKerja = String(payload.hari_kerja || "").trim();
+      const inputJamKerja = String(payload.jam_kerja || "").trim();
+      const inputTelpDigits = inputTelpDudi.replace(/\D/g, "");
+      const fallbackTtdRaw = String(payload.ttd_siswa || payload.ttd_dudi || "").trim();
+      const cleanNote = stripStructuredTagsFromNote(payload.catatan_pengantaran ?? payload.catatan_perkembangan);
+      const tglVal = normalizeToIsoDate(payload.tanggal) || getTodayWibIsoDate();
+      const rawStudents = Array.isArray(payload.students) ? payload.students : [];
+      if (!targetDudiId && !targetDudiNama) {
+        return res.status(400).json({
+          success: false,
+          message: "Identitas DUDI wajib disertakan."
+        });
+      }
+      if (!inputPemimpin || inputPemimpin === "-" || !inputPic || inputPic === "-" || inputTelpDigits.length < 7) {
+        return res.status(400).json({
+          success: false,
+          code: "DUDI_CONTACT_REQUIRED",
+          message: "Nama Pemimpin DUDI, Nama PIC / Pembimbing DUDI, dan No. Telp / WhatsApp DUDI wajib diisi lengkap."
+        });
+      }
+      if (!inputHariKerja || !inputJamKerja) {
+        return res.status(400).json({
+          success: false,
+          code: "DUDI_SCHEDULE_REQUIRED",
+          message: "Hari Kerja dan Jam Kerja DUDI wajib dilengkapi saat Pengantaran."
+        });
+      }
+      if (payload.spelling_confirmed !== true) {
+        return res.status(400).json({
+          success: false,
+          code: "SPELLING_CONFIRMATION_REQUIRED",
+          message: "Harap centang konfirmasi validasi petugas & jadwal DUDI terlebih dahulu."
+        });
+      }
+      const validStudents = rawStudents.filter(
+        (s) => s && (String(s.nis || "").trim() || String(s.nama_siswa || "").trim())
+      );
+      if (validStudents.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Pilih minimal 1 siswa yang diantar untuk DUDI ini."
+        });
+      }
+      for (const stu of validStudents) {
+        const stuTtdRaw = String(stu.ttd_siswa || fallbackTtdRaw).trim();
+        if (!stuTtdRaw.startsWith("svgpath:")) {
+          return res.status(400).json({
+            success: false,
+            code: "DELIVERY_TTD_REQUIRED",
+            message: `Tanda Tangan Siswa (${String(stu.nama_siswa || stu.nis || "terpilih").trim()}) wajib diisi sebagai bukti pengantaran.`
+          });
+        }
+      }
+      const stageStr = getStageValueByNumber(1);
+      const wsConfig = await getFirestoreWorkspaceConfig(true);
+      const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
+      if (!stageControl.unlockedStages.includes(1)) {
+        return res.status(403).json({
+          success: false,
+          code: "STAGE_GLOBALLY_LOCKED",
+          message: stageControl.lockedReason ? `${stageStr} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).` : `${stageStr} sedang dikunci sementara oleh SuperAdmin.`
+        });
+      }
+      if (stageControl.requireIssuedLetter !== false) {
+        const logRes = await fetchLiveSheetViaGas("Log_Penerbitan_Surat", true).catch(() => ({
+          rows: []
+        }));
+        const { issuedStages } = resolveIssuedStagesForDudi(logRes.rows, targetDudiId, targetDudiNama);
+        if (!issuedStages.includes(1)) {
+          return res.status(403).json({
+            success: false,
+            code: "LETTER_NOT_ISSUED",
+            message: `Surat ${stageStr} untuk DUDI "${targetDudiNama || "ini"}" belum diterbitkan Admin Hubin di Pusat Dokumen.`
+          });
+        }
+      }
+      let resolvedDudiId = targetDudiId;
+      if (!resolvedDudiId && targetDudiNama) {
+        const dudiRes = await fetchLiveSheetViaGas("Master_DUDI", false).catch(() => ({
+          rows: []
+        }));
+        const targetDudiNorm = normalizeStr(targetDudiNama);
+        const matchedDudi = dudiRes.rows.find(
+          (d) => normalizeStr(pickField(d, "Nama_DUDI", "namaDudi")) === targetDudiNorm
+        );
+        if (matchedDudi) {
+          resolvedDudiId = pickField(matchedDudi, "ID", "id");
+        }
+      }
+      const dudiContactSynced = await syncDudiContactToMasterAndPengajuan({
+        dudiId: resolvedDudiId || targetDudiId,
+        namaDudi: targetDudiNama,
+        alamatDudi: payload.alamat_dudi,
+        namaPemimpin: inputPemimpin,
+        namaPic: inputPic,
+        noTelpDudi: inputTelpDudi,
+        hariKerja: inputHariKerja,
+        jamKerja: inputJamKerja,
+        createIfMissing: true,
+        overwriteExisting: true
+      });
+      const monRes = await fetchLiveSheetViaGas("Monitoring_5_Tahap", true).catch(() => ({
+        rows: []
+      }));
+      const sheetService = GoogleDriveSheetService.getInstance();
+      const results = [];
+      let lastWriteReceipt = {
+        verified: false
+      };
+      for (const stu of validStudents) {
+        const cleanNis = stripNisSymbols(stu.nis) || String(stu.nis || "").trim();
+        const inputIdPenempatan = String(stu.id_penempatan || `PLT-${cleanNis}`).trim();
+        const stuTtdRaw = String(stu.ttd_siswa || fallbackTtdRaw).trim();
+        const safeStuTtd = stuTtdRaw.startsWith("svgpath:") ? stuTtdRaw : "";
+        const matchedExistingRow = monRes.rows.find((r) => {
+          const rStage = extractStageNumber(pickField(r, "Tahap", "tahap"));
+          if (rStage !== 1) return false;
+          const rNisDigits = stripNisSymbols(pickField(r, "NIS", "nis")) || pickField(r, "NIS", "nis");
+          const rPlt = pickField(r, "ID_Penempatan", "idPenempatan");
+          return Boolean(
+            cleanNis && rNisDigits === cleanNis || inputIdPenempatan && rPlt === inputIdPenempatan
+          );
+        });
+        const existingMonId = matchedExistingRow ? pickField(matchedExistingRow, "ID_Monitoring", "idMonitoring", "id") : "";
+        const isUpdate = Boolean(existingMonId);
+        const idMonitoring = existingMonId || `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const sheetRow = {
+          id: idMonitoring,
+          ID_Monitoring: idMonitoring,
+          idMonitoring,
+          ID_Penempatan: inputIdPenempatan,
+          idPenempatan: inputIdPenempatan,
+          ID_DUDI: resolvedDudiId,
+          idDudi: resolvedDudiId,
+          DUDI_Tujuan: targetDudiNama,
+          dudiTujuan: targetDudiNama,
+          Alamat_DUDI: String(payload.alamat_dudi || ""),
+          alamatDudi: String(payload.alamat_dudi || ""),
+          NIS: cleanNis,
+          nis: cleanNis,
+          Nama_Siswa: String(stu.nama_siswa || ""),
+          namaSiswa: String(stu.nama_siswa || ""),
+          Jurusan: String(stu.jurusan || ""),
+          jurusan: String(stu.jurusan || ""),
+          ID_Guru_Pendamping: String(payload.guru_id || ""),
+          idGuruPendamping: String(payload.guru_id || ""),
+          Guru_Pendamping: String(payload.guru_pembimbing || ""),
+          guruPendamping: String(payload.guru_pembimbing || ""),
+          Tahap: stageStr,
+          tahap: stageStr,
+          Tanggal_Kunjungan: tglVal,
+          tanggalKunjungan: tglVal,
+          Sakit: 0,
+          sakit: 0,
+          Izin: 0,
+          izin: 0,
+          Alpha: 0,
+          alpha: 0,
+          Nilai_PKL_Muncul: "Belum",
+          nilaiPklMuncul: false,
+          Catatan_Kunjungan: cleanNote,
+          catatanKunjungan: cleanNote,
+          Buku_Laporan: "",
+          bukuLaporan: "",
+          Aktivitas_DP: "",
+          aktivitasDp: "",
+          Aktivitas_MT: "",
+          aktivitasMt: "",
+          Aktivitas_KRT: "",
+          aktivitasKrt: "",
+          Kompetensi_Didapat: "",
+          kompetensiDidapat: "",
+          Kondisi_Bengkel: "",
+          kondisiBengkel: "",
+          TTD_Siswa: safeStuTtd,
+          ttdSiswa: safeStuTtd,
+          Foto_Bukti_Drive: "",
+          fotoBuktiUrl: "",
+          Nilai_DUDI_Terkumpul: "Belum",
+          nilaiDudiTerkumpul: false,
+          Blangko_Sertifikat_Bawa: "Belum",
+          blangkoSertifikatBawa: false,
+          Status_Tahap: "Terlaksana",
+          statusTahap: "Terlaksana"
+        };
+        const persistedRow = sheetService.stripFormulaManagedFields(
+          "Monitoring_5_Tahap",
+          matchedExistingRow?._sheetRowNumber ? { ...sheetRow, _sheetRowNumber: matchedExistingRow._sheetRowNumber } : sheetRow
+        );
+        lastWriteReceipt = await writeLiveSheetViaGas(
+          "Monitoring_5_Tahap",
+          isUpdate ? "UPDATE" : "CREATE",
+          persistedRow
+        );
+        results.push({
+          nis: cleanNis,
+          namaSiswa: String(stu.nama_siswa || ""),
+          idPenempatan: inputIdPenempatan,
+          idMonitoring,
+          tanggal: tglVal,
+          ttdSiswa: safeStuTtd,
+          catatan: cleanNote,
+          status: "Terlaksana",
+          sheetRowNumber: lastWriteReceipt.sheetRowNumber
+        });
+      }
+      res.json({
+        success: true,
+        verifiedInSpreadsheet: lastWriteReceipt.verified,
+        sheetRowNumber: lastWriteReceipt.sheetRowNumber,
+        savedAt: lastWriteReceipt.savedAt || (/* @__PURE__ */ new Date()).toISOString(),
+        dudiContactSynced,
+        dudiContact: {
+          namaPemimpin: inputPemimpin,
+          pic: inputPic,
+          kontak: inputTelpDudi,
+          hariKerja: inputHariKerja,
+          jamKerja: inputJamKerja
+        },
+        savedCount: results.length,
+        results,
+        message: `Validasi petugas DUDI & ${stageStr} berhasil disimpan untuk ${results.length} siswa.`
+      });
+    } catch (err) {
+      handlePortalError(res, err);
+    }
+  });
   app2.post("/api/public/update-grades", async (req, res) => {
     try {
       const payload = req.body || {};

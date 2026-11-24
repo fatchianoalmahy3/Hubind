@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { FieldConfig } from '../core/types/metadata';
-import { X, Upload, FileSpreadsheet, Download, Check, AlertCircle } from 'lucide-react';
+import { X, Upload, FileSpreadsheet, Download, Check, AlertCircle, Loader2 } from 'lucide-react';
 import type * as XLSXTypes from 'xlsx';
 import { formatIndonesianDate, normalizeToIsoDate } from '../core/utils/dateHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { formatPhoneDisplay, isPhoneFieldKey } from '../core/utils/autoIdHelpers';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface ImportExcelModalProps<T = any> {
   isOpen: boolean;
   onClose: () => void;
   fields: FieldConfig<T>[];
   moduleTitle: string;
-  onImport: (newRows: Partial<T>[]) => Promise<number>;
+  onImport: (
+    newRows: Partial<T>[],
+    onProgress?: (done: number, total: number) => void
+  ) => Promise<number>;
 }
 
 const STRING_DIGITS_KEYS = new Set(['nis', 'nik', 'nip', 'pin']);
@@ -46,6 +50,7 @@ export function ImportExcelModal<T extends Record<string, any>>({
   const [skippedBlankCount, setSkippedBlankCount] = useState<number>(0);
   const [skippedInvalidCount, setSkippedInvalidCount] = useState<number>(0);
   const [importProgress, setImportProgress] = useState<string>('');
+  const [progressPercent, setProgressPercent] = useState<number | undefined>(undefined);
   const [importing, setImporting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -269,9 +274,14 @@ export function ImportExcelModal<T extends Record<string, any>>({
     if (parsedRows.length === 0) return;
     setImporting(true);
     setErrorMsg(null);
-    setImportProgress('Memproses pengiriman data ke Cloud Server...');
+    setProgressPercent(parsedRows.length > 0 ? 5 : undefined);
+    setImportProgress(`Menyiapkan ${parsedRows.length} baris untuk Cloud Server...`);
     try {
-      const importedCount = await onImport(parsedRows);
+      const importedCount = await onImport(parsedRows, (done, total) => {
+        const pct = total > 0 ? Math.round((done / total) * 100) : 100;
+        setProgressPercent(pct);
+        setImportProgress(`Mengirim ${done} / ${total} baris ke Cloud Server...`);
+      });
       if (importedCount === 0) {
         setErrorMsg('Tidak ada baris baru yang diimpor (kemungkinan seluruh data sudah terdaftar / duplikat).');
         return;
@@ -282,12 +292,19 @@ export function ImportExcelModal<T extends Record<string, any>>({
     } finally {
       setImporting(false);
       setImportProgress('');
+      setProgressPercent(undefined);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden border border-slate-200 flex flex-col max-h-[85vh]">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+      onClick={!importing ? onClose : undefined}
+    >
+      <div
+        className="relative bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden border border-slate-200 flex flex-col max-h-[85vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
@@ -307,11 +324,17 @@ export function ImportExcelModal<T extends Record<string, any>>({
             type="button"
             disabled={importing}
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer disabled:opacity-40"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        <TopProgressBar
+          active={importing}
+          progressPercent={progressPercent}
+          label="Mengimpor data ke Cloud Server"
+        />
 
         {/* Content */}
         <div className="p-6 space-y-4 overflow-y-auto">
@@ -459,13 +482,26 @@ export function ImportExcelModal<T extends Record<string, any>>({
               type="button"
               onClick={handleCommitImport}
               disabled={parsedRows.length === 0 || importing}
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold shadow-xs disabled:opacity-40 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold shadow-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
             >
-              <Check className="w-4 h-4" />
+              {importing ? (
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              ) : (
+                <Check className="w-4 h-4 shrink-0" />
+              )}
               <span>{importing ? 'Mengimpor...' : `Import ${parsedRows.length} Baris Data`}</span>
             </button>
           </div>
         </div>
+
+        <CrudLoadingOverlay
+          visible={importing}
+          tone="emerald"
+          title="Mengimpor Data ke Cloud Server..."
+          subtitle="Mohon tunggu hingga seluruh paket data selesai tersimpan."
+          progressText={importProgress}
+          progressPercent={progressPercent}
+        />
       </div>
     </div>
   );

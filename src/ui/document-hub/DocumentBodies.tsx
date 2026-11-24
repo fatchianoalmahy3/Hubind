@@ -119,6 +119,7 @@ export const BundlePageRenderer: React.FC<{
       jurusan={page.student?.jurusan || '-'}
       kelas={page.student?.kelas || '-'}
       namaDudi={page.bundle.namaDudi}
+      namaPembimbingDudi={page.bundle.pembimbingDudi || page.bundle.pemimpinDudi}
     />
   );
 };

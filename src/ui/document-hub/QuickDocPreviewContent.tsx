@@ -325,12 +325,30 @@ export const QuickDocPreviewContent: React.FC<{
       Number(k3lhVal) > 0;
 
     if (!hasNumericGrade) {
+      const normDudi = String(dudiName || '').trim().toLowerCase();
+      const dudiId = String(student.idDudi || student.ID_DUDI || '').trim();
+      const matchedDudi = dudiList.find(
+        (d) =>
+          (dudiId && d.id === dudiId) ||
+          (normDudi && normDudi !== '-' && d.namaDudi.trim().toLowerCase() === normDudi)
+      );
+      const pembimbingDudi = String(
+        student.namaPic ||
+          student.Nama_PIC ||
+          matchedDudi?.namaPic ||
+          matchedDudi?.namaPemimpin ||
+          student.namaPemimpin ||
+          student.Nama_Pemimpin ||
+          ''
+      ).trim();
+
       return (
         <LembarPenilaianKurmerSheet
           namaSiswa={studentName}
           jurusan={studentJurusan}
           kelas={studentKelas}
           namaDudi={dudiName}
+          namaPembimbingDudi={pembimbingDudi}
         />
       );
     }

@@ -102,6 +102,7 @@ export function ModulePage<T extends { id: string }>({
     confirmText: 'Konfirmasi',
     onConfirm: async () => {},
   });
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const [cropperState, setCropperState] = useState<{
     isOpen: boolean;
@@ -394,8 +395,11 @@ export function ModulePage<T extends { id: string }>({
       {/* Confirmation Modal */}
       <AppleConfirmModal
         isOpen={confirmModal.isOpen}
-        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        loading={confirmLoading}
+        onClose={() => !confirmLoading && setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
         onConfirm={async () => {
+          if (confirmLoading) return;
+          setConfirmLoading(true);
           try {
             await confirmModal.onConfirm();
             setConfirmModal((prev) => ({ ...prev, isOpen: false }));
@@ -406,6 +410,8 @@ export function ModulePage<T extends { id: string }>({
               err?.message || 'Periksa koneksi Cloud Server dan coba beberapa saat lagi.'
             );
             setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+          } finally {
+            setConfirmLoading(false);
           }
         }}
         title={confirmModal.title}
@@ -499,7 +505,7 @@ export function ModulePage<T extends { id: string }>({
         onClose={() => setIsImportModalOpen(false)}
         fields={metadata.fields}
         moduleTitle={metadata.title}
-        onImport={async (newRows) => {
+        onImport={async (newRows, onProgress) => {
           const existingAll = await repository.getAll().catch(() => data);
           const { rowsToImport } = deduplicateImportRows({
             moduleId: metadata.id,
@@ -507,7 +513,7 @@ export function ModulePage<T extends { id: string }>({
             existingAll,
           });
           if (rowsToImport.length === 0) return 0;
-          const count = await repository.importRows(rowsToImport);
+          const count = await repository.importRows(rowsToImport, { onProgress });
           setPage(1);
           await RelationSyncService.getInstance()
             .syncAfterMutation(metadata.id, 'import')

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Save,
+  Loader2,
 } from 'lucide-react';
 import {
   LocalAccountAuthService,
@@ -21,6 +22,7 @@ import {
   getStoredAdminSession,
 } from '../core/auth/LocalAccountAuthService';
 import { ToastManager } from '../core/ToastManager';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface AccountManagementModalProps {
   isOpen: boolean;
@@ -267,13 +269,15 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     }
   };
 
+  const isBusy = saving || bootstrapping;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150"
-      onClick={onClose}
+      onClick={() => !isBusy && onClose()}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -294,13 +298,19 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
 
           <button
             type="button"
+            disabled={isBusy}
             onClick={onClose}
-            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 flex items-center justify-center cursor-pointer shrink-0"
+            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Tutup modal"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <TopProgressBar
+          active={loading || saving || bootstrapping}
+          label="Menyinkronkan akun pengelola dengan Cloud Server"
+        />
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
@@ -337,18 +347,22 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                 <button
                   type="button"
                   onClick={handleBootstrap}
-                  disabled={bootstrapping}
-                  className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  disabled={bootstrapping || saving}
+                  className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5" />
+                  {bootstrapping ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  )}
                   <span>{bootstrapping ? 'Menyimpan...' : 'Simpan Akun Default ke Server'}</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={loadAccounts}
-                disabled={loading}
-                className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                disabled={loading || isBusy}
+                className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 <span>Muat Ulang</span>
@@ -435,16 +449,18 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                                 <div className="inline-flex items-center gap-1.5">
                                   <button
                                     type="button"
-                                    disabled={saving}
+                                    disabled={isBusy}
                                     onClick={() => handleDelete(acc.id)}
-                                    className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold cursor-pointer"
+                                    className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                                   >
-                                    Ya, Hapus
+                                    {saving && <Loader2 className="w-3 h-3 animate-spin" />}
+                                    <span>{saving ? 'Menghapus...' : 'Ya, Hapus'}</span>
                                   </button>
                                   <button
                                     type="button"
+                                    disabled={isBusy}
                                     onClick={() => setConfirmDeleteId(null)}
-                                    className="px-2.5 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 font-semibold cursor-pointer"
+                                    className="px-2.5 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 font-semibold cursor-pointer disabled:opacity-50"
                                   >
                                     Batal
                                   </button>
@@ -624,18 +640,23 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                 {isSuperAdmin && (
                   <button
                     type="button"
+                    disabled={isBusy}
                     onClick={() => setFormOpen(false)}
-                    className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer"
+                    className="h-9 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Batal
                   </button>
                 )}
                 <button
                   type="submit"
-                  disabled={saving}
-                  className="h-9 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  disabled={isBusy}
+                  className="h-9 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <Save className="w-3.5 h-3.5" />
+                  {saving ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5 shrink-0" />
+                  )}
                   <span>{saving ? 'Menyimpan...' : 'Simpan Perubahan Akun'}</span>
                 </button>
               </div>
@@ -648,12 +669,23 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
           <span>Role Aktif: <strong className="text-slate-800">{currentUser.role}</strong> ({currentUser.username})</span>
           <button
             type="button"
+            disabled={isBusy}
             onClick={onClose}
-            className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold cursor-pointer"
+            className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Selesai
           </button>
         </div>
+
+        <CrudLoadingOverlay
+          visible={saving || bootstrapping}
+          title={
+            bootstrapping
+              ? 'Menyimpan Akun Default ke Cloud Server...'
+              : 'Menyimpan Perubahan Akun ke Cloud Server...'
+          }
+          subtitle="Mohon tunggu sejenak agar sinkronisasi akun selesai."
+        />
       </div>
     </div>
   );

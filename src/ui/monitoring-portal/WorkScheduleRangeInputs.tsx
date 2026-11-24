@@ -9,6 +9,7 @@ interface WorkScheduleRangeInputsProps {
   jamSelesai: string;
   disabled?: boolean;
   required?: boolean;
+  layout?: 'responsive' | 'stacked';
   helperText?: string;
   onChangeHariMulai: (val: string) => void;
   onChangeHariSelesai: (val: string) => void;
@@ -23,6 +24,7 @@ export const WorkScheduleRangeInputs: React.FC<WorkScheduleRangeInputsProps> = (
   jamSelesai,
   disabled = false,
   required = false,
+  layout = 'responsive',
   helperText,
   onChangeHariMulai,
   onChangeHariSelesai,
@@ -30,23 +32,27 @@ export const WorkScheduleRangeInputs: React.FC<WorkScheduleRangeInputsProps> = (
   onChangeJamSelesai,
 }) => {
   return (
-    <div className="space-y-1.5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div>
+    <div className="space-y-1.5 min-w-0">
+      <div
+        className={`grid gap-3 text-xs min-w-0 ${
+          layout === 'stacked' ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'
+        }`}
+      >
+        <div className="min-w-0">
           <label className="flex items-center gap-1.5 font-semibold text-slate-700 mb-1">
             <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>
               Hari Kerja (Rentang){required ? ' *' : ''}
             </span>
           </label>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             <select
               disabled={disabled}
               required={required}
               aria-label="Hari kerja mulai"
               value={hariMulai}
               onChange={(e) => onChangeHariMulai(e.target.value)}
-              className="w-full min-h-[40px] px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="flex-1 min-w-0 w-full min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
             >
               <option value="">Hari Mulai</option>
               {WORK_DAY_OPTIONS.map((day) => (
@@ -62,7 +68,7 @@ export const WorkScheduleRangeInputs: React.FC<WorkScheduleRangeInputsProps> = (
               aria-label="Hari kerja selesai"
               value={hariSelesai}
               onChange={(e) => onChangeHariSelesai(e.target.value)}
-              className="w-full min-h-[40px] px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="flex-1 min-w-0 w-full min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
             >
               <option value="">Hari Selesai</option>
               {WORK_DAY_OPTIONS.map((day) => (
@@ -74,14 +80,14 @@ export const WorkScheduleRangeInputs: React.FC<WorkScheduleRangeInputsProps> = (
           </div>
         </div>
 
-        <div>
+        <div className="min-w-0">
           <label className="flex items-center gap-1.5 font-semibold text-slate-700 mb-1">
             <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>
               Jam Kerja (Rentang){required ? ' *' : ''}
             </span>
           </label>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
             <input
               type="time"
               disabled={disabled}
@@ -89,7 +95,7 @@ export const WorkScheduleRangeInputs: React.FC<WorkScheduleRangeInputsProps> = (
               aria-label="Jam kerja masuk"
               value={jamMulai}
               onChange={(e) => onChangeJamMulai(e.target.value)}
-              className="w-full min-h-[40px] px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="flex-1 min-w-0 w-full min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
             <span className="text-[11px] font-bold text-slate-500 shrink-0">s/d</span>
             <input
@@ -99,7 +105,7 @@ export const WorkScheduleRangeInputs: React.FC<WorkScheduleRangeInputsProps> = (
               aria-label="Jam kerja pulang"
               value={jamSelesai}
               onChange={(e) => onChangeJamSelesai(e.target.value)}
-              className="w-full min-h-[40px] px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="flex-1 min-w-0 w-full min-h-[40px] px-2 sm:px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono text-slate-900 disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
         </div>

@@ -32,6 +32,12 @@ import {
 const NOTICE_ACK_KEY = 'hubin_petugas_notice_ack';
 const MONITORING_DRAFTS_KEY = 'hubin_monitoring_drafts_v1';
 const WORKSHOP_DRAFTS_KEY = 'hubin_monitoring_workshop_drafts_v1';
+const DELIVERY_DRAFTS_KEY = 'hubin_monitoring_delivery_drafts_v1';
+
+interface DeliveryLocalDraft {
+  ttdByKey: Record<string, string>;
+  catatanPengantaran: string;
+}
 
 function readStoredMap<T>(storageKey: string): Record<string, T> {
   try {
@@ -141,6 +147,12 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   const [dudiJamMulai, setDudiJamMulai] = useState('');
   const [dudiJamSelesai, setDudiJamSelesai] = useState('');
   const [showDudiContactEditor, setShowDudiContactEditor] = useState(false);
+
+  // Stage 1 (Pengantaran): 1x per DUDI validation state with per-student TTD
+  const [deliveryTtdByKey, setDeliveryTtdByKey] = useState<Record<string, string>>({});
+  const [deliveryCatatan, setDeliveryCatatan] = useState('');
+  const [deliveryContactConfirmed, setDeliveryContactConfirmed] = useState(false);
+  const [deliverySelectedKeys, setDeliverySelectedKeys] = useState<string[]>([]);
 
   // Global SuperAdmin stage lock & transition policy + DUDI issued-letter status
   const [stageControl, setStageControl] = useState<MonitoringStageControl>(
@@ -373,6 +385,10 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setDudiJamMulai(initJamRange.start);
     setDudiJamSelesai(initJamRange.end);
     setShowDudiContactEditor(false);
+    setDeliveryTtdByKey({});
+    setDeliveryCatatan('');
+    setDeliveryContactConfirmed(false);
+    setDeliverySelectedKeys([]);
     setSaveReceipt(null);
     setCurrentStep(3);
     setLoadingStudents(true);
@@ -524,6 +540,44 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           return !completed.includes(recStage);
         });
         setSelectedStudentIndex(firstPendingIdx >= 0 ? firstPendingIdx : 0);
+
+        // Initialize Stage 1 (Pengantaran) per-student TTD, Note & Student selection
+        const allKeys = students.map((stu, idx) => getStudentKey(stu, idx));
+        const pendingDeliveryKeys = students
+          .map((stu, idx) => ({ stu, key: getStudentKey(stu, idx) }))
+          .filter(
+            ({ stu }) => !(Array.isArray(stu.completedStages) && stu.completedStages.includes(1))
+          )
+          .map(({ key }) => key);
+        setDeliverySelectedKeys(pendingDeliveryKeys.length > 0 ? pendingDeliveryKeys : allKeys);
+
+        const localDelivery = readStoredMap<DeliveryLocalDraft>(DELIVERY_DRAFTS_KEY)[dudiKey];
+        const initTtdByKey: Record<string, string> = {};
+        students.forEach((stu, idx) => {
+          const key = getStudentKey(stu, idx);
+          initTtdByKey[key] = String(
+            stu?.stageLogs?.[1]?.ttdSiswa || localDelivery?.ttdByKey?.[key] || ''
+          );
+        });
+        setDeliveryTtdByKey(initTtdByKey);
+
+        const savedStage1NoteLog = students
+          .map((stu) => stu?.stageLogs?.[1])
+          .find((log) => Boolean(log && log.catatan));
+        setDeliveryCatatan(
+          String(savedStage1NoteLog?.catatan || localDelivery?.catatanPengantaran || '')
+        );
+        const allStage1Done =
+          students.length > 0 &&
+          students.every(
+            (stu) => Array.isArray(stu.completedStages) && stu.completedStages.includes(1)
+          );
+        const bioHasSchedule = Boolean(
+          initHariRange.start && initHariRange.end && initJamRange.start && initJamRange.end
+        );
+        setDeliveryContactConfirmed(
+          allStage1Done && !isDudiContactIncomplete(initPemimpin, initPic, initTelp) && bioHasSchedule
+        );
       }
       setDudiStudents(students);
     };
@@ -673,6 +727,9 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       );
       setDudiPopupOpen(false);
       setShowDudiContactEditor(false);
+      if (resolvedHariStr && resolvedJamStr) {
+        setDeliveryContactConfirmed(true);
+      }
       if (onSuccess) onSuccess();
     } catch (err: any) {
       setPopupError(err?.message || 'Gagal menyimpan data kontak DUDI ke Cloud Server.');
@@ -781,6 +838,41 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       aktivitasMt: 'Baik',
       aktivitasKrt: 'Baik',
     });
+  };
+
+  const updateDeliveryStudentTtd = (stuKey: string, nextTtd: string) => {
+    if (isStageReadOnly || !stuKey) return;
+    setFormError('');
+    setDeliveryTtdByKey((prev) => {
+      const nextMap = { ...prev, [stuKey]: nextTtd };
+      if (activeDudiKeyRef.current) {
+        writeStoredMapItem<DeliveryLocalDraft>(DELIVERY_DRAFTS_KEY, activeDudiKeyRef.current, {
+          ttdByKey: nextMap,
+          catatanPengantaran: deliveryCatatan,
+        });
+      }
+      return nextMap;
+    });
+  };
+
+  const updateDeliveryCatatan = (nextNote: string) => {
+    if (isStageReadOnly) return;
+    setFormError('');
+    setDeliveryCatatan(nextNote);
+    if (activeDudiKeyRef.current) {
+      writeStoredMapItem<DeliveryLocalDraft>(DELIVERY_DRAFTS_KEY, activeDudiKeyRef.current, {
+        ttdByKey: deliveryTtdByKey,
+        catatanPengantaran: nextNote,
+      });
+    }
+  };
+
+  const toggleDeliveryStudentKey = (stuKey: string) => {
+    if (isStageReadOnly) return;
+    setFormError('');
+    setDeliverySelectedKeys((prev) =>
+      prev.includes(stuKey) ? prev.filter((k) => k !== stuKey) : [...prev, stuKey]
+    );
   };
 
   const setStudentStage = (stageNum: number) => {
@@ -968,8 +1060,222 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
   const predikatNilai = useMemo(() => getPredikatFromScore(rataRataNilai), [rataRataNilai]);
 
+  const handleSaveDeliveryValidation = async () => {
+    if (!selectedDudi) return;
+    setFormError('');
+
+    if (!isStageGlobalUnlocked) {
+      reportValidationError(
+        stageControl.lockedReason
+          ? `Tahap 1 sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).`
+          : 'Tahap 1 sedang dikunci oleh SuperAdmin dan hanya dapat dilihat (Read-Only).'
+      );
+      return;
+    }
+
+    if (!isStageLetterIssued) {
+      reportValidationError(
+        `Surat ${getStageValueByNumber(1)} untuk DUDI "${selectedDudi?.nama || 'ini'}" belum diterbitkan Admin Hubin di Pusat Dokumen.`
+      );
+      return;
+    }
+
+    const cleanPemimpin = dudiPemimpin.trim();
+    const cleanPic = dudiPic.trim();
+    const cleanTelp = dudiTelp.trim();
+    if (!cleanPemimpin || cleanPemimpin === '-' || !cleanPic || cleanPic === '-' || cleanTelp.replace(/\D/g, '').length < 7) {
+      reportValidationError(
+        'Nama Pemimpin DUDI, Nama PIC / Pembimbing DUDI, dan No. Telp / WhatsApp DUDI (min. 7 digit) wajib dilengkapi.'
+      );
+      return;
+    }
+
+    if (!dudiHariMulai || !dudiHariSelesai || !dudiJamMulai || !dudiJamSelesai) {
+      reportValidationError(
+        'Jadwal Hari Kerja dan Jam Kerja DUDI (Rentang) wajib dilengkapi saat Pengantaran.'
+      );
+      return;
+    }
+
+    if (!deliveryContactConfirmed) {
+      reportValidationError(
+        'Harap centang konfirmasi bahwa data Petugas DUDI & Jadwal Kerja di atas sudah benar.'
+      );
+      return;
+    }
+
+    const selectedStudentsWithKey = dudiStudents
+      .map((stu, idx) => ({ stu, key: getStudentKey(stu, idx) }))
+      .filter(({ key }) => deliverySelectedKeys.includes(key));
+
+    if (selectedStudentsWithKey.length === 0) {
+      reportValidationError('Pilih minimal 1 siswa yang diantar pada DUDI ini.');
+      return;
+    }
+
+    const missingTtdStudent = selectedStudentsWithKey.find(
+      ({ key }) => !deliveryTtdByKey[key] || !deliveryTtdByKey[key].startsWith('svgpath:')
+    );
+    if (missingTtdStudent) {
+      reportValidationError(
+        `Tanda Tangan Siswa (${missingTtdStudent.stu.nama}) wajib diisi sebagai bukti pengantaran.`
+      );
+      return;
+    }
+
+    const hariKerjaStr = formatRangePair(dudiHariMulai, dudiHariSelesai);
+    const jamKerjaStr = formatRangePair(dudiJamMulai, dudiJamSelesai);
+    const stageLabel = getStageValueByNumber(1);
+    const todayWib = getTodayWibIsoDate();
+
+    setSubmitting(true);
+    try {
+      const res = await PublicPortalClient.submitDeliveryValidation({
+        dudi_id: selectedDudi.id || '',
+        nama_dudi: selectedDudi.nama,
+        alamat_dudi: selectedDudi.alamat || '',
+        guru_id: selectedPetugasId || '',
+        guru_pembimbing: selectedPetugasNama,
+        tanggal: todayWib,
+        nama_pemimpin: cleanPemimpin,
+        nama_pic: cleanPic,
+        no_telp_dudi: cleanTelp,
+        hari_kerja: hariKerjaStr,
+        jam_kerja: jamKerjaStr,
+        spelling_confirmed: true,
+        catatan_pengantaran: deliveryCatatan.trim(),
+        students: selectedStudentsWithKey.map(({ stu, key }) => ({
+          id_penempatan: stu.idPenempatan || stu.id,
+          nis: stu.nis,
+          nama_siswa: stu.nama,
+          kelas: stu.kelas || '-',
+          jurusan: stu.jurusan || '',
+          ttd_siswa: deliveryTtdByKey[key] || '',
+        })),
+      });
+
+      if (res.success) {
+        if (activeDudiKeyRef.current) {
+          removeStoredMapItem(DELIVERY_DRAFTS_KEY, activeDudiKeyRef.current);
+        }
+
+        const updatedContact = {
+          namaPemimpin: res.dudiContact?.namaPemimpin || cleanPemimpin,
+          pic: res.dudiContact?.pic || cleanPic,
+          kontak: res.dudiContact?.kontak || cleanTelp,
+          hariKerja: res.dudiContact?.hariKerja || hariKerjaStr,
+          jamKerja: res.dudiContact?.jamKerja || jamKerjaStr,
+        };
+        setSelectedDudi((prev: any) => (prev ? { ...prev, ...updatedContact } : prev));
+        setAssignedDudiList((prev) =>
+          prev.map((d) =>
+            d.nama === selectedDudi.nama || (d.id && d.id === selectedDudi.id)
+              ? { ...d, ...updatedContact }
+              : d
+          )
+        );
+        setShowDudiContactEditor(false);
+
+        const deliveredKeySet = new Set(selectedStudentsWithKey.map((x) => x.key));
+        const resultByNis = new Map((res.results || []).map((r) => [r.nis, r]));
+
+        setDudiStudents((prev) =>
+          prev.map((stu, idx) => {
+            const key = getStudentKey(stu, idx);
+            if (!deliveredKeySet.has(key)) return stu;
+            const prevCompleted: number[] = Array.isArray(stu.completedStages)
+              ? stu.completedStages
+              : [];
+            const nextCompleted = Array.from(new Set([...prevCompleted, 1])).sort((a, b) => a - b);
+            const nextRec = pickRecommendedStageForControl(nextCompleted, stageControl, issuedStages);
+            const matchedRes = resultByNis.get(stu.nis);
+            const savedMonId =
+              matchedRes?.idMonitoring ||
+              stu.stageLogs?.[1]?.monitoringId ||
+              `MON-${Date.now()}-${idx}`;
+            const savedStuTtd = deliveryTtdByKey[key] || matchedRes?.ttdSiswa || '';
+
+            return {
+              ...stu,
+              completedStages: nextCompleted,
+              recommendedStage: nextRec,
+              stageLogs: {
+                ...(stu.stageLogs || {}),
+                [1]: {
+                  monitoringId: savedMonId,
+                  stageNum: 1,
+                  tahap: stageLabel,
+                  sakit: 0,
+                  izin: 0,
+                  alpha: 0,
+                  bukuLaporan: '',
+                  aktivitasDp: '',
+                  aktivitasMt: '',
+                  aktivitasKrt: '',
+                  kompetensiList: [],
+                  kondisiBengkel: { ...EMPTY_KONDISI_BENGKEL },
+                  ttdSiswa: savedStuTtd,
+                  catatan: deliveryCatatan.trim(),
+                  tanggal: todayWib,
+                  status: 'Terlaksana',
+                },
+              },
+            };
+          })
+        );
+
+        if (onSuccess) onSuccess();
+
+        const firstRes = res.results?.[0];
+        const canContinueStage2 =
+          stageControl.unlockedStages.includes(2) &&
+          (stageControl.requireIssuedLetter === false || issuedStages.includes(2));
+
+        setSaveReceipt({
+          idMonitoring: firstRes?.idMonitoring || `MON-${Date.now()}`,
+          studentName:
+            selectedStudentsWithKey.length === 1
+              ? selectedStudentsWithKey[0].stu.nama
+              : `${selectedStudentsWithKey.length} Siswa (${selectedDudi.nama})`,
+          studentNis: selectedStudentsWithKey[0]?.stu?.nis || '-',
+          dudiName: selectedDudi.nama,
+          stageNum: 1,
+          stageLabel,
+          sakit: 0,
+          izin: 0,
+          alpha: 0,
+          bukuLaporan: '',
+          ttdSigned: true,
+          isDeliveryBatch: true,
+          deliveredStudents: selectedStudentsWithKey.map(({ stu }) => ({
+            nama: stu.nama,
+            nis: stu.nis,
+          })),
+          dudiPemimpin: updatedContact.namaPemimpin,
+          dudiPic: updatedContact.pic,
+          dudiKontak: updatedContact.kontak,
+          verifiedInSpreadsheet: res.verifiedInSpreadsheet !== false,
+          sheetRowNumber: res.sheetRowNumber,
+          savedAt: res.savedAt || new Date().toISOString(),
+          nextStudentIndex: canContinueStage2 ? 0 : undefined,
+          nextStudentName: canContinueStage2 ? 'Lanjut ke Tahap 2 (Monitoring 1)' : undefined,
+        });
+      } else {
+        reportValidationError(res.message || 'Gagal menyimpan validasi pengantaran ke Cloud Server.');
+      }
+    } catch (e: any) {
+      reportValidationError(e?.message || 'Periksa koneksi internet dan layanan Cloud Server.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSaveSupervision = async () => {
     if (!activeStudent || !selectedDudi) return;
+    if (activeStageNum === 1) {
+      await handleSaveDeliveryValidation();
+      return;
+    }
     setFormError('');
 
     if (!isStageGlobalUnlocked) {
@@ -1279,10 +1585,21 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     closePortal?: () => void
   ) => {
     const nextIdx = saveReceipt?.nextStudentIndex;
+    const isDeliveryBatch = Boolean(saveReceipt?.isDeliveryBatch);
     setSaveReceipt(null);
-    if (action === 'next' && nextIdx !== undefined) {
-      setSelectedStudentIndex(nextIdx);
-      setFormError('');
+    if (action === 'next') {
+      if (isDeliveryBatch) {
+        const nextStages: Record<string, number> = {};
+        dudiStudents.forEach((stu, idx) => {
+          nextStages[getStudentKey(stu, idx)] = 2;
+        });
+        setStageByStudent((prev) => ({ ...prev, ...nextStages }));
+        setSelectedStudentIndex(0);
+        setFormError('');
+      } else if (nextIdx !== undefined) {
+        setSelectedStudentIndex(nextIdx);
+        setFormError('');
+      }
     } else if (action === 'close' && closePortal) {
       closePortal();
     }
@@ -1380,6 +1697,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setDudiJamSelesai,
     showDudiContactEditor,
     setShowDudiContactEditor,
+    deliveryTtdByKey,
+    deliveryCatatan,
+    deliveryContactConfirmed,
+    setDeliveryContactConfirmed,
+    deliverySelectedKeys,
+    updateDeliveryStudentTtd,
+    updateDeliveryCatatan,
+    toggleDeliveryStudentKey,
     stageControl,
     issuedStages,
     issuedStageDetails,

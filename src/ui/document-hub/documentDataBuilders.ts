@@ -256,6 +256,10 @@ export function buildBundleDudiItems(params: {
       (dudiObj?.namaPemimpin && dudiObj.namaPemimpin !== '-' ? dudiObj.namaPemimpin : '') ||
       (dudiObj?.namaPic && dudiObj.namaPic !== '-' ? dudiObj.namaPic : '') ||
       '';
+    const pembimbingDudi =
+      (dudiObj?.namaPic && dudiObj.namaPic !== '-' ? dudiObj.namaPic : '') ||
+      (dudiObj?.namaPemimpin && dudiObj.namaPemimpin !== '-' ? dudiObj.namaPemimpin : '') ||
+      '';
     const noTelpDudi =
       (dudiObj?.noTelpDudi && dudiObj.noTelpDudi !== '-' ? dudiObj.noTelpDudi : '') ||
       (dudiObj?.kontakPic && dudiObj.kontakPic !== '-' ? dudiObj.kontakPic : '') ||
@@ -274,6 +278,7 @@ export function buildBundleDudiItems(params: {
         ? `${dudiObj.alamat}${dudiObj.wilayahKota ? `, ${dudiObj.wilayahKota}` : ''}`
         : '-',
       pemimpinDudi,
+      pembimbingDudi,
       noTelpDudi,
       hariKerja: dudiObj?.hariKerja || '',
       jamKerja: dudiObj?.jamKerja || '',

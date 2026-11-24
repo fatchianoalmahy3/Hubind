@@ -5,9 +5,10 @@ import { formatPerizinanDateRange, normalizeToIsoDate } from '../core/utils/date
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { getCanonicalNisDigits, isActivePlacementStatus } from '../core/utils/relationHelpers';
 import { generateJurusanCode } from '../core/utils/autoIdHelpers';
-import { AlertCircle, Link2, Save, X } from 'lucide-react';
+import { AlertCircle, Link2, Loader2, Save, X } from 'lucide-react';
 import { DynamicFormField } from './dynamic-form/DynamicFormField';
 import { normFormValue, useDynamicFormRelations } from './dynamic-form/useDynamicFormRelations';
+import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
 interface DynamicFormModalProps<T = any> {
   isOpen: boolean;
@@ -236,10 +237,10 @@ export function DynamicFormModal<T extends Record<string, any>>({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
-      onClick={onClose}
+      onClick={!submitting ? onClose : undefined}
     >
       <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]"
+        className="relative bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Fixed Header */}
@@ -252,13 +253,19 @@ export function DynamicFormModal<T extends Record<string, any>>({
           </div>
           <button
             type="button"
+            disabled={submitting}
             onClick={onClose}
-            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label="Tutup modal"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <TopProgressBar
+          active={submitting || relations.loadingRelations}
+          label="Menyinkronkan form dengan Cloud Server"
+        />
 
         {/* Form with Scrollable Body + Fixed Footer */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
@@ -376,20 +383,30 @@ export function DynamicFormModal<T extends Record<string, any>>({
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="h-9 px-4 border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              className="h-9 px-4 border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             >
               Batal
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="h-9 inline-flex items-center gap-1.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+              className="h-9 inline-flex items-center gap-1.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Save className="w-4 h-4 shrink-0" />
+              {submitting ? (
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              ) : (
+                <Save className="w-4 h-4 shrink-0" />
+              )}
               <span>{submitting ? 'Menyimpan...' : 'Simpan Data'}</span>
             </button>
           </div>
         </form>
+
+        <CrudLoadingOverlay
+          visible={submitting}
+          title="Menyimpan Data ke Cloud Server..."
+          subtitle="Mohon tunggu sejenak sementara data divalidasi dan disinkronkan."
+        />
       </div>
     </div>
   );
