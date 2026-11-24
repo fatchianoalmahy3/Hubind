@@ -59,11 +59,11 @@ export const OfficialSchoolKop0708: React.FC<OfficialSchoolKop0708Props> = ({
   return (
     <div className="border-b-[3px] border-double border-blue-900 pb-1.5 mb-2.5 flex items-center gap-3">
       {isSuratTugas ? (
-        <div className="w-28 h-28 ml-1 shrink-0 flex items-center justify-center">
+        <div className="w-[148px] h-[130px] ml-0.5 shrink-0 flex items-center justify-center">
           <img
             src="/assets/logo-pgri.png"
             alt="Logo PGRI"
-            className="w-28 h-28 object-contain"
+            className="w-[148px] h-[130px] object-contain"
             referrerPolicy="no-referrer"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
