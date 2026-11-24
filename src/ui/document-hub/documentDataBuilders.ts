@@ -142,7 +142,7 @@ export function buildBundleDudiItems(params: {
   jurusanFilter: string;
   statusFilter: string;
   bundleStageNum: number;
-  searchQuery: string;
+  searchQuery?: string;
   requireSequential?: boolean;
 }): DudiBundleItem[] {
   const {
@@ -156,7 +156,7 @@ export function buildBundleDudiItems(params: {
     jurusanFilter,
     statusFilter,
     bundleStageNum,
-    searchQuery,
+    searchQuery = '',
     requireSequential = true,
   } = params;
 
@@ -287,6 +287,34 @@ export function buildBundleDudiItems(params: {
   }
 
   return items.sort((a, b) => a.namaDudi.localeCompare(b.namaDudi));
+}
+
+export function filterBundleDudiItems(
+  items: DudiBundleItem[],
+  searchQuery: string
+): DudiBundleItem[] {
+  const q = searchQuery.trim().toLowerCase();
+  const qDigits = !/[a-z]/i.test(searchQuery) ? stripNisSymbols(searchQuery) : '';
+  if (!q && qDigits.length < 3) return items;
+
+  return items.filter((item) => {
+    if (
+      q &&
+      (item.namaDudi.toLowerCase().includes(q) ||
+        item.guruNama.toLowerCase().includes(q) ||
+        item.alamatDudi.toLowerCase().includes(q))
+    ) {
+      return true;
+    }
+    return item.students.some(
+      (st) =>
+        (q &&
+          (st.namaSiswa.toLowerCase().includes(q) ||
+            st.nis.toLowerCase().includes(q) ||
+            st.jurusan.toLowerCase().includes(q))) ||
+        (qDigits.length >= 3 && stripNisSymbols(st.nis).includes(qDigits))
+    );
+  });
 }
 
 export function buildBundlePrintPages(params: {

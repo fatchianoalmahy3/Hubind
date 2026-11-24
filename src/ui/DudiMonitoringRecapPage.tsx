@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Building2,
@@ -33,6 +33,7 @@ import { ToastManager } from '../core/ToastManager';
 import { formatIndonesianDate } from '../core/utils/dateHelpers';
 import {
   StageLogEntry,
+  buildMonitoringLookupIndex,
   buildStudentMonitoringSummary,
   getStageValueByNumber,
 } from '../core/utils/monitoringHelpers';
@@ -299,6 +300,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       if (normName) dudiByNormName.set(normName, d);
     }
 
+    const monitoringIndex = buildMonitoringLookupIndex(monitoringList, sertifikatList);
     const activePlacements = penempatanList.filter((p) =>
       isActivePlacementStatus(p.statusPenempatan)
     );
@@ -309,11 +311,10 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       const cleanNis = stripNisSymbols(p.nis);
       const matchedSiswa =
         (cleanNis && siswaByNis.get(cleanNis)) || siswaByNis.get(String(p.nis || '').trim());
-      const matchedMon = monitoringList.find(
-        (m) =>
-          (cleanNis && stripNisSymbols(m.nis || '') === cleanNis) ||
-          (p.idPenempatan && m.idPenempatan === p.idPenempatan)
-      );
+      const matchedMon =
+        (cleanNis && monitoringIndex.monitoringByNisDigits.get(cleanNis)?.[0]) ||
+        (p.idPenempatan && monitoringIndex.monitoringByPlacement.get(p.idPenempatan)?.[0]) ||
+        undefined;
       const resolvedJurusan = matchedSiswa?.jurusan || matchedMon?.jurusan || '-';
       const resolvedKelas = matchedSiswa?.kelas || '-';
 
@@ -336,7 +337,8 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           dudi_name: dudiName,
         },
         monitoringList,
-        sertifikatList
+        sertifikatList,
+        monitoringIndex
       );
 
       const highestStage =
@@ -412,8 +414,11 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     activeJurusanObj,
   ]);
 
+  const deferredSearch = useDeferredValue(search);
+
   const filteredDudiGroups = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
+    const qDigits = !/[a-z]/i.test(deferredSearch) ? stripNisSymbols(deferredSearch) : '';
     return dudiGroups.filter((g) => {
       if (statusFilter === 'PENDING_KAKOMLI' && g.pendingKakomliCount === 0) return false;
       if (
@@ -429,22 +434,25 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       ) {
         return false;
       }
-      if (!q) return true;
+      if (!q && qDigits.length < 3) return true;
       if (
-        g.namaDudi.toLowerCase().includes(q) ||
-        g.alamat.toLowerCase().includes(q) ||
-        g.guruPendamping.toLowerCase().includes(q)
+        q &&
+        (g.namaDudi.toLowerCase().includes(q) ||
+          g.alamat.toLowerCase().includes(q) ||
+          g.guruPendamping.toLowerCase().includes(q))
       ) {
         return true;
       }
       return g.students.some(
         (s) =>
-          s.namaSiswa.toLowerCase().includes(q) ||
-          s.nis.toLowerCase().includes(q) ||
-          s.kelas.toLowerCase().includes(q)
+          (q &&
+            (s.namaSiswa.toLowerCase().includes(q) ||
+              s.nis.toLowerCase().includes(q) ||
+              s.kelas.toLowerCase().includes(q))) ||
+          (qDigits.length >= 3 && stripNisSymbols(s.nis).includes(qDigits))
       );
     });
-  }, [dudiGroups, search, statusFilter]);
+  }, [dudiGroups, deferredSearch, statusFilter]);
 
   const activeDudiGroup = useMemo(() => {
     if (!selectedDudiKey) return null;

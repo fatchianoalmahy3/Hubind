@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { ALLOWED_ADMIN_SHEETS } from '../../src/core/constants/sheetResourceMap';
+import { GoogleDriveSheetService } from '../../src/core/GoogleDriveSheetService';
 import { getFirestoreWorkspaceConfig } from '../config/runtimeConfig';
 import {
   ROLE_TITLE_MAP,
@@ -10,6 +11,8 @@ import {
   verifyPasswordServer,
 } from '../services/adminAuthService';
 import {
+  callGasCustomAction,
+  fetchBatchSheetsViaGas,
   fetchLiveSheetViaGas,
   invalidateServerCaches,
   invalidateSheetCacheEntry,
@@ -19,6 +22,14 @@ import {
 } from '../services/sheetsTransport';
 import { type GasWriteAction, PortalConfigError } from '../types';
 import { fetchWithTimeout, GAS_FETCH_TIMEOUT_MS, handlePortalError } from '../utils/httpHelpers';
+
+const SAFE_ROLLOVER_MASTER_SHEETS = new Set([
+  'Master_Akun',
+  'Master_Jurusan',
+  'Master_Guru_Pendamping',
+  'Master_DUDI',
+  'Master_Kelas_Walas',
+]);
 
 export function registerAdminRoutes(app: Express): void {
   // Admin Login: Username + Password verified against Master_Akun in Spreadsheet (or defaults)
@@ -420,6 +431,112 @@ export function registerAdminRoutes(app: Express): void {
 
       await writeLiveSheetViaGas(targetSheet, normalizedAction as GasWriteAction, data);
       res.json({ success: true });
+    } catch (err: any) {
+      handlePortalError(res, err);
+    }
+  });
+
+  // SuperAdmin Roll-over: Create new yearly Spreadsheet & safely copy selected Master tables
+  app.post('/api/admin/rollover-year', async (req: Request, res: Response) => {
+    try {
+      const session = await requireAdminAuth(req);
+      if (session.role !== 'SuperAdmin') {
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN',
+          message: 'Hanya peran SuperAdmin yang berhak membuka Tahun Ajaran baru dan menggandakan master.',
+        });
+      }
+
+      const rawYear = String(req.body?.year || '').trim();
+      if (!/^[0-9]{4}\/[0-9]{4}$/.test(rawYear)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format Tahun Ajaran wajib YYYY/YYYY (contoh: 2027/2028).',
+        });
+      }
+
+      const rawTargetId = String(req.body?.targetSpreadsheetId || '').trim();
+      const targetMatch = rawTargetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      const targetSpreadsheetId = targetMatch && targetMatch[1] ? targetMatch[1] : rawTargetId;
+
+      const cleanYear = rawYear.replace(/\//g, '_');
+      const spreadsheetTitle =
+        String(req.body?.spreadsheetTitle || '').trim() ||
+        `Hubin_SMK_PGRI_2_Ponorogo_${cleanYear}`;
+
+      const requestedSheets = Array.isArray(req.body?.copySheets)
+        ? req.body.copySheets
+            .map((s: any) => String(s || '').trim())
+            .filter((s: string) => SAFE_ROLLOVER_MASTER_SHEETS.has(s))
+        : [];
+      const selectedSheets = Array.from(new Set<string>(requestedSheets));
+
+      const cfg = await getFirestoreWorkspaceConfig(true);
+      const seedSheets: Record<string, any[]> = {};
+
+      if (selectedSheets.length > 0 && cfg.spreadsheetId) {
+        const sheetSvc = GoogleDriveSheetService.getInstance();
+        const { sheets } = await fetchBatchSheetsViaGas(
+          selectedSheets,
+          new Set(['Master_Akun']),
+          true
+        );
+
+        for (const sName of selectedSheets) {
+          const rawRows = Array.isArray(sheets[sName]) ? sheets[sName] : [];
+          if (rawRows.length === 0) continue;
+
+          seedSheets[sName] = rawRows.map((row) => {
+            const stripped = sheetSvc.stripFormulaManagedFields(sName, row || {});
+            const { _sheetRowNumber: _omitRow, ...cleanRow } = stripped;
+            return cleanRow;
+          });
+        }
+      }
+
+      const { data: gasResult } = await callGasCustomAction<{
+        success?: boolean;
+        spreadsheetId?: string;
+        spreadsheetName?: string;
+        spreadsheetUrl?: string;
+        driveFolderUrl?: string;
+        seededCounts?: Record<string, number>;
+        plantedFormulas?: number;
+      }>(
+        'CREATE_YEARLY_SPREADSHEET',
+        {
+          year: rawYear,
+          spreadsheetTitle,
+          targetSpreadsheetId: targetSpreadsheetId || undefined,
+          driveFolderUrl: cfg.driveFolderUrl || '',
+          seedSheets,
+        },
+        45_000
+      );
+
+      if (!gasResult?.spreadsheetId) {
+        throw new PortalConfigError(
+          'GAS_ROLLOVER_INCOMPLETE',
+          'Endpoint Cloud Server belum mengembalikan ID Spreadsheet baru. Pastikan skrip API GAS sudah diperbarui ke versi terbaru.',
+          502
+        );
+      }
+
+      await invalidateServerCaches();
+
+      return res.json({
+        success: true,
+        year: rawYear,
+        spreadsheetId: gasResult.spreadsheetId,
+        spreadsheetName: gasResult.spreadsheetName || spreadsheetTitle,
+        spreadsheetUrl:
+          gasResult.spreadsheetUrl ||
+          `https://docs.google.com/spreadsheets/d/${gasResult.spreadsheetId}`,
+        driveFolderUrl: gasResult.driveFolderUrl || cfg.driveFolderUrl || '',
+        seededCounts: gasResult.seededCounts || {},
+        plantedFormulas: Number(gasResult.plantedFormulas || 0),
+      });
     } catch (err: any) {
       handlePortalError(res, err);
     }

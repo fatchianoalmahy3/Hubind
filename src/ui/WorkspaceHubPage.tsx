@@ -13,10 +13,11 @@ import {
   CheckCircle2,
   Code2,
   AlertCircle,
-  X,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { ToastManager } from '../core/ToastManager';
+import { HUBIN_SHEETS_BLUEPRINT } from '../core/types/sheetBlueprint';
+import { AcademicYearRolloverModal } from './AcademicYearRolloverModal';
 
 interface WorkspaceHubPageProps {
   onOpenGasModal: () => void;
@@ -38,10 +39,6 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isAddYearModalOpen, setIsAddYearModalOpen] = useState(false);
-  const [newYearName, setNewYearName] = useState('2027/2028');
-  const [newSpreadsheetId, setNewSpreadsheetId] = useState('');
-  const [newFormUrl, setNewFormUrl] = useState('');
-  const [savingYear, setSavingYear] = useState(false);
 
   useEffect(() => {
     const unsubscribe = client.addChangeListener(() => {
@@ -49,12 +46,6 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
     });
     return () => unsubscribe();
   }, []);
-
-  const parseSpreadsheetId = (input: string): string => {
-    const trimmed = input.trim();
-    const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    return match && match[1] ? match[1] : trimmed;
-  };
 
   const copyToClipboard = (text: string, id: string) => {
     if (!text) return;
@@ -70,30 +61,6 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
 
   const handleSwitchYear = async (year: string) => {
     await client.switchAcademicYear(year);
-  };
-
-  const handleCreateNewYear = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanId = parseSpreadsheetId(newSpreadsheetId);
-    if (!newYearName.trim() || !cleanId) return;
-
-    setSavingYear(true);
-    try {
-      const ok = await client.addNewAcademicYear(
-        newYearName.trim(),
-        cleanId,
-        `https://docs.google.com/spreadsheets/d/${cleanId}`,
-        newFormUrl.trim()
-      );
-      if (ok) {
-        setIsAddYearModalOpen(false);
-        setNewYearName('');
-        setNewSpreadsheetId('');
-        setNewFormUrl('');
-      }
-    } finally {
-      setSavingYear(false);
-    }
   };
 
   const activeYearConfig = config.academicYears.find((y) => y.year === config.activeYear);
@@ -130,7 +97,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
               className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
             >
               <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Blueprint 10 Tabel Server</span>
+              <span>Blueprint {HUBIN_SHEETS_BLUEPRINT.length} Tabel Server</span>
             </button>
           )}
 
@@ -564,103 +531,10 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
         </div>
       </section>
 
-      {/* Modal Buat Tahun Ajaran Baru */}
-      {isAddYearModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-[2px]"
-          onClick={() => setIsAddYearModalOpen(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-3 min-w-0 pr-2">
-                <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center shrink-0">
-                  <Calendar className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900">Tambah Tahun Ajaran Baru</h3>
-                  <p className="text-xs text-slate-500 truncate">
-                    Menyimpan konfigurasi database tahun ajaran ke Cloud Server
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAddYearModalOpen(false)}
-                className="w-9 h-9 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex items-center justify-center cursor-pointer shrink-0"
-                aria-label="Tutup modal"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateNewYear} className="p-6 space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  Label Tahun Ajaran <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newYearName}
-                  onChange={(e) => setNewYearName(e.target.value)}
-                  placeholder="Contoh: 2027/2028"
-                  className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 tabular-nums"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  ID atau URL Database Cloud Server Baru <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newSpreadsheetId}
-                  onChange={(e) => setNewSpreadsheetId(e.target.value)}
-                  placeholder="ID atau URL database server tahun ajaran baru"
-                  className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Gunakan menu &quot;Konfigurasi Server&quot; untuk menyiapkan struktur database tahun ajaran baru secara otomatis.
-                </p>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1.5">
-                  Link Google Form Siswa (Opsional)
-                </label>
-                <input
-                  type="url"
-                  value={newFormUrl}
-                  onChange={(e) => setNewFormUrl(e.target.value)}
-                  placeholder="https://docs.google.com/forms/d/..."
-                  className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddYearModalOpen(false)}
-                  className="h-9 px-4 border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 rounded-lg font-semibold cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingYear}
-                  className="h-9 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold disabled:opacity-50 cursor-pointer"
-                >
-                  {savingYear ? 'Menyimpan...' : 'Daftarkan Tahun Ajaran'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AcademicYearRolloverModal
+        isOpen={isAddYearModalOpen}
+        onClose={() => setIsAddYearModalOpen(false)}
+      />
     </div>
   );
 };

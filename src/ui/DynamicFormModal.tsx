@@ -297,7 +297,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
                   !field.autocomplete &&
                   Boolean(field.relationSource) &&
                   Boolean(field.allowCustomValue) &&
-                  relations.getRelationOptions(field).length > 0;
+                  relations.hasRelationOptions(field);
                 const isManual = Boolean(manualFields[key]);
 
                 return (

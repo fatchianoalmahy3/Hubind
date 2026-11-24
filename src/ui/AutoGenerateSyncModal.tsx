@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Sparkles,
@@ -9,13 +9,12 @@ import {
   ExternalLink,
   ShieldCheck,
   CheckCircle2,
-  Layers,
-  ArrowRight,
   Database,
   Code2,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { HUBIN_SHEETS_BLUEPRINT, SheetDefinition } from '../core/types/sheetBlueprint';
+import { buildAutoGenerateSheetsFormScript } from '../core/gas/gasTemplateBuilder';
 import { generateAndDownloadHubinXlsx, downloadSingleSheetCsv } from '../core/utils/xlsxGenerator';
 import { ToastManager } from '../core/ToastManager';
 
@@ -67,14 +66,16 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
     }
   };
 
+  const totalSheetsCount = HUBIN_SHEETS_BLUEPRINT.length;
+
   const handleDownloadXlsx = async () => {
-    const fileName = `Hubin_SMK_PGRI_2_Ponorogo_11_Tabel_TA_${config.activeYear.replace('/', '_')}.xlsx`;
+    const fileName = `Hubin_SMK_PGRI_2_Ponorogo_${totalSheetsCount}_Tabel_TA_${config.activeYear.replace('/', '_')}.xlsx`;
     const success = await generateAndDownloadHubinXlsx(fileName);
     if (success) {
       ToastManager.getInstance().show(
         'File Master Excel (.xlsx) Berhasil Diunduh!',
         'success',
-        `File ${fileName} berisi 11 tabel lengkap siap diunggah.`
+        `File ${fileName} berisi ${totalSheetsCount} tabel lengkap siap diunggah.`
       );
     }
   };
@@ -88,120 +89,10 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
     );
   };
 
-  const gasScriptCode = `/**
- * ============================================================================
- * GOOGLE APPS SCRIPT: AUTO GENERATE 11 SHEET & FORMULIR TERPISAH
- * HUBIN SMK PGRI 2 PONOROGO (TA ${config.activeYear})
- * ============================================================================
- * 
- * Jalankan fungsi "autoGenerateAllSheetsAndForm" di bawah ini satu kali:
- * 1. Buka konsol Database Server Anda -> Ekstensi -> Apps Script.
- * 2. Tempelkan kode ini.
- * 3. Pilih fungsi "autoGenerateAllSheetsAndForm", lalu klik "Run".
- */
-
-function autoGenerateAllSheetsAndForm() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const year = "${config.activeYear}";
-  Logger.log("=== MEMULAI GENERASI 11 TABEL & FORMULIR UNTUK TA " + year + " ===");
-
-  const sheetsData = [
-    {
-      name: "Master_Siswa_XI",
-      headers: ["ID", "NIS", "NIK", "Nama_Lengkap", "Jenis_Kelamin", "ID_Jurusan", "Kelas", "No_HP_Siswa", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_PKL", "Foto_URL"]
-    },
-    {
-      name: "Master_Jurusan",
-      headers: ["ID", "Kode", "Nama_Jurusan", "Nama_Kakomli", "NIP_Kakomli", "Kontak_WA", "Kuota_Siswa", "Total_Terdaftar"]
-    },
-    {
-      name: "Master_Kelas_Walas",
-      headers: ["ID", "Nama_Kelas", "Jurusan", "Tingkat", "Wali_Kelas", "Kontak_Walas", "Jumlah_Siswa"]
-    },
-    {
-      name: "Master_DUDI",
-      headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_Pemimpin", "Nama_PIC", "Kontak_PIC", "No_Telp_DUDI", "Link_Maps", "ID_Guru_Pendamping", "Guru_Pendamping", "Hari_Kerja", "Jam_Kerja", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"]
-    },
-    {
-      name: "Master_Guru_Pendamping",
-      headers: ["ID", "NIP", "Nama_Lengkap", "Kontak_WA", "Email_Google", "Peran_Utama", "Jumlah_Bimbingan", "PIN"]
-    },
-    {
-      name: "Data_Pengajuan_PKL",
-      headers: ["No_Pengajuan", "Timestamp", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "ID_DUDI", "DUDI_Tujuan", "Alamat_DUDI", "Bidang_Pekerjaan", "Nama_Pemimpin", "Nama_PIC", "No_Telp_DUDI", "Hari_Kerja", "Jam_Kerja", "Link_Maps", "No_WA", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Kakomli", "Catatan_Kakomli", "Status_Hubin", "ID_Guru_Pendamping", "Guru_Pendamping", "Tgl_Berangkat"]
-    },
-    {
-      name: "Data_Perizinan_PKL",
-      headers: ["ID_Perizinan", "No_Pengajuan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "Nama_Ortu_Wali", "No_Ortu_Wali", "Izin", "Tgl_Mulai_Izin", "Tgl_Selesai_Izin", "Rentang_Tanggal", "No_Surat_Permohonan", "DUDI_Tujuan", "Alamat_DUDI", "Tgl_Kirim_Surat", "Status_Balasan_DUDI", "Tgl_Balasan", "Catatan_Perizinan", "Link_Bukti_Balasan", "Link_Surat_PDF"]
-    },
-    {
-      name: "Plotting_Pemberangkatan",
-      headers: ["ID_Penempatan", "NIS", "Nama_Siswa", "ID_DUDI", "Nama_DUDI", "ID_Guru_Pendamping", "Guru_Pendamping", "Tanggal_Berangkat", "Tanggal_Rencana_Tarik", "Status_Penempatan", "Catatan_Penempatan"]
-    },
-    {
-      name: "Monitoring_5_Tahap",
-      headers: ["ID_Monitoring", "ID_Penempatan", "NIS", "Nama_Siswa", "DUDI_Tujuan", "Alamat_DUDI", "Jurusan", "Guru_Pendamping", "Tahap", "Tanggal_Kunjungan", "Sakit", "Izin", "Alpha", "Nilai_PKL_Muncul", "Nilai_K3LH", "Nilai_Softskills", "Nilai_Hardskills", "Nilai_Alur_Bisnis_Dunia_Kerja", "Nilai_rata_rata", "Catatan_Kunjungan", "Foto_Bukti_Drive", "Nilai_DUDI_Terkumpul", "Blangko_Sertifikat_Bawa", "Status_Tahap"]
-    },
-    {
-      name: "Nilai_Dan_Sertifikat",
-      headers: ["ID_Penempatan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "DUDI_Tujuan", "Nilai_K3LH", "Nilai_Softskills", "Nilai_Hardskills", "Nilai_Alur_Bisnis_Dunia_Kerja", "Nilai_rata_rata", "Predikat", "No_Seri_Blangko", "Status_Blangko", "Status_Raport", "Tgl_Terbit"]
-    },
-    {
-      name: "Master_Akun",
-      headers: ["ID", "Username", "Password_Hash", "Role", "Nama_Lengkap", "Jabatan", "Status", "Updated_At"]
-    }
-  ];
-
-  // 1. Buat / Format 11 Tabel Terpisah
-  sheetsData.forEach(function(item, index) {
-    let sheet = ss.getSheetByName(item.name);
-    if (!sheet) {
-      sheet = (index === 0 && ss.getSheets().length === 1 && ss.getSheets()[0].getName().indexOf("Sheet1") !== -1)
-        ? ss.getSheets()[0]
-        : ss.insertSheet(item.name);
-      sheet.setName(item.name);
-    }
-    // Jika kosong, pasang header dengan styling rapi
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(item.headers);
-      sheet.getRange(1, 1, 1, item.headers.length)
-        .setFontWeight("bold")
-        .setBackground("#1E293B")
-        .setFontColor("#FFFFFF");
-      sheet.setFrozenRows(1);
-    }
-  });
-
-  // 2. Buat Google Form Otomatis
-  const formTitle = "Formulir Pengajuan PKL SMK PGRI 2 Ponorogo TA " + year;
-  const form = FormApp.create(formTitle);
-  form.setTitle(formTitle)
-      .setDescription("Formulir Pengajuan PKL Siswa. Jawaban otomatis masuk ke Sheet Data_Pengajuan_PKL.")
-      .setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
-
-  // Section 1: Jurusan
-  form.addListItem()
-      .setTitle("Pilih Kompetensi Keahlian (Jurusan) Anda")
-      .setChoiceValues(["Desain Komunikasi Visual (DKV)", "Rekayasa Perangkat Lunak (RPL)", "Teknik Alat Berat (TAB)", "Teknik Bodi Kendaraan Ringan (TBKR)", "Teknik Kendaraan Ringan (TKR)", "Teknik Komputer dan Jaringan (TKJ)", "Teknik Pemesinan (TPM)", "Teknik Pengelasan (TPL)", "Teknik Sepeda Motor (TSM)"])
-      .setRequired(true);
-
-  // Section 2: Kelas & Nama Siswa
-  form.addPageBreakItem().setTitle("Section 2: Kelas & Nama Siswa");
-  form.addTextItem().setTitle("Pilih / Tuliskan Kelas Anda").setRequired(true);
-  form.addTextItem().setTitle("Nama Lengkap Siswa").setRequired(true);
-  form.addTextItem().setTitle("4 Digit Terakhir NIK (PIN Verifikasi)").setRequired(true);
-
-  // Section 3: Identitas DUDI Tujuan
-  form.addPageBreakItem().setTitle("Section 3: Identitas DUDI Tujuan");
-  form.addTextItem().setTitle("Nama Perusahaan / Bengkel / DUDI").setRequired(true);
-  form.addParagraphTextItem().setTitle("Alamat Lengkap & Kota DUDI").setRequired(true);
-  form.addTextItem().setTitle("Bidang Pekerjaan / Usaha").setRequired(true);
-  form.addTextItem().setTitle("No. WhatsApp Aktif Siswa").setRequired(true);
-
-  Logger.log("SUKSES: 11 Tabel dan Formulir siap digunakan!");
-  Logger.log("Link Form Siswa: " + form.getPublishedUrl());
-}
-`;
+  const gasScriptCode = useMemo(
+    () => buildAutoGenerateSheetsFormScript(config.activeYear || '2026/2027'),
+    [config.activeYear]
+  );
 
   const copyScript = () => {
     navigator.clipboard.writeText(gasScriptCode);
@@ -229,7 +120,7 @@ function autoGenerateAllSheetsAndForm() {
                   Inisialisasi &amp; Blueprint Struktur Server
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  11 Tabel Server
+                  {totalSheetsCount} Tabel Server
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -276,7 +167,7 @@ function autoGenerateAllSheetsAndForm() {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            3. Blueprint 11 Tabel Server
+            3. Blueprint {totalSheetsCount} Tabel Server
           </button>
           <button
             onClick={() => setActiveTab('script')}
@@ -298,10 +189,10 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-200/80 rounded-2xl text-xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Otomatisasi Struktur 11 Tabel Cloud Server:</span>
+                  <span>Otomatisasi Struktur {totalSheetsCount} Tabel Cloud Server:</span>
                 </div>
                 <p className="text-slate-600 leading-relaxed text-[11px]">
-                  Fitur ini secara instan menyiapkan seluruh skema Database Cloud Server ke dalam <b>11 entitas tabel terpisah</b>, menata struktur kolom terstandar, dan menyiapkan entitas pengajuan PKL siswa agar tersinkronisasi penuh.
+                  Fitur ini secara instan menyiapkan seluruh skema Database Cloud Server ke dalam <b>{totalSheetsCount} entitas tabel terpisah</b>, menata struktur kolom terstandar, dan menyiapkan entitas pengajuan PKL siswa agar tersinkronisasi penuh.
                 </p>
               </div>
 
@@ -409,7 +300,7 @@ function autoGenerateAllSheetsAndForm() {
               {/* Summary of 10 Server Tables */}
               <div className="border border-slate-200 rounded-2xl p-4 bg-white space-y-2 text-xs">
                 <div className="font-bold text-slate-800">
-                  Daftar 11 Tabel Server yang Digenerate:
+                  Daftar {totalSheetsCount} Tabel Server yang Digenerate:
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                   {HUBIN_SHEETS_BLUEPRINT.map((s, idx) => (
@@ -439,13 +330,13 @@ function autoGenerateAllSheetsAndForm() {
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
                     <span className="font-bold text-emerald-700 block">Cara 1 (Template Excel):</span>
                     <p className="text-slate-500">
-                      Buka tab <b>&quot;Download File Master Excel (.xlsx)&quot;</b>, unduh file 11 tabel lengkap, lalu impor ke node database server Anda.
+                      Buka tab <b>&quot;Download File Master Excel (.xlsx)&quot;</b>, unduh file {totalSheetsCount} tabel lengkap, lalu impor ke node database server Anda.
                     </p>
                   </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1">
                     <span className="font-bold text-blue-700 block">Cara 2 (Otomatisasi ID Server):</span>
                     <p className="text-slate-500">
-                      Tempelkan ID Database Server kosong Anda ke kolom di atas, lalu klik <b>&quot;Inisialisasi Server Sekarang&quot;</b> untuk menyiapkan 11 tabel secara otomatis.
+                      Tempelkan ID Database Server kosong Anda ke kolom di atas, lalu klik <b>&quot;Inisialisasi Server Sekarang&quot;</b> untuk menyiapkan {totalSheetsCount} tabel secara otomatis.
                     </p>
                   </div>
                 </div>
@@ -459,10 +350,10 @@ function autoGenerateAllSheetsAndForm() {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-2 text-blue-900">
                 <div className="font-bold flex items-center gap-1.5 text-sm">
                   <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-                  <span>Download File Master Excel (.xlsx) Lengkap 11 Tabel:</span>
+                  <span>Download File Master Excel (.xlsx) Lengkap {totalSheetsCount} Tabel:</span>
                 </div>
                 <p className="text-[11px] text-blue-800 leading-relaxed">
-                  Unduh file master Excel <b>.xlsx</b> ini apabila ingin mengimpor struktur 11 tabel terstandar sekaligus ke node database server Anda.
+                  Unduh file master Excel <b>.xlsx</b> ini apabila ingin mengimpor struktur {totalSheetsCount} tabel terstandar sekaligus ke node database server Anda.
                 </p>
               </div>
 
@@ -476,7 +367,7 @@ function autoGenerateAllSheetsAndForm() {
                       Template_Lengkap_Hubin_SMK_PGRI_2_Ponorogo.xlsx
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      File Master Excel 11 Tabel • Format Kolom Auto-Width • Data Master 9 Jurusan &amp; Mitra DUDI
+                      File Master Excel {totalSheetsCount} Tabel • Format Kolom Auto-Width • Data Master 9 Jurusan &amp; Mitra DUDI
                     </p>
                   </div>
                 </div>
@@ -498,19 +389,19 @@ function autoGenerateAllSheetsAndForm() {
                   <li>Unduh file Master Excel <code>.xlsx</code> di atas.</li>
                   <li>Buka panel database server Anda pada menu Konfigurasi Server.</li>
                   <li>Pilih menu <b>File</b> &rarr; <b>Impor (Import)</b> &rarr; <b>Upload</b> &rarr; pilih file <code>.xlsx</code> tadi.</li>
-                  <li>Pilih opsi ganti / sisipkan tabel agar 11 struktur tabel baku langsung terbentuk.</li>
-                  <li>Selesai! 11 entitas tabel server langsung siap dipakai seluruh pengguna.</li>
+                  <li>Pilih opsi ganti / sisipkan tabel agar {totalSheetsCount} struktur tabel baku langsung terbentuk.</li>
+                  <li>Selesai! {totalSheetsCount} entitas tabel server langsung siap dipakai seluruh pengguna.</li>
                 </ol>
               </div>
             </div>
           )}
 
-          {/* TAB 3: BLUEPRINT 11 TABEL SERVER */}
+          {/* TAB 3: BLUEPRINT TABEL SERVER */}
           {activeTab === 'blueprint' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Rincian spesifikasi 11 tabel server beserta struktur kolom bakunya:</span>
-                <span className="font-bold text-emerald-700">11 Tabel Baku</span>
+                <span>Rincian spesifikasi {totalSheetsCount} tabel server beserta struktur kolom bakunya:</span>
+                <span className="font-bold text-emerald-700">{totalSheetsCount} Tabel Baku</span>
               </div>
 
               <div className="space-y-2.5">

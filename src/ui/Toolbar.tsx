@@ -23,6 +23,7 @@ import {
 interface ToolbarProps {
   search: string;
   onSearchChange: (q: string) => void;
+  searchPlaceholder?: string;
   activeFilterCount: number;
   onOpenFilterModal: () => void;
   selectedCount: number;
@@ -48,6 +49,7 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({
   search,
   onSearchChange,
+  searchPlaceholder,
   activeFilterCount,
   onOpenFilterModal,
   selectedCount,
@@ -106,7 +108,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             type="text"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Cari data (nama, NIS, DUDI, kelas)..."
+            placeholder={searchPlaceholder || 'Cari data...'}
             className="w-full h-9 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:bg-white transition-colors placeholder:text-slate-400"
           />
           {search && (

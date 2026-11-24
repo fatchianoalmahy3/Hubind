@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import { BaseRepository } from '../core/BaseRepository';
 import { FilterState, SortState } from '../core/types/metadata';
 import { ToastManager } from '../core/ToastManager';
@@ -35,6 +35,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   const [sort, setSort] = useState<SortState>({ column: null, direction: 'asc' });
   const [filter, setFilter] = useState<FilterState>({});
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
 
   // Row Selection (for Bulk Actions)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -44,34 +45,71 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const lastVisibleFetchRef = useRef<number>(initialSnapshot.hasCache ? Date.now() : 0);
 
-  const fetchData = useCallback(async (silent = false) => {
-    repository.tryHydrateSync();
-    if (!silent && !repository.hasHydratedData()) {
-      setLoading(true);
-    }
-    setLoadError(null);
-    try {
-      await repository.ensureInitialized();
-      const repoErr = repository.getLastError();
-      if (repoErr) {
-        setLoadError(repoErr);
-      }
-      const res = repository.querySync(filter, sort, page, pageSize, search);
+  const queryParamsRef = useRef({
+    filter,
+    sort,
+    page,
+    pageSize,
+    search: deferredSearch,
+  });
+  queryParamsRef.current = {
+    filter,
+    sort,
+    page,
+    pageSize,
+    search: deferredSearch,
+  };
+
+  const applyLocalQuery = useCallback(
+    (override?: Partial<{ filter: FilterState; sort: SortState; page: number; pageSize: number; search: string }>) => {
+      const p = { ...queryParamsRef.current, ...override };
+      const res = repository.querySync(p.filter, p.sort, p.page, p.pageSize, p.search);
       setData(res.data);
       setFilteredData(res.filteredData || res.data);
       setTotal(res.total);
-      lastVisibleFetchRef.current = Date.now();
-    } catch (e: any) {
-      console.error('Failed to query data', e);
-      setLoadError(e?.message || 'Gagal membaca data dari Cloud Server.');
-    } finally {
-      setLoading(false);
-    }
-  }, [repository, filter, sort, page, pageSize, search]);
+    },
+    [repository]
+  );
+
+  const fetchData = useCallback(
+    async (silent = false) => {
+      repository.tryHydrateSync();
+      if (!silent && !repository.hasHydratedData()) {
+        setLoading(true);
+      }
+      setLoadError(null);
+      try {
+        await repository.ensureInitialized();
+        const repoErr = repository.getLastError();
+        if (repoErr) {
+          setLoadError(repoErr);
+        }
+        applyLocalQuery();
+        lastVisibleFetchRef.current = Date.now();
+      } catch (e: any) {
+        console.error('Failed to query data', e);
+        setLoadError(e?.message || 'Gagal membaca data dari Cloud Server.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [repository, applyLocalQuery]
+  );
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Synchronous local query on search/filter/sort/page changes (zero API/listener churn)
+  useEffect(() => {
+    applyLocalQuery({
+      filter,
+      sort,
+      page,
+      pageSize,
+      search: deferredSearch,
+    });
+  }, [applyLocalQuery, filter, sort, page, pageSize, deferredSearch]);
 
   useEffect(() => {
     const client = GoogleSheetClient.getInstance();

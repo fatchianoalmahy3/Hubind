@@ -232,31 +232,47 @@ export class GoogleSheetClient {
   }
 
   public async initFromFirestore(): Promise<void> {
+    if (this.unsubscribeFirestore && this.isFirestoreHydrated) {
+      return;
+    }
     if (this.initFirestorePromise) {
       return this.initFirestorePromise;
     }
 
-    this.initFirestorePromise = (async () => {
-      try {
-        const { config } = await WorkspaceConfigStore.fetchConfigFromServer();
-        this.applyConfig(config);
-      } catch (e) {
-        console.warn('[GoogleSheetClient] Firestore initial config fetch failed:', e);
+    this.initFirestorePromise = new Promise<void>((resolve) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve();
+      };
+
+      const timeoutId = setTimeout(() => {
+        console.warn('[GoogleSheetClient] Firestore initial snapshot timeout — continuing with cached/default config.');
         this.isFirestoreHydrated = true;
         this.notifyChange();
+        settle();
+      }, 8000);
+
+      if (this.unsubscribeFirestore) {
+        settle();
+        return;
       }
 
-      if (!this.unsubscribeFirestore) {
-        this.unsubscribeFirestore = WorkspaceConfigStore.subscribeToConfig(
-          (config) => {
-            this.applyConfig(config);
-          },
-          (err) => {
-            console.warn('[GoogleSheetClient] Firestore snapshot warning:', err?.message);
-          }
-        );
-      }
-    })();
+      this.unsubscribeFirestore = WorkspaceConfigStore.subscribeToConfig(
+        (config) => {
+          this.applyConfig(config);
+          settle();
+        },
+        (err) => {
+          console.warn('[GoogleSheetClient] Firestore snapshot warning:', err?.message);
+          this.isFirestoreHydrated = true;
+          this.notifyChange();
+          settle();
+        }
+      );
+    });
 
     try {
       await this.initFirestorePromise;
@@ -519,6 +535,145 @@ export class GoogleSheetClient {
         err?.message || 'Error menyimpan tahun ajaran'
       );
       return false;
+    }
+  }
+
+  public async createYearlySpreadsheetWithRollover(params: {
+    year: string;
+    copySheets: string[];
+    targetSpreadsheetId?: string;
+    spreadsheetTitle?: string;
+    formUrl?: string;
+    activateImmediately?: boolean;
+  }): Promise<{
+    success: boolean;
+    spreadsheetId?: string;
+    spreadsheetName?: string;
+    spreadsheetUrl?: string;
+    driveFolderUrl?: string;
+    seededCounts?: Record<string, number>;
+    plantedFormulas?: number;
+    error?: string;
+  }> {
+    const cleanYear = params.year.trim();
+    if (!/^[0-9]{4}\/[0-9]{4}$/.test(cleanYear)) {
+      const msg = 'Format Tahun Ajaran wajib YYYY/YYYY (contoh: 2027/2028).';
+      ToastManager.getInstance().show('Format Tahun Ajaran Salah', 'error', msg);
+      return { success: false, error: msg };
+    }
+    if (this.academicYears.some((ay) => ay.year === cleanYear)) {
+      const msg = `Tahun ajaran ${cleanYear} sudah terdaftar di Workspace.`;
+      ToastManager.getInstance().show('Tahun Ajaran Sudah Ada', 'error', msg);
+      return { success: false, error: msg };
+    }
+
+    const toastId = ToastManager.getInstance().show(
+      `Menyiapkan Database TA ${cleanYear}...`,
+      'pending',
+      'Membuat Spreadsheet 12-sheet baru, menyalin master terpilih, dan menanam ARRAYFORMULA relasional...'
+    );
+
+    try {
+      const bearerToken = await this.transport.resolveAuthBearerToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+      if (bearerToken) {
+        headers.Authorization = `Bearer ${bearerToken}`;
+      }
+
+      const { ok, status, data: resJson } = await safeFetchJson('/api/admin/rollover-year', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          year: cleanYear,
+          copySheets: params.copySheets,
+          targetSpreadsheetId: params.targetSpreadsheetId?.trim() || undefined,
+          spreadsheetTitle: params.spreadsheetTitle?.trim() || undefined,
+        }),
+      });
+
+      if (!ok || !resJson?.success || !resJson?.spreadsheetId) {
+        throw new Error(
+          resJson?.message || `Gagal membuat Spreadsheet tahun ajaran baru (HTTP ${status}).`
+        );
+      }
+
+      const activateNow = params.activateImmediately !== false;
+      const newEntry: AcademicYearConfig = {
+        year: cleanYear,
+        label: activateNow
+          ? `Tahun Ajaran ${cleanYear} (Aktif)`
+          : `Tahun Ajaran ${cleanYear} (Siap)`,
+        spreadsheetId: String(resJson.spreadsheetId),
+        spreadsheetName:
+          String(resJson.spreadsheetName || '') ||
+          `Hubin_SMK_PGRI_2_Ponorogo_${cleanYear.replace('/', '_')}`,
+        spreadsheetUrl:
+          String(resJson.spreadsheetUrl || '') ||
+          `https://docs.google.com/spreadsheets/d/${resJson.spreadsheetId}`,
+        formUrl: params.formUrl?.trim() || '',
+        formEditUrl: '',
+        driveFolderYearUrl: String(resJson.driveFolderUrl || this.driveFolderUrl || ''),
+        isActive: activateNow,
+        createdAt: new Date().toISOString(),
+      };
+
+      if (!this.driveFolderUrl && resJson.driveFolderUrl) {
+        this.driveFolderUrl = String(resJson.driveFolderUrl);
+      }
+
+      if (activateNow) {
+        this.academicYears = [
+          newEntry,
+          ...this.academicYears.map((ay) => ({
+            ...ay,
+            isActive: false,
+            label: ay.label.replace('(Aktif)', '(Arsip)'),
+          })),
+        ];
+        this.activeYear = cleanYear;
+        this.spreadsheetId = newEntry.spreadsheetId;
+        this.spreadsheetName = newEntry.spreadsheetName;
+        this.spreadsheetUrl = newEntry.spreadsheetUrl;
+      } else {
+        this.academicYears = [newEntry, ...this.academicYears];
+      }
+
+      await this.persistToFirestoreAndNotify();
+
+      const copiedSummary = Object.entries(resJson.seededCounts || {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ');
+
+      ToastManager.getInstance().update(
+        toastId,
+        `Database TA ${cleanYear} Siap Digunakan!`,
+        'success',
+        copiedSummary
+          ? `Master tersalin (${copiedSummary}) & ${resJson.plantedFormulas || 0} formula relasional aktif.`
+          : `${resJson.plantedFormulas || 0} formula relasional & 12 tabel siap digunakan.`
+      );
+
+      return {
+        success: true,
+        spreadsheetId: newEntry.spreadsheetId,
+        spreadsheetName: newEntry.spreadsheetName,
+        spreadsheetUrl: newEntry.spreadsheetUrl,
+        driveFolderUrl: newEntry.driveFolderYearUrl,
+        seededCounts: resJson.seededCounts,
+        plantedFormulas: resJson.plantedFormulas,
+      };
+    } catch (err: any) {
+      const errMsg = err?.message || 'Gagal menyiapkan Spreadsheet Tahun Ajaran baru.';
+      ToastManager.getInstance().update(
+        toastId,
+        `Gagal Roll-over TA ${cleanYear}`,
+        'error',
+        errMsg
+      );
+      return { success: false, error: errMsg };
     }
   }
 

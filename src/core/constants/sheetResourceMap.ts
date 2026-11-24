@@ -32,17 +32,26 @@ export const SHEET_TO_REST_RESOURCE: Record<string, string> = {
   Log_Penerbitan_Surat: 'issued-letters',
 };
 
-export const DEFAULT_ADMIN_BOOTSTRAP_TABLES: string[] = [
+export const CORE_ADMIN_BOOTSTRAP_TABLES: string[] = [
   'Master_Jurusan',
   'Master_Kelas_Walas',
   'Master_DUDI',
   'Master_Guru_Pendamping',
   'Master_Siswa_XI',
   'Data_Pengajuan_PKL',
-  'Data_Perizinan_PKL',
   'Plotting_Pemberangkatan',
+  'Log_Penerbitan_Surat',
+];
+
+export const HEAVY_ADMIN_BOOTSTRAP_TABLES: string[] = [
+  'Data_Perizinan_PKL',
   'Monitoring_5_Tahap',
   'Nilai_Dan_Sertifikat',
+];
+
+export const DEFAULT_ADMIN_BOOTSTRAP_TABLES: string[] = [
+  ...CORE_ADMIN_BOOTSTRAP_TABLES,
+  ...HEAVY_ADMIN_BOOTSTRAP_TABLES.filter((t) => t !== 'Log_Penerbitan_Surat'),
 ];
 
 export const ALLOWED_ADMIN_SHEETS = new Set<string>(Object.keys(SHEET_TO_REST_RESOURCE));

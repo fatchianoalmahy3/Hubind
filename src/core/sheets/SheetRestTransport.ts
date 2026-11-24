@@ -1,7 +1,9 @@
 import { GoogleDriveSheetService } from '../GoogleDriveSheetService';
-import { getFirebaseIdToken } from '../auth/GoogleAuthService';
 import { getAdminSessionToken } from '../auth/LocalAccountAuthService';
-import { SHEET_TO_REST_RESOURCE } from '../constants/sheetResourceMap';
+import {
+  CORE_ADMIN_BOOTSTRAP_TABLES,
+  SHEET_TO_REST_RESOURCE,
+} from '../constants/sheetResourceMap';
 import {
   formatGasNetworkError,
   isBackendProxyUnavailableError,
@@ -57,6 +59,7 @@ export class SheetRestTransport {
     if (sessionToken && !sessionToken.startsWith('local_gas_')) {
       return sessionToken;
     }
+    const { getFirebaseIdToken } = await import('../auth/GoogleAuthService');
     return await getFirebaseIdToken();
   }
 
@@ -175,64 +178,91 @@ export class SheetRestTransport {
       return this.bootstrapPromise;
     }
 
-    this.bootstrapPromise = (async () => {
+    const fetchAndHydrateBatch = async (
+      tables: string[],
+      etagHeader?: string
+    ): Promise<{ ok: boolean; notModified: boolean; etag?: string }> => {
       const bearerToken = await this.resolveAuthBearerToken();
-      if (!bearerToken) return false;
+      if (!bearerToken) return { ok: false, notModified: false };
       const requestStartedAt = Date.now();
 
-      try {
-        const headers: Record<string, string> = {
-          Accept: 'application/json',
-          Authorization: `Bearer ${bearerToken}`,
-        };
-        const currentBootstrapEtag = this.snapshotCache.getBootstrapEtag();
-        if (!forceFresh && currentBootstrapEtag) {
-          headers['If-None-Match'] = currentBootstrapEtag;
-        }
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${bearerToken}`,
+      };
+      if (!forceFresh && etagHeader) {
+        headers['If-None-Match'] = etagHeader;
+      }
 
-        const qs = forceFresh ? `?fresh=1&_ts=${Date.now()}` : '';
-        const res = await safeFetchJson(`/api/v1/bootstrap${qs}`, {
-          method: 'GET',
-          timeoutMs: 18_000,
-          headers,
-        });
+      const params = new URLSearchParams();
+      params.set('tables', tables.join(','));
+      if (forceFresh) {
+        params.set('fresh', '1');
+        params.set('_ts', String(Date.now()));
+      }
 
-        if (res.notModified) {
-          this.snapshotCache.touchAllEtagTimestamps(ctx.spreadsheetId);
-          return true;
-        }
+      const res = await safeFetchJson(`/api/v1/bootstrap?${params.toString()}`, {
+        method: 'GET',
+        timeoutMs: 18_000,
+        headers,
+      });
 
-        const json = res.data;
-        if (res.ok && json?.success && json?.tables && typeof json.tables === 'object') {
-          if (res.etag || json.etag) {
-            this.snapshotCache.setBootstrapEtag(res.etag || json.etag);
-          }
-          const normalizer = GoogleDriveSheetService.getInstance();
-          const etagsMap: Record<string, string> = json.etags || {};
-          const updatedTables: string[] = [];
+      if (res.notModified) {
+        this.snapshotCache.touchAllEtagTimestamps(ctx.spreadsheetId);
+        return { ok: true, notModified: true, etag: res.etag ?? undefined };
+      }
 
-          await Promise.all(
-            Object.entries(json.tables).map(async ([tableName, rawRows]) => {
-              if (!Array.isArray(rawRows)) return;
-              const lastLocalMut = this.snapshotCache.getSheetLastMutatedAt(tableName);
-              if (!forceFresh && lastLocalMut >= requestStartedAt) {
-                return;
-              }
-              const normalized = normalizer.normalizeExternalRows(tableName, rawRows);
-              await this.snapshotCache.saveCachedSnapshot(
-                ctx.spreadsheetId,
-                ctx.activeYear,
-                tableName,
-                normalized,
-                etagsMap[tableName]
-              );
-              updatedTables.push(tableName);
-            })
-          );
+      const json = res.data;
+      if (res.ok && json?.success && json?.tables && typeof json.tables === 'object') {
+        const normalizer = GoogleDriveSheetService.getInstance();
+        const etagsMap: Record<string, string> = json.etags || {};
+        const updatedTables: string[] = [];
+
+        await Promise.all(
+          Object.entries(json.tables).map(async ([tableName, rawRows]) => {
+            if (!Array.isArray(rawRows)) return;
+            const lastLocalMut = this.snapshotCache.getSheetLastMutatedAt(tableName);
+            if (!forceFresh && lastLocalMut >= requestStartedAt) {
+              return;
+            }
+            const normalized = normalizer.normalizeExternalRows(tableName, rawRows);
+            await this.snapshotCache.saveCachedSnapshot(
+              ctx.spreadsheetId,
+              ctx.activeYear,
+              tableName,
+              normalized,
+              etagsMap[tableName]
+            );
+            updatedTables.push(tableName);
+          })
+        );
+        if (updatedTables.length > 0) {
           this.snapshotCache.notifyBootstrapUpdated(updatedTables);
-          return true;
         }
-        return false;
+        return { ok: true, notModified: false, etag: res.etag || json.etag };
+      }
+      return { ok: false, notModified: false };
+    };
+
+    this.bootstrapPromise = (async () => {
+      try {
+        const currentBootstrapEtag = this.snapshotCache.getBootstrapEtag();
+        const coreResult = await fetchAndHydrateBatch(
+          CORE_ADMIN_BOOTSTRAP_TABLES,
+          currentBootstrapEtag || undefined
+        );
+        if (!coreResult.ok) return false;
+        if (coreResult.etag) {
+          this.snapshotCache.setBootstrapEtag(coreResult.etag);
+        }
+
+        // Phase-2: Split heavy operational/monitoring tables so every payload stays well below Vercel 4.5MB limit
+        await Promise.all([
+          fetchAndHydrateBatch(['Data_Perizinan_PKL', 'Nilai_Dan_Sertifikat']).catch(() => null),
+          fetchAndHydrateBatch(['Monitoring_5_Tahap']).catch(() => null),
+        ]);
+
+        return true;
       } catch {
         return false;
       }

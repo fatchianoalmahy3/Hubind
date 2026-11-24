@@ -1,7 +1,6 @@
 import { GoogleSheetClient } from '../GoogleSheetClient';
 import { GoogleDriveSheetService } from '../GoogleDriveSheetService';
 import { getDependentSheets } from '../types/sheetBlueprint';
-import { getFirebaseIdToken } from '../auth/GoogleAuthService';
 import { getAdminSessionToken } from '../auth/LocalAccountAuthService';
 import {
   safeFetchJson,
@@ -305,6 +304,7 @@ export async function resolveAuthToken(): Promise<string | null> {
   if (localTok && !localTok.startsWith('local_gas_')) {
     return localTok;
   }
+  const { getFirebaseIdToken } = await import('../auth/GoogleAuthService');
   return getFirebaseIdToken();
 }
 

@@ -63,17 +63,24 @@ var SHEET_TO_REST_RESOURCE = {
   Master_Akun: "accounts",
   Log_Penerbitan_Surat: "issued-letters"
 };
-var DEFAULT_ADMIN_BOOTSTRAP_TABLES = [
+var CORE_ADMIN_BOOTSTRAP_TABLES = [
   "Master_Jurusan",
   "Master_Kelas_Walas",
   "Master_DUDI",
   "Master_Guru_Pendamping",
   "Master_Siswa_XI",
   "Data_Pengajuan_PKL",
-  "Data_Perizinan_PKL",
   "Plotting_Pemberangkatan",
+  "Log_Penerbitan_Surat"
+];
+var HEAVY_ADMIN_BOOTSTRAP_TABLES = [
+  "Data_Perizinan_PKL",
   "Monitoring_5_Tahap",
   "Nilai_Dan_Sertifikat"
+];
+var DEFAULT_ADMIN_BOOTSTRAP_TABLES = [
+  ...CORE_ADMIN_BOOTSTRAP_TABLES,
+  ...HEAVY_ADMIN_BOOTSTRAP_TABLES.filter((t) => t !== "Log_Penerbitan_Surat")
 ];
 var ALLOWED_ADMIN_SHEETS = new Set(Object.keys(SHEET_TO_REST_RESOURCE));
 
@@ -329,23 +336,6 @@ async function getFirestoreWorkspaceConfig(forceRefresh = false) {
       inFlightConfigFetch = null;
     }
   }
-}
-
-// server/services/adminAuthService.ts
-import crypto3 from "crypto";
-
-// src/core/utils/rowFieldHelpers.ts
-function pickField(row, ...keys) {
-  for (const k of keys) {
-    const val = row?.[k];
-    if (val !== void 0 && val !== null && String(val).trim() !== "") {
-      return String(val).trim();
-    }
-  }
-  return "";
-}
-function normalizeStr(v) {
-  return String(v ?? "").trim().toLowerCase();
 }
 
 // src/core/types/sheetBlueprint.ts
@@ -773,81 +763,6 @@ function getDependentSheets(sheetName) {
   return SHEET_DEPENDENTS_MAP[sheetName] || [];
 }
 
-// src/core/utils/nisHelpers.ts
-function stripNisSymbols(val) {
-  if (val === void 0 || val === null) return "";
-  const str = String(val).trim();
-  if (!str || str === "-") return "";
-  return str.replace(/\D/g, "");
-}
-
-// server/services/serverSheetCache.ts
-var SHEET_CACHE_SOFT_TTL_MS = 45e3;
-var SHEET_CACHE_STALE_MAX_MS = 6e5;
-var SHEET_CACHE_TTL_MS = SHEET_CACHE_SOFT_TTL_MS;
-var BACKGROUND_REVALIDATION_LOCK_MAX_MS = 2e4;
-var sheetCache = /* @__PURE__ */ new Map();
-var inFlightSheetFetches = /* @__PURE__ */ new Map();
-var inFlightBackgroundRevalidations = /* @__PURE__ */ new Map();
-var siswaIndexCache = /* @__PURE__ */ new Map();
-var metadataCacheClearHook = null;
-function registerMetadataCacheClearHook(hook) {
-  metadataCacheClearHook = hook;
-}
-function isBackgroundRevalidationActive(cacheKey) {
-  const startedAt = inFlightBackgroundRevalidations.get(cacheKey);
-  if (!startedAt) return false;
-  if (Date.now() - startedAt > BACKGROUND_REVALIDATION_LOCK_MAX_MS) {
-    inFlightBackgroundRevalidations.delete(cacheKey);
-    return false;
-  }
-  return true;
-}
-function invalidateSheetCacheEntry(spreadsheetId, sheetName) {
-  sheetCache.delete(`${spreadsheetId}::${sheetName}`);
-  if (sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa") {
-    siswaIndexCache.delete(spreadsheetId);
-  }
-}
-async function invalidateServerCaches(sheetParam) {
-  if (sheetParam) {
-    const cfg = await getFirestoreWorkspaceConfig().catch(() => null);
-    if (cfg?.spreadsheetId) {
-      invalidateSheetCacheEntry(cfg.spreadsheetId, sheetParam);
-      for (const dep of getDependentSheets(sheetParam)) {
-        invalidateSheetCacheEntry(cfg.spreadsheetId, dep);
-      }
-    } else {
-      sheetCache.clear();
-      siswaIndexCache.clear();
-    }
-    return;
-  }
-  invalidateWorkspaceConfigCache();
-  sheetCache.clear();
-  siswaIndexCache.clear();
-  metadataCacheClearHook?.();
-}
-function getOrBuildSiswaIndex(spreadsheetId, rows) {
-  let indexEntry = siswaIndexCache.get(spreadsheetId);
-  if (!indexEntry || Date.now() - indexEntry.fetchedAt >= SHEET_CACHE_TTL_MS) {
-    const byKey = /* @__PURE__ */ new Map();
-    for (const s of rows) {
-      const nis = pickField(s, "NIS", "nis");
-      const nisDigits = stripNisSymbols(nis);
-      const nik = pickField(s, "NIK", "nik");
-      const nikDigits = stripNisSymbols(nik);
-      if (nis && !byKey.has(nis)) byKey.set(nis, s);
-      if (nisDigits && !byKey.has(nisDigits)) byKey.set(nisDigits, s);
-      if (nik && !byKey.has(nik)) byKey.set(nik, s);
-      if (nikDigits && !byKey.has(nikDigits)) byKey.set(nikDigits, s);
-    }
-    indexEntry = { byKey, fetchedAt: Date.now() };
-    siswaIndexCache.set(spreadsheetId, indexEntry);
-  }
-  return indexEntry.byKey;
-}
-
 // src/core/utils/dateHelpers.ts
 var INDONESIAN_MONTH_MAP = {
   januari: 1,
@@ -1042,6 +957,14 @@ function generateJurusanCode(namaJurusan) {
     return words[0].slice(0, 5).toUpperCase();
   }
   return words.map((w) => w[0]).join("").slice(0, 5).toUpperCase();
+}
+
+// src/core/utils/nisHelpers.ts
+function stripNisSymbols(val) {
+  if (val === void 0 || val === null) return "";
+  const str = String(val).trim();
+  if (!str || str === "-") return "";
+  return str.replace(/\D/g, "");
 }
 
 // src/core/GoogleDriveSheetService.ts
@@ -1613,6 +1536,90 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
     });
   }
 };
+
+// server/services/adminAuthService.ts
+import crypto3 from "crypto";
+
+// src/core/utils/rowFieldHelpers.ts
+function pickField(row, ...keys) {
+  for (const k of keys) {
+    const val = row?.[k];
+    if (val !== void 0 && val !== null && String(val).trim() !== "") {
+      return String(val).trim();
+    }
+  }
+  return "";
+}
+function normalizeStr(v) {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+// server/services/serverSheetCache.ts
+var SHEET_CACHE_SOFT_TTL_MS = 45e3;
+var SHEET_CACHE_STALE_MAX_MS = 6e5;
+var SHEET_CACHE_TTL_MS = SHEET_CACHE_SOFT_TTL_MS;
+var BACKGROUND_REVALIDATION_LOCK_MAX_MS = 2e4;
+var sheetCache = /* @__PURE__ */ new Map();
+var inFlightSheetFetches = /* @__PURE__ */ new Map();
+var inFlightBackgroundRevalidations = /* @__PURE__ */ new Map();
+var siswaIndexCache = /* @__PURE__ */ new Map();
+var metadataCacheClearHook = null;
+function registerMetadataCacheClearHook(hook) {
+  metadataCacheClearHook = hook;
+}
+function isBackgroundRevalidationActive(cacheKey) {
+  const startedAt = inFlightBackgroundRevalidations.get(cacheKey);
+  if (!startedAt) return false;
+  if (Date.now() - startedAt > BACKGROUND_REVALIDATION_LOCK_MAX_MS) {
+    inFlightBackgroundRevalidations.delete(cacheKey);
+    return false;
+  }
+  return true;
+}
+function invalidateSheetCacheEntry(spreadsheetId, sheetName) {
+  sheetCache.delete(`${spreadsheetId}::${sheetName}`);
+  if (sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa") {
+    siswaIndexCache.delete(spreadsheetId);
+  }
+}
+async function invalidateServerCaches(sheetParam) {
+  if (sheetParam) {
+    const cfg = await getFirestoreWorkspaceConfig().catch(() => null);
+    if (cfg?.spreadsheetId) {
+      invalidateSheetCacheEntry(cfg.spreadsheetId, sheetParam);
+      for (const dep of getDependentSheets(sheetParam)) {
+        invalidateSheetCacheEntry(cfg.spreadsheetId, dep);
+      }
+    } else {
+      sheetCache.clear();
+      siswaIndexCache.clear();
+    }
+    return;
+  }
+  invalidateWorkspaceConfigCache();
+  sheetCache.clear();
+  siswaIndexCache.clear();
+  metadataCacheClearHook?.();
+}
+function getOrBuildSiswaIndex(spreadsheetId, rows) {
+  let indexEntry = siswaIndexCache.get(spreadsheetId);
+  if (!indexEntry || Date.now() - indexEntry.fetchedAt >= SHEET_CACHE_TTL_MS) {
+    const byKey = /* @__PURE__ */ new Map();
+    for (const s of rows) {
+      const nis = pickField(s, "NIS", "nis");
+      const nisDigits = stripNisSymbols(nis);
+      const nik = pickField(s, "NIK", "nik");
+      const nikDigits = stripNisSymbols(nik);
+      if (nis && !byKey.has(nis)) byKey.set(nis, s);
+      if (nisDigits && !byKey.has(nisDigits)) byKey.set(nisDigits, s);
+      if (nik && !byKey.has(nik)) byKey.set(nik, s);
+      if (nikDigits && !byKey.has(nikDigits)) byKey.set(nikDigits, s);
+    }
+    indexEntry = { byKey, fetchedAt: Date.now() };
+    siswaIndexCache.set(spreadsheetId, indexEntry);
+  }
+  return indexEntry.byKey;
+}
 
 // server/services/sheetsApiV4Client.ts
 import crypto2 from "crypto";
@@ -2313,7 +2320,7 @@ async function writeLiveSheetViaGas(sheetName, action, payload) {
 }
 async function callGasCustomAction(action, extraBody = {}, timeoutMs = 25e3) {
   const config = await getFirestoreWorkspaceConfig();
-  if (!config.spreadsheetId) {
+  if (!config.spreadsheetId && !extraBody?.targetSpreadsheetId && String(action || "").toUpperCase() !== "CREATE_YEARLY_SPREADSHEET") {
     throw new PortalConfigError(
       "SPREADSHEET_NOT_CONFIGURED",
       "ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin."
@@ -2587,6 +2594,13 @@ async function requireAdminAuth(req) {
 }
 
 // server/routes/adminRoutes.ts
+var SAFE_ROLLOVER_MASTER_SHEETS = /* @__PURE__ */ new Set([
+  "Master_Akun",
+  "Master_Jurusan",
+  "Master_Guru_Pendamping",
+  "Master_DUDI",
+  "Master_Kelas_Walas"
+]);
 function registerAdminRoutes(app2) {
   app2.post("/api/admin/login", async (req, res) => {
     try {
@@ -2930,6 +2944,82 @@ function registerAdminRoutes(app2) {
       }
       await writeLiveSheetViaGas(targetSheet, normalizedAction, data);
       res.json({ success: true });
+    } catch (err) {
+      handlePortalError(res, err);
+    }
+  });
+  app2.post("/api/admin/rollover-year", async (req, res) => {
+    try {
+      const session = await requireAdminAuth(req);
+      if (session.role !== "SuperAdmin") {
+        return res.status(403).json({
+          success: false,
+          code: "FORBIDDEN",
+          message: "Hanya peran SuperAdmin yang berhak membuka Tahun Ajaran baru dan menggandakan master."
+        });
+      }
+      const rawYear = String(req.body?.year || "").trim();
+      if (!/^[0-9]{4}\/[0-9]{4}$/.test(rawYear)) {
+        return res.status(400).json({
+          success: false,
+          message: "Format Tahun Ajaran wajib YYYY/YYYY (contoh: 2027/2028)."
+        });
+      }
+      const rawTargetId = String(req.body?.targetSpreadsheetId || "").trim();
+      const targetMatch = rawTargetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      const targetSpreadsheetId = targetMatch && targetMatch[1] ? targetMatch[1] : rawTargetId;
+      const cleanYear = rawYear.replace(/\//g, "_");
+      const spreadsheetTitle = String(req.body?.spreadsheetTitle || "").trim() || `Hubin_SMK_PGRI_2_Ponorogo_${cleanYear}`;
+      const requestedSheets = Array.isArray(req.body?.copySheets) ? req.body.copySheets.map((s) => String(s || "").trim()).filter((s) => SAFE_ROLLOVER_MASTER_SHEETS.has(s)) : [];
+      const selectedSheets = Array.from(new Set(requestedSheets));
+      const cfg = await getFirestoreWorkspaceConfig(true);
+      const seedSheets = {};
+      if (selectedSheets.length > 0 && cfg.spreadsheetId) {
+        const sheetSvc = GoogleDriveSheetService.getInstance();
+        const { sheets } = await fetchBatchSheetsViaGas(
+          selectedSheets,
+          /* @__PURE__ */ new Set(["Master_Akun"]),
+          true
+        );
+        for (const sName of selectedSheets) {
+          const rawRows = Array.isArray(sheets[sName]) ? sheets[sName] : [];
+          if (rawRows.length === 0) continue;
+          seedSheets[sName] = rawRows.map((row) => {
+            const stripped = sheetSvc.stripFormulaManagedFields(sName, row || {});
+            const { _sheetRowNumber: _omitRow, ...cleanRow } = stripped;
+            return cleanRow;
+          });
+        }
+      }
+      const { data: gasResult } = await callGasCustomAction(
+        "CREATE_YEARLY_SPREADSHEET",
+        {
+          year: rawYear,
+          spreadsheetTitle,
+          targetSpreadsheetId: targetSpreadsheetId || void 0,
+          driveFolderUrl: cfg.driveFolderUrl || "",
+          seedSheets
+        },
+        45e3
+      );
+      if (!gasResult?.spreadsheetId) {
+        throw new PortalConfigError(
+          "GAS_ROLLOVER_INCOMPLETE",
+          "Endpoint Cloud Server belum mengembalikan ID Spreadsheet baru. Pastikan skrip API GAS sudah diperbarui ke versi terbaru.",
+          502
+        );
+      }
+      await invalidateServerCaches();
+      return res.json({
+        success: true,
+        year: rawYear,
+        spreadsheetId: gasResult.spreadsheetId,
+        spreadsheetName: gasResult.spreadsheetName || spreadsheetTitle,
+        spreadsheetUrl: gasResult.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${gasResult.spreadsheetId}`,
+        driveFolderUrl: gasResult.driveFolderUrl || cfg.driveFolderUrl || "",
+        seededCounts: gasResult.seededCounts || {},
+        plantedFormulas: Number(gasResult.plantedFormulas || 0)
+      });
     } catch (err) {
       handlePortalError(res, err);
     }
@@ -3393,12 +3483,20 @@ function registerRestApiRoutes(app2) {
       const fresh = String(req.query.fresh || "") === "1";
       const { rows, config } = await fetchLiveSheetViaGas(tableName, fresh);
       let filtered = rows;
-      const q = String(req.query.q || "").trim().toLowerCase();
-      if (q) {
+      const rawQ = String(req.query.q || "").trim();
+      const q = rawQ.toLowerCase();
+      const qDigits = !/[a-z]/i.test(rawQ) ? stripNisSymbols(rawQ) : "";
+      if (q || qDigits.length >= 3) {
         filtered = filtered.filter(
-          (row) => Object.values(row || {}).some(
-            (v) => v !== null && v !== void 0 && String(v).toLowerCase().includes(q)
-          )
+          (row) => Object.entries(row || {}).some(([k, v]) => {
+            if (v === null || v === void 0) return false;
+            const str = String(v);
+            if (q && str.toLowerCase().includes(q)) return true;
+            if (qDigits.length >= 3 && (k.toLowerCase().includes("nis") || k.toLowerCase().includes("nik") || k.toLowerCase().includes("siswa"))) {
+              return stripNisSymbols(str).includes(qDigits);
+            }
+            return false;
+          })
         );
       }
       const sortCol = String(req.query.sort || "").trim();
@@ -4019,31 +4117,54 @@ function parseGradesFromMonitoringRow(row) {
   }
   return null;
 }
-function buildStudentMonitoringSummary(student, monitoringRows, nilaiRows) {
+function buildStudentMonitoringSummary(student, monitoringRows, nilaiRows, lookupIndex) {
   const norm = (v) => String(v ?? "").trim().toLowerCase();
   const targetNisRaw = String(student.nis || "").trim();
   const targetNisDigits = stripNisSymbols(targetNisRaw);
   const targetPlt = String(student.idPenempatan || "").trim();
   const targetNama = norm(student.nama);
   const targetDudi = norm(student.dudi_name);
-  const matchedMonitoring = (Array.isArray(monitoringRows) ? monitoringRows : []).filter((row) => {
-    const rowNisRaw = String(row.NIS ?? row.nis ?? "").trim();
-    const rowNisDigits = stripNisSymbols(rowNisRaw);
-    const rowPlt = String(row.ID_Penempatan ?? row.idPenempatan ?? "").trim();
-    const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? "");
-    const rowDaftarDigits = stripNisSymbols(rowDaftar);
-    const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? "");
-    const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? "");
-    if (targetNisDigits && rowNisDigits === targetNisDigits) return true;
-    if (targetNisRaw && targetNisRaw !== "-" && rowNisRaw === targetNisRaw) return true;
-    if (targetPlt && rowPlt && rowPlt === targetPlt) return true;
-    if (targetNisDigits && rowDaftarDigits.includes(targetNisDigits)) return true;
-    if (targetNisRaw && targetNisRaw !== "-" && rowDaftar.includes(targetNisRaw.toLowerCase())) return true;
-    if (targetNama && (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) && (!targetDudi || !rowDudi || rowDudi === targetDudi || rowDudi.includes(targetDudi))) {
-      return true;
+  let matchedMonitoring;
+  if (lookupIndex) {
+    const seen = /* @__PURE__ */ new Set();
+    const addCandidate = (rows) => {
+      if (!rows) return;
+      for (const r of rows) seen.add(r);
+    };
+    if (targetNisDigits) addCandidate(lookupIndex.monitoringByNisDigits.get(targetNisDigits));
+    if (targetNisRaw && targetNisRaw !== "-") addCandidate(lookupIndex.monitoringByNisRaw.get(targetNisRaw));
+    if (targetPlt) addCandidate(lookupIndex.monitoringByPlacement.get(targetPlt));
+    for (const row of lookupIndex.groupMonitoringRows) {
+      if (seen.has(row)) continue;
+      const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? "");
+      const rowDaftarDigits = stripNisSymbols(rowDaftar);
+      const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? "");
+      const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? "");
+      if (targetNisDigits && rowDaftarDigits.includes(targetNisDigits) || targetNisRaw && targetNisRaw !== "-" && rowDaftar.includes(targetNisRaw.toLowerCase()) || targetNama && (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) && (!targetDudi || !rowDudi || rowDudi === targetDudi || rowDudi.includes(targetDudi))) {
+        seen.add(row);
+      }
     }
-    return false;
-  });
+    matchedMonitoring = Array.from(seen);
+  } else {
+    matchedMonitoring = (Array.isArray(monitoringRows) ? monitoringRows : []).filter((row) => {
+      const rowNisRaw = String(row.NIS ?? row.nis ?? "").trim();
+      const rowNisDigits = stripNisSymbols(rowNisRaw);
+      const rowPlt = String(row.ID_Penempatan ?? row.idPenempatan ?? "").trim();
+      const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? "");
+      const rowDaftarDigits = stripNisSymbols(rowDaftar);
+      const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? "");
+      const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? "");
+      if (targetNisDigits && rowNisDigits === targetNisDigits) return true;
+      if (targetNisRaw && targetNisRaw !== "-" && rowNisRaw === targetNisRaw) return true;
+      if (targetPlt && rowPlt && rowPlt === targetPlt) return true;
+      if (targetNisDigits && rowDaftarDigits.includes(targetNisDigits)) return true;
+      if (targetNisRaw && targetNisRaw !== "-" && rowDaftar.includes(targetNisRaw.toLowerCase())) return true;
+      if (targetNama && (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) && (!targetDudi || !rowDudi || rowDudi === targetDudi || rowDudi.includes(targetDudi))) {
+        return true;
+      }
+      return false;
+    });
+  }
   const stageLogs = {};
   const completedSet = /* @__PURE__ */ new Set();
   let submittedGradeSummary = null;
@@ -4082,8 +4203,16 @@ function buildStudentMonitoringSummary(student, monitoringRows, nilaiRows) {
       submittedGradeSummary = parsedGrade;
     }
   }
-  if (Array.isArray(nilaiRows)) {
-    const matchedNilai = nilaiRows.find((n) => {
+  const nilaiCandidates = lookupIndex ? (() => {
+    const set = /* @__PURE__ */ new Set();
+    if (targetNisDigits) lookupIndex.nilaiByNisDigits.get(targetNisDigits)?.forEach((x) => set.add(x));
+    if (targetNisRaw && targetNisRaw !== "-") lookupIndex.nilaiByNisRaw.get(targetNisRaw)?.forEach((x) => set.add(x));
+    if (targetPlt) lookupIndex.nilaiByPlacement.get(targetPlt)?.forEach((x) => set.add(x));
+    if (set.size > 0) return Array.from(set);
+    return lookupIndex.allNilaiRows;
+  })() : Array.isArray(nilaiRows) ? nilaiRows : [];
+  if (nilaiCandidates.length > 0) {
+    const matchedNilai = nilaiCandidates.find((n) => {
       const rowNisRaw = String(n.NIS ?? n.nis ?? "").trim();
       const rowNisDigits = stripNisSymbols(rowNisRaw);
       const rowPlt = String(n.ID_Penempatan ?? n.idPenempatan ?? "").trim();

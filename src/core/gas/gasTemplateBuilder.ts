@@ -59,7 +59,7 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
   yearFolder.addFile(ssFile);
   DriveApp.getRootFolder().removeFile(ssFile);
 
-  // Struktur 11 Sheet Baku Relasional (Single Source of Truth dari Blueprint Aplikasi)
+  // Struktur ${HUBIN_SHEETS_BLUEPRINT.length} Sheet Baku Relasional (Single Source of Truth dari Blueprint Aplikasi)
   const sheetsConfig = ${sheetsConfigLiteral};
 
   sheetsConfig.forEach(function(cfg, idx) {
@@ -117,6 +117,64 @@ function setupGoogleWorkspaceEnvironment(academicYear) {
   Logger.log('DOCS           : ' + JSON.stringify(createdDocs));
 }
 `;
+}
+
+export function buildAutoGenerateSheetsFormScript(academicYear: string = '2026/2027'): string {
+  const safeYear = String(academicYear || '2026/2027').replace(/"/g, '');
+  const totalSheets = HUBIN_SHEETS_BLUEPRINT.length;
+  const sheetsConfigLiteral = JSON.stringify(
+    HUBIN_SHEETS_BLUEPRINT.map((sheet) => ({
+      name: sheet.sheetName,
+      headers: sheet.headers,
+    })),
+    null,
+    2
+  ).replace(/\n/g, '\n  ');
+
+  return `/**
+ * ============================================================================
+ * GOOGLE APPS SCRIPT: AUTO-GENERATE ${totalSheets} SHEET & GFORM RESMI (SSOT)
+ * HUBIN SMK PGRI 2 PONOROGO (TA ${safeYear})
+ * ============================================================================
+ */
+function autoGenerateAllSheetsAndForm() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const year = "${safeYear}";
+
+  const sheetsData = ${sheetsConfigLiteral};
+
+  sheetsData.forEach(function(item, idx) {
+    let sheet = ss.getSheetByName(item.name);
+    if (!sheet) {
+      sheet = (idx === 0 && ss.getSheets().length === 1 && ss.getSheets()[0].getName().indexOf("Sheet1") !== -1)
+        ? ss.getSheets()[0]
+        : ss.insertSheet(item.name);
+      sheet.setName(item.name);
+    }
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(item.headers);
+      sheet.getRange(1, 1, 1, item.headers.length)
+        .setFontWeight("bold")
+        .setBackground("#0F172A")
+        .setFontColor("#FFFFFF");
+      sheet.setFrozenRows(1);
+    }
+    const nisColIdx = item.headers.indexOf("NIS");
+    if (nisColIdx !== -1) {
+      sheet.getRange(2, nisColIdx + 1, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat("@");
+    }
+  });
+
+  if (typeof applyRelationalFormulasToSpreadsheet === "function") {
+    applyRelationalFormulasToSpreadsheet(ss);
+  }
+
+  const form = FormApp.create("Formulir Pengajuan PKL Siswa TA " + year);
+  form.setDescription("Jawaban masuk ke Sheet Data_Pengajuan_PKL")
+      .setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
+
+  Logger.log("SUKSES: ${totalSheets} Tabel siap digunakan! Form URL: " + form.getPublishedUrl());
+}`;
 }
 
 export function buildGasApiScript(): string {
@@ -1463,11 +1521,110 @@ function applyRelationalFormulasToSpreadsheet(ss) {
 }
 
 function doPost(e) {
+  let scriptLock = null;
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const action = String(body.action || '').toUpperCase();
     const sheetName = body.sheetName;
     const spreadsheetId = String(body.spreadsheetId || '').trim();
+
+    const lockRequired =
+      action !== 'GENERATE_SURAT_IZIN_PDF' && action !== 'GENERATE_MONITORING_BUNDLE_PDF';
+    if (lockRequired) {
+      scriptLock = LockService.getScriptLock();
+      scriptLock.waitLock(15000);
+    }
+
+    if (action === 'CREATE_YEARLY_SPREADSHEET') {
+      const year = String(body.year || '2026/2027').trim();
+      const cleanYear = year.replace(/\\//g, '_');
+      const customTitle = String(body.spreadsheetTitle || '').trim();
+      const targetSsId = String(body.targetSpreadsheetId || '').trim();
+      const driveUrl = String(body.driveFolderUrl || '').trim();
+      const seedSheets = (body.seedSheets && typeof body.seedSheets === 'object') ? body.seedSheets : {};
+
+      let yearFolder = null;
+      const folderMatch = driveUrl.match(/\\/folders\\/([a-zA-Z0-9_-]+)/);
+      if (folderMatch && folderMatch[1]) {
+        try {
+          yearFolder = DriveApp.getFolderById(folderMatch[1]);
+        } catch (errFolder) {
+          yearFolder = null;
+        }
+      }
+      if (!yearFolder) {
+        const rootName = 'Arsip Hubin SMK PGRI 2 Ponorogo';
+        const rootIt = DriveApp.getFoldersByName(rootName);
+        const hubinFolder = rootIt.hasNext() ? rootIt.next() : DriveApp.createFolder(rootName);
+        const yearFolderName = 'Prakerin TA ' + year;
+        const yearIt = hubinFolder.getFoldersByName(yearFolderName);
+        yearFolder = yearIt.hasNext() ? yearIt.next() : hubinFolder.createFolder(yearFolderName);
+      }
+
+      const ssTitle = customTitle || ('Hubin_SMK_PGRI_2_Ponorogo_' + cleanYear);
+      const newSs = targetSsId ? SpreadsheetApp.openById(targetSsId) : SpreadsheetApp.create(ssTitle);
+      if (!targetSsId) {
+        try {
+          const ssFile = DriveApp.getFileById(newSs.getId());
+          yearFolder.addFile(ssFile);
+          DriveApp.getRootFolder().removeFile(ssFile);
+        } catch (moveErr) {}
+      }
+
+      const reqNames = Object.keys(REQUIRED_SHEET_HEADERS);
+      reqNames.forEach(function(name, idx) {
+        const hdrs = REQUIRED_SHEET_HEADERS[name] || [];
+        let sh = newSs.getSheetByName(name);
+        if (!sh) {
+          sh = (idx === 0 && !targetSsId && newSs.getSheets().length === 1)
+            ? newSs.getSheets()[0]
+            : newSs.insertSheet(name);
+          sh.setName(name);
+        }
+        if (sh.getLastRow() === 0 && hdrs.length > 0) {
+          sh.appendRow(hdrs);
+          sh.getRange(1, 1, 1, hdrs.length)
+            .setFontWeight('bold')
+            .setBackground('#0F172A')
+            .setFontColor('#FFFFFF');
+          sh.setFrozenRows(1);
+        } else if (hdrs.length > 0) {
+          ensureMissingHeaders(sh, name);
+        }
+      });
+
+      const seededCounts = {};
+      Object.keys(seedSheets).forEach(function(sName) {
+        const rows = Array.isArray(seedSheets[sName]) ? seedSheets[sName] : [];
+        if (rows.length === 0) return;
+        const sh = resolveSheetAlias(newSs, sName);
+        if (!sh) return;
+        const hdrs = ensureMissingHeaders(sh, sName);
+        const fCols = detectFormulaColFlags(sh, hdrs.length);
+        const startRow = getNextAppendRowNonFormula(sh, fCols);
+        const matrix = rows.map(function(item) {
+          return hdrs.map(function(h) {
+            const val = getNormalizedValue(item, h);
+            return val !== undefined ? val : '';
+          });
+        });
+        formatNisAndTextColumns(sh, hdrs, startRow, matrix.length);
+        writeNonFormulaMatrixSpans(sh, startRow, matrix, fCols);
+        seededCounts[sName] = matrix.length;
+      });
+
+      const formulaRes = applyRelationalFormulasToSpreadsheet(newSs);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        spreadsheetId: newSs.getId(),
+        spreadsheetName: newSs.getName(),
+        spreadsheetUrl: newSs.getUrl(),
+        driveFolderUrl: yearFolder ? yearFolder.getUrl() : driveUrl,
+        seededCounts: seededCounts,
+        plantedFormulas: formulaRes.plantedFormulas,
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     const ss = spreadsheetId ? SpreadsheetApp.openById(spreadsheetId) : SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) {
       throw new Error('Spreadsheet tidak ditemukan.');
@@ -1918,6 +2075,7 @@ function doPost(e) {
     } else if (action === 'BULK_UPDATE') {
       const updatedRows = (body.data && Array.isArray(body.data.updatedRows)) ? body.data.updatedRows : [];
       const values = sheet.getDataRange().getValues();
+      const pendingWrites = [];
       updatedRows.forEach(function(rowObj) {
         const targetId = extractRecordId(rowObj);
         const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, rowObj && rowObj._sheetRowNumber);
@@ -1927,10 +2085,29 @@ function doPost(e) {
             const val = getNormalizedValue(rowObj, h);
             return val !== undefined ? val : values[rowIdx][colIdx];
           });
-          formatNisAndTextColumns(sheet, headers, rowIdx + 1, 1);
-          writeNonFormulaRowSpans(sheet, rowIdx + 1, updatedRow, isFormulaCol);
+          values[rowIdx] = updatedRow;
+          pendingWrites.push({ sheetRow: rowIdx + 1, row: updatedRow });
         }
       });
+      if (pendingWrites.length > 0) {
+        pendingWrites.sort(function(a, b) { return a.sheetRow - b.sheetRow; });
+        let runStartIdx = 0;
+        while (runStartIdx < pendingWrites.length) {
+          let runEndIdx = runStartIdx;
+          const runMatrix = [pendingWrites[runStartIdx].row];
+          while (
+            runEndIdx + 1 < pendingWrites.length &&
+            pendingWrites[runEndIdx + 1].sheetRow === pendingWrites[runEndIdx].sheetRow + 1
+          ) {
+            runEndIdx++;
+            runMatrix.push(pendingWrites[runEndIdx].row);
+          }
+          const startSheetRow = pendingWrites[runStartIdx].sheetRow;
+          formatNisAndTextColumns(sheet, headers, startSheetRow, runMatrix.length);
+          writeNonFormulaMatrixSpans(sheet, startSheetRow, runMatrix, isFormulaCol);
+          runStartIdx = runEndIdx + 1;
+        }
+      }
     } else if (action === 'DELETE') {
       const payload = body.data || {};
       const deletedRowObj = payload.deletedRow || payload;
@@ -1995,6 +2172,12 @@ function doPost(e) {
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    if (scriptLock) {
+      try {
+        scriptLock.releaseLock();
+      } catch (releaseErr) {}
+    }
   }
 }
 `;

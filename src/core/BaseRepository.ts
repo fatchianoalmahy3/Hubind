@@ -8,7 +8,7 @@ import {
   getTodayIsoDate,
 } from './utils/autoIdHelpers';
 import { stripNisSymbols } from './utils/nisHelpers';
-import { enrichRecordWithRelations } from './utils/relationJoinHelper';
+import { enrichBatchWithRelations, enrichRecordWithRelations } from './utils/relationJoinHelper';
 
 export interface MutationOptions {
   silentToast?: boolean;
@@ -28,6 +28,7 @@ export abstract class BaseRepository<T extends { id: string }> {
   private isRevalidating: boolean = false;
   private revalidatingPromise: Promise<void> | null = null;
   private dataUpdateListeners = new Set<(meta?: { revalidatingOnly?: boolean }) => void>();
+  private searchIndexCache = new WeakMap<object, { text: string; nisDigits: string }>();
   private static readonly REVALIDATE_TTL_MS = 30_000;
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
@@ -131,7 +132,7 @@ export abstract class BaseRepository<T extends { id: string }> {
       guruRows: client.getCachedSnapshotSync('Master_Guru_Pendamping')?.data,
       placementRows: client.getCachedSnapshotSync('Plotting_Pemberangkatan')?.data,
     };
-    return rows.map((row) => enrichRecordWithRelations(this.tableName, row as Record<string, any>, maps) as T);
+    return enrichBatchWithRelations(this.tableName, rows as Record<string, any>[], maps) as T[];
   }
 
   public hasHydratedData(): boolean {
@@ -738,16 +739,31 @@ export abstract class BaseRepository<T extends { id: string }> {
         .map((f) => String(f.key));
 
       result = result.filter((row) => {
-        return searchableKeys.some((k) => {
-          const val = (row as any)[k];
-          if (val === null || val === undefined) return false;
-          const strVal = String(val);
-          if (strVal.toLowerCase().includes(q)) return true;
-          if (qDigits.length >= 3 && (k === 'nis' || k === 'daftarSiswa' || k === 'nik')) {
-            return stripNisSymbols(strVal).includes(qDigits);
+        let entry = typeof row === 'object' && row !== null ? this.searchIndexCache.get(row) : undefined;
+        if (!entry) {
+          const textParts: string[] = [];
+          const digitParts: string[] = [];
+          for (const k of searchableKeys) {
+            const val = (row as any)[k];
+            if (val === null || val === undefined || val === '') continue;
+            const strVal = String(val);
+            textParts.push(strVal.toLowerCase());
+            if (k === 'nis' || k === 'daftarSiswa' || k === 'nik') {
+              const digits = stripNisSymbols(strVal);
+              if (digits) digitParts.push(digits);
+            }
           }
-          return false;
-        });
+          entry = {
+            text: textParts.join(' '),
+            nisDigits: digitParts.join(' '),
+          };
+          if (typeof row === 'object' && row !== null) {
+            this.searchIndexCache.set(row, entry);
+          }
+        }
+        if (entry.text.includes(q)) return true;
+        if (qDigits.length >= 3 && entry.nisDigits.includes(qDigits)) return true;
+        return false;
       });
     }
 

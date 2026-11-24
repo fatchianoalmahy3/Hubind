@@ -11,6 +11,7 @@ import {
   writeLiveSheetViaGas,
 } from '../services/sheetsTransport';
 import type { GasWriteAction } from '../types';
+import { stripNisSymbols } from '../../src/core/utils/nisHelpers';
 import {
   computeWeakEtag,
   handlePortalError,
@@ -194,12 +195,23 @@ export function registerRestApiRoutes(app: Express): void {
       const { rows, config } = await fetchLiveSheetViaGas(tableName, fresh);
 
       let filtered = rows;
-      const q = String(req.query.q || '').trim().toLowerCase();
-      if (q) {
+      const rawQ = String(req.query.q || '').trim();
+      const q = rawQ.toLowerCase();
+      const qDigits = !/[a-z]/i.test(rawQ) ? stripNisSymbols(rawQ) : '';
+      if (q || qDigits.length >= 3) {
         filtered = filtered.filter((row) =>
-          Object.values(row || {}).some(
-            (v) => v !== null && v !== undefined && String(v).toLowerCase().includes(q)
-          )
+          Object.entries(row || {}).some(([k, v]) => {
+            if (v === null || v === undefined) return false;
+            const str = String(v);
+            if (q && str.toLowerCase().includes(q)) return true;
+            if (
+              qDigits.length >= 3 &&
+              (k.toLowerCase().includes('nis') || k.toLowerCase().includes('nik') || k.toLowerCase().includes('siswa'))
+            ) {
+              return stripNisSymbols(str).includes(qDigits);
+            }
+            return false;
+          })
         );
       }
 

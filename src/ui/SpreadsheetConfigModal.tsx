@@ -10,10 +10,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   ExternalLink,
+  FolderPlus,
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { ToastManager } from '../core/ToastManager';
 import { normalizeGasUrl, validateGasDeployUrl } from '../core/utils/safeFetchJson';
+import { AcademicYearRolloverModal } from './AcademicYearRolloverModal';
 
 interface SpreadsheetConfigModalProps {
   isOpen: boolean;
@@ -44,6 +46,7 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
   const [driveFolderUrl, setDriveFolderUrl] = useState('');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isRolloverOpen, setIsRolloverOpen] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
@@ -241,6 +244,26 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
             />
           </div>
 
+          <div className="p-3.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5 min-w-0">
+              <div className="text-xs font-bold text-blue-950">
+                Pergantian Tahun Ajaran (~1.000 Siswa/Tahun)
+              </div>
+              <p className="text-[11px] text-blue-800/90 leading-snug">
+                Buat file Spreadsheet baru untuk TA berikutnya sekaligus menyalin Master Jurusan, DUDI, Guru, &amp; Akun.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={!gasUrl.trim()}
+              onClick={() => setIsRolloverOpen(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-2xs transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+              <span>Buka TA Baru &amp; Salin Master</span>
+            </button>
+          </div>
+
           {/* Test Status Banner */}
           {testResult && (
             <div
@@ -311,6 +334,15 @@ export const SpreadsheetConfigModal: React.FC<SpreadsheetConfigModalProps> = ({
           </div>
         </div>
       </div>
+
+      <AcademicYearRolloverModal
+        isOpen={isRolloverOpen}
+        onClose={() => setIsRolloverOpen(false)}
+        onSuccess={() => {
+          onConfigUpdated();
+          onClose();
+        }}
+      />
     </div>
   );
 };

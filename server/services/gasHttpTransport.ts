@@ -518,7 +518,11 @@ export async function callGasCustomAction<T = any>(
   timeoutMs = 25_000
 ): Promise<{ data: T; config: WorkspaceConfig }> {
   const config = await getFirestoreWorkspaceConfig();
-  if (!config.spreadsheetId) {
+  if (
+    !config.spreadsheetId &&
+    !extraBody?.targetSpreadsheetId &&
+    String(action || '').toUpperCase() !== 'CREATE_YEARLY_SPREADSHEET'
+  ) {
     throw new PortalConfigError(
       'SPREADSHEET_NOT_CONFIGURED',
       'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'

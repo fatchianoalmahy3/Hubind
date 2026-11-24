@@ -88,6 +88,208 @@ function resolveJurusanName(
   return resolveJurusanDisplayName(str);
 }
 
+interface BuiltRelationIndexes {
+  siswaByDigits: Map<string, Record<string, any>>;
+  siswaByRaw: Map<string, Record<string, any>>;
+  dudiById: Map<string, Record<string, any>>;
+  dudiByNormName: Map<string, Record<string, any>>;
+  guruById: Map<string, Record<string, any>>;
+  guruByNormName: Map<string, Record<string, any>>;
+  jurusanNameByKey: Map<string, string>;
+  placementById: Map<string, Record<string, any>>;
+}
+
+function buildRelationIndexes(maps: RelationSnapshotMaps): BuiltRelationIndexes {
+  const siswaByDigits = new Map<string, Record<string, any>>();
+  const siswaByRaw = new Map<string, Record<string, any>>();
+  if (Array.isArray(maps.siswaRows)) {
+    for (const s of maps.siswaRows) {
+      const d = stripNisSymbols(s.nis ?? s.NIS);
+      const r = normalizeRelationText(s.nis ?? s.NIS);
+      if (d && !siswaByDigits.has(d)) siswaByDigits.set(d, s);
+      if (r && !siswaByRaw.has(r)) siswaByRaw.set(r, s);
+    }
+  }
+
+  const dudiById = new Map<string, Record<string, any>>();
+  const dudiByNormName = new Map<string, Record<string, any>>();
+  if (Array.isArray(maps.dudiRows)) {
+    for (const d of maps.dudiRows) {
+      const id = String(d.id ?? d.ID ?? '').trim();
+      const name = normalizeRelationText(d.namaDudi ?? d.Nama_DUDI);
+      if (id && !dudiById.has(id)) dudiById.set(id, d);
+      if (name && !dudiByNormName.has(name)) dudiByNormName.set(name, d);
+    }
+  }
+
+  const guruById = new Map<string, Record<string, any>>();
+  const guruByNormName = new Map<string, Record<string, any>>();
+  if (Array.isArray(maps.guruRows)) {
+    for (const g of maps.guruRows) {
+      const id = String(g.id ?? g.ID ?? '').trim();
+      const name = normalizeRelationText(g.nama ?? g.Nama_Lengkap);
+      if (id && !guruById.has(id)) guruById.set(id, g);
+      if (name && !guruByNormName.has(name)) guruByNormName.set(name, g);
+    }
+  }
+
+  const jurusanNameByKey = new Map<string, string>();
+  if (Array.isArray(maps.jurusanRows)) {
+    for (const j of maps.jurusanRows) {
+      const rawName = String(j.nama ?? j.Nama_Jurusan ?? '').trim();
+      const kode = normalizeRelationText(j.kode ?? j.Kode);
+      const nama = normalizeRelationText(rawName);
+      const resolved = rawName || resolveJurusanDisplayName(j.kode ?? j.Kode);
+      if (kode && !jurusanNameByKey.has(kode)) jurusanNameByKey.set(kode, resolved);
+      if (nama && !jurusanNameByKey.has(nama)) jurusanNameByKey.set(nama, resolved);
+    }
+  }
+
+  const placementById = new Map<string, Record<string, any>>();
+  if (Array.isArray(maps.placementRows)) {
+    for (const p of maps.placementRows) {
+      const pid = String(p.idPenempatan ?? p.id ?? '').trim();
+      if (pid && !placementById.has(pid)) placementById.set(pid, p);
+    }
+  }
+
+  return {
+    siswaByDigits,
+    siswaByRaw,
+    dudiById,
+    dudiByNormName,
+    guruById,
+    guruByNormName,
+    jurusanNameByKey,
+    placementById,
+  };
+}
+
+function enrichRecordWithIndexes<T extends Record<string, any>>(
+  sheetName: string,
+  record: T,
+  idx: BuiltRelationIndexes
+): T {
+  if (!record || typeof record !== 'object') return record;
+  const out: Record<string, any> = { ...record };
+
+  const resolveJurusan = (rawIdOrName: unknown): string => {
+    const str = String(rawIdOrName ?? '').trim();
+    if (!str) return '';
+    const normStr = normalizeRelationText(str);
+    const codeStr = generateJurusanCode(str).toLowerCase();
+    return (
+      idx.jurusanNameByKey.get(normStr) ||
+      (codeStr ? idx.jurusanNameByKey.get(codeStr) : undefined) ||
+      resolveJurusanDisplayName(str)
+    );
+  };
+
+  if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa' || sheetName === 'Master_Kelas_Walas') {
+    const rawJur = out.idJurusan || out.ID_Jurusan || out.jurusan;
+    if (rawJur) {
+      out.idJurusan = generateJurusanCode(String(rawJur)) || String(rawJur).trim();
+      out.jurusan = resolveJurusan(rawJur);
+    }
+    return out as T;
+  }
+
+  if (sheetName === 'Master_DUDI') {
+    const gId = String(out.idGuruPendamping || out.ID_Guru_Pendamping || '').trim();
+    const gName = normalizeRelationText(out.guruPendamping);
+    const guru = (gId ? idx.guruById.get(gId) : undefined) || (gName ? idx.guruByNormName.get(gName) : undefined);
+    if (guru) {
+      if (!out.idGuruPendamping) out.idGuruPendamping = guru.id;
+      if (!out.guruPendamping) out.guruPendamping = guru.nama;
+    }
+    return out as T;
+  }
+
+  const nisRaw = out.nis || out.NIS;
+  const targetDigits = stripNisSymbols(nisRaw);
+  const targetRaw = normalizeRelationText(nisRaw);
+  const student =
+    (targetDigits ? idx.siswaByDigits.get(targetDigits) : undefined) ||
+    (targetRaw ? idx.siswaByRaw.get(targetRaw) : undefined);
+
+  if (student) {
+    if (!out.namaSiswa) out.namaSiswa = student.nama || '';
+    if (!out.kelas) out.kelas = student.kelas || '';
+    if (!out.jurusan) out.jurusan = resolveJurusan(student.idJurusan || student.jurusan);
+    if (!out.namaOrtuWali) out.namaOrtuWali = student.namaOrtuWali || '';
+    if (!out.noOrtuWali) out.noOrtuWali = student.noOrtuWali || '';
+  }
+
+  const placement = out.idPenempatan
+    ? idx.placementById.get(String(out.idPenempatan).trim())
+    : undefined;
+
+  const dudiId = String(out.idDudi || out.ID_DUDI || placement?.idDudi || '').trim();
+  const dudiNameKey = normalizeRelationText(out.namaDudi || out.dudiTujuan || placement?.namaDudi);
+  const dudi =
+    (dudiId ? idx.dudiById.get(dudiId) : undefined) ||
+    (dudiNameKey ? idx.dudiByNormName.get(dudiNameKey) : undefined);
+
+  if (dudi) {
+    if (!out.idDudi) out.idDudi = dudi.id;
+    if (sheetName === 'Plotting_Pemberangkatan') {
+      if (!out.namaDudi) out.namaDudi = dudi.namaDudi || '';
+    } else if (
+      sheetName === 'Data_Perizinan_PKL' ||
+      sheetName === 'Monitoring_5_Tahap' ||
+      sheetName === 'Nilai_Dan_Sertifikat' ||
+      sheetName === 'Data_Pengajuan_PKL'
+    ) {
+      if (!out.dudiTujuan) out.dudiTujuan = dudi.namaDudi || '';
+      if (!out.alamatDudi && dudi.alamat) out.alamatDudi = dudi.alamat;
+    }
+  }
+
+  const guruId = String(
+    out.idGuruPendamping || out.ID_Guru_Pendamping || placement?.idGuruPendamping || dudi?.idGuruPendamping || ''
+  ).trim();
+  const guruNameKey = normalizeRelationText(
+    out.guruPendamping || placement?.guruPendamping || dudi?.guruPendamping
+  );
+  const guru =
+    (guruId ? idx.guruById.get(guruId) : undefined) ||
+    (guruNameKey ? idx.guruByNormName.get(guruNameKey) : undefined);
+
+  if (guru) {
+    if (
+      !out.idGuruPendamping &&
+      (sheetName === 'Plotting_Pemberangkatan' || sheetName === 'Monitoring_5_Tahap' || sheetName === 'Data_Pengajuan_PKL')
+    ) {
+      out.idGuruPendamping = guru.id;
+    }
+    if (!out.guruPendamping) out.guruPendamping = guru.nama || '';
+  }
+
+  if (sheetName === 'Data_Perizinan_PKL') {
+    const start = out.tanggalMulaiIzin || out.Tgl_Mulai_Izin;
+    const end = out.tanggalSelesaiIzin || out.Tgl_Selesai_Izin;
+    if (start && !out.rentangTanggal) {
+      out.rentangTanggal = formatPerizinanDateRange(start, end);
+    }
+  }
+
+  if (sheetName === 'Monitoring_5_Tahap' || sheetName === 'Nilai_Dan_Sertifikat') {
+    const k3 = Number(out.nilaiK3lh ?? out.Nilai_K3LH ?? 0);
+    const ss = Number(out.nilaiSoftskill ?? out.Nilai_Softskills ?? 0);
+    const hs = Number(out.nilaiKompetensiTeknis ?? out.Nilai_Hardskills ?? 0);
+    const ab = Number(out.nilaiAlurBisnis ?? out.Nilai_Alur_Bisnis_Dunia_Kerja ?? 0);
+    if (k3 + ss + hs + ab > 0) {
+      const avg = calculateEqualWeightedAverage(k3, ss, hs, ab);
+      out.nilaiRataRata = avg;
+      if (sheetName === 'Nilai_Dan_Sertifikat') {
+        out.predikat = getPredikatFromScore(avg);
+      }
+    }
+  }
+
+  return out as T;
+}
+
 /**
  * Enriches an optimistic / client-side record with relational display fields
  * (`namaSiswa`, `jurusan`, `kelas`, `dudiTujuan`, `guruPendamping`, `nilaiRataRata`, `predikat`, `rentangTanggal`)
@@ -200,3 +402,17 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
 
   return out as T;
 }
+
+/**
+ * Batch relation enrichment in O(N + M) by pre-indexing Master Maps once.
+ */
+export function enrichBatchWithRelations<T extends Record<string, any>>(
+  sheetName: string,
+  rows: T[],
+  maps: RelationSnapshotMaps
+): T[] {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const idx = buildRelationIndexes(maps);
+  return rows.map((row) => enrichRecordWithIndexes(sheetName, row, idx));
+}
+

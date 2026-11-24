@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FieldConfig } from '../../core/types/metadata';
 import { Dudi, Guru, Jurusan, Kelas, PenempatanPKL, Pengajuan, Siswa } from '../../core/types/schema';
 import { DudiService } from '../../services/DudiService';
@@ -27,6 +27,10 @@ export interface StudentDirectoryEntry {
   namaOrtuWali: string;
   noOrtuWali: string;
   noWa: string;
+  _searchNorm?: string;
+  _namaNorm?: string;
+  _nisNorm?: string;
+  _nisDigits?: string;
   pengajuan?: Pengajuan;
   penempatan?: PenempatanPKL;
   existingPerizinan?: Record<string, any>;
@@ -326,17 +330,29 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
         (nisKey ? perizinanByNis.get(nisKey) : undefined) ||
         (namaNorm && (nameCount.get(namaNorm) || 0) === 1 ? perizinanByUniqueName.get(namaNorm) : undefined);
 
+      const cleanNis = stripNisSymbols(s.nis) || String(s.nis || '').trim();
+      const cleanNama = String(s.nama || '').trim();
+      const cleanJurusan = String(s.jurusan || matchedReq?.jurusan || '').trim();
+      const cleanKelas = String(s.kelas || matchedReq?.kelas || '').trim();
+      const namaNormS = normFormValue(cleanNama);
+      const nisNormS = normFormValue(cleanNis);
+      const nisDigitsS = stripNisSymbols(cleanNis);
+
       map.set(uniqueKey, {
-        nis: stripNisSymbols(s.nis) || String(s.nis || '').trim(),
-        nama: String(s.nama || '').trim(),
-        jurusan: String(s.jurusan || matchedReq?.jurusan || '').trim(),
-        kelas: String(s.kelas || matchedReq?.kelas || '').trim(),
+        nis: cleanNis,
+        nama: cleanNama,
+        jurusan: cleanJurusan,
+        kelas: cleanKelas,
         namaOrtuWali:
           cleanPlaceholderDash(s.namaOrtuWali) ||
           cleanPlaceholderDash(matchedReq?.namaOrtuWali) ||
           cleanPlaceholderDash(matchedIzn?.namaOrtuWali),
         noOrtuWali: cleanPlaceholderDash(s.noOrtuWali) || cleanPlaceholderDash(matchedReq?.noOrtuWali),
         noWa: cleanPlaceholderDash(s.noHpSiswa) || cleanPlaceholderDash(matchedReq?.noWa),
+        _searchNorm: `${namaNormS} ${nisNormS} ${normFormValue(cleanKelas)} ${normFormValue(cleanJurusan)}`,
+        _namaNorm: namaNormS,
+        _nisNorm: nisNormS,
+        _nisDigits: nisDigitsS,
         pengajuan: matchedReq,
         penempatan: matchedPlt,
         existingPerizinan: matchedIzn,
@@ -653,59 +669,120 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
     setMultipleValues(patch);
   };
 
-  const getRelationOptions = (field: FieldConfig<T>): { label: string; value: string }[] => {
-    const key = String(field.key);
-    switch (field.relationSource) {
-      case 'jurusan': {
-        if (masterJurusan.length > 0) {
-          return masterJurusan.map((j) => ({
-            label: j.kode ? `${j.nama} (${j.kode})` : j.nama,
-            value: j.nama,
-          }));
-        }
-        return (field.options || []).map((o) => ({ label: o.label, value: String(o.value) }));
+  const jurusanOptionsMemo = useMemo(
+    () =>
+      masterJurusan.map((j) => ({
+        label: j.kode ? `${j.nama} (${j.kode})` : j.nama,
+        value: j.nama,
+      })),
+    [masterJurusan]
+  );
+
+  const dudiOptionsMemo = useMemo(
+    () =>
+      masterDudi.map((d) => ({
+        label: `${d.namaDudi}${d.wilayahKota ? ` · ${d.wilayahKota}` : ''} (${d.terisi ?? 0}/${d.kuotaMaksimal ?? 0})`,
+        value: d.namaDudi,
+      })),
+    [masterDudi]
+  );
+
+  const guruOptionsMemo = useMemo(
+    () =>
+      masterGuru.map((g) => ({
+        label: `${g.nama} (${g.peranUtama || 'Guru Pendamping'})`,
+        value: g.nama,
+      })),
+    [masterGuru]
+  );
+
+  const siswaNisOptionsMemo = useMemo(
+    () =>
+      studentDirectory.map((s) => ({
+        label: `${formatNisVisual(s.nis)} — ${s.nama} (${s.kelas || '-'})`,
+        value: stripNisSymbols(s.nis) || s.nis,
+      })),
+    [studentDirectory]
+  );
+
+  const siswaNameOptionsMemo = useMemo(
+    () =>
+      studentDirectory.map((s) => ({
+        label: `${s.nama} (${formatNisVisual(s.nis)} · ${s.kelas || '-'})`,
+        value: s.nama,
+      })),
+    [studentDirectory]
+  );
+
+  const hasRelationOptions = useCallback(
+    (field: FieldConfig<T>): boolean => {
+      switch (field.relationSource) {
+        case 'jurusan':
+          return masterJurusan.length > 0 || (field.options?.length ?? 0) > 0;
+        case 'kelas':
+          return masterKelas.length > 0 || (field.options?.length ?? 0) > 0;
+        case 'dudi':
+          return masterDudi.length > 0;
+        case 'guru':
+          return masterGuru.length > 0;
+        case 'siswa':
+          return studentDirectory.length > 0;
+        default:
+          return (field.options?.length ?? 0) > 0;
       }
-      case 'kelas': {
-        if (masterKelas.length > 0) {
-          const selectedJur = normFormValue(values.jurusan);
-          const selectedJurCode = normFormValue(generateJurusanCode(String(values.jurusan || '')));
-          const filtered = selectedJur
-            ? masterKelas.filter(
-                (k) =>
-                  normFormValue(k.jurusan) === selectedJur ||
-                  normFormValue(k.jurusan).includes(selectedJur) ||
-                  selectedJur.includes(normFormValue(k.jurusan)) ||
-                  (selectedJurCode && normFormValue((k as any).idJurusan) === selectedJurCode)
-              )
-            : masterKelas;
-          const list = filtered.length > 0 ? filtered : masterKelas;
-          return list.map((k) => ({
-            label: k.jurusan ? `${k.namaKelas} — ${k.jurusan}` : k.namaKelas,
-            value: k.namaKelas,
-          }));
+    },
+    [masterJurusan.length, masterKelas.length, masterDudi.length, masterGuru.length, studentDirectory.length]
+  );
+
+  const getRelationOptions = useCallback(
+    (field: FieldConfig<T>): { label: string; value: string }[] => {
+      const key = String(field.key);
+      switch (field.relationSource) {
+        case 'jurusan':
+          return jurusanOptionsMemo.length > 0
+            ? jurusanOptionsMemo
+            : (field.options || []).map((o) => ({ label: o.label, value: String(o.value) }));
+        case 'kelas': {
+          if (masterKelas.length > 0) {
+            const selectedJur = normFormValue(values.jurusan);
+            const selectedJurCode = normFormValue(generateJurusanCode(String(values.jurusan || '')));
+            const filtered = selectedJur
+              ? masterKelas.filter(
+                  (k) =>
+                    normFormValue(k.jurusan) === selectedJur ||
+                    normFormValue(k.jurusan).includes(selectedJur) ||
+                    selectedJur.includes(normFormValue(k.jurusan)) ||
+                    (selectedJurCode && normFormValue((k as any).idJurusan) === selectedJurCode)
+                )
+              : masterKelas;
+            const list = filtered.length > 0 ? filtered : masterKelas;
+            return list.map((k) => ({
+              label: k.jurusan ? `${k.namaKelas} — ${k.jurusan}` : k.namaKelas,
+              value: k.namaKelas,
+            }));
+          }
+          return (field.options || []).map((o) => ({ label: o.label, value: String(o.value) }));
         }
-        return (field.options || []).map((o) => ({ label: o.label, value: String(o.value) }));
+        case 'dudi':
+          return dudiOptionsMemo;
+        case 'guru':
+          return guruOptionsMemo;
+        case 'siswa':
+          return key === 'nis' ? siswaNisOptionsMemo : siswaNameOptionsMemo;
+        default:
+          return (field.options || []).map((o) => ({ label: o.label, value: String(o.value) }));
       }
-      case 'dudi':
-        return masterDudi.map((d) => ({
-          label: `${d.namaDudi}${d.wilayahKota ? ` · ${d.wilayahKota}` : ''} (${d.terisi ?? 0}/${d.kuotaMaksimal ?? 0})`,
-          value: d.namaDudi,
-        }));
-      case 'guru':
-        return masterGuru.map((g) => ({
-          label: `${g.nama} (${g.peranUtama || 'Guru Pendamping'})`,
-          value: g.nama,
-        }));
-      case 'siswa':
-        return studentDirectory.map((s) =>
-          key === 'nis'
-            ? { label: `${formatNisVisual(s.nis)} — ${s.nama} (${s.kelas || '-'})`, value: stripNisSymbols(s.nis) || s.nis }
-            : { label: `${s.nama} (${formatNisVisual(s.nis)} · ${s.kelas || '-'})`, value: s.nama }
-        );
-      default:
-        return (field.options || []).map((o) => ({ label: o.label, value: String(o.value) }));
-    }
-  };
+    },
+    [
+      jurusanOptionsMemo,
+      dudiOptionsMemo,
+      guruOptionsMemo,
+      siswaNisOptionsMemo,
+      siswaNameOptionsMemo,
+      masterKelas,
+      values.jurusan,
+    ]
+  );
 
   return {
     resolvedTableName,
@@ -719,6 +796,7 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
     applyStudentSelection,
     applyDudiSelection,
     handleRelationSelect,
+    hasRelationOptions,
     getRelationOptions,
   };
 }

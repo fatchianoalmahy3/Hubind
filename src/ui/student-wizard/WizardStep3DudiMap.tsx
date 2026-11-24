@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Building2,
+  Check,
   CheckCircle2,
   ExternalLink,
   Loader2,
   MapPin,
+  Search,
+  X,
 } from 'lucide-react';
 import type { GoogleMapsValidationResult } from '../../core/utils/mapsHelpers';
 import { WorkScheduleRangeInputs } from '../monitoring-portal/WorkScheduleRangeInputs';
@@ -71,6 +74,55 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
   onChangeLinkMaps,
   onBackToStep2,
 }) => {
+  const [dudiSearch, setDudiSearch] = useState('');
+  const [isDudiDropdownOpen, setIsDudiDropdownOpen] = useState(false);
+  const deferredDudiSearch = useDeferredValue(dudiSearch);
+  const comboboxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isDudiDropdownOpen) return;
+    const handleOutside = (e: PointerEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setIsDudiDropdownOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutside);
+    return () => document.removeEventListener('pointerdown', handleOutside);
+  }, [isDudiDropdownOpen]);
+
+  useEffect(() => {
+    if (selectedDudiId === 'unregistered') {
+      setDudiSearch('DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)');
+    } else if (selectedDudiId && selectedDudiMeta?.nama_dudi) {
+      setDudiSearch(selectedDudiMeta.nama_dudi);
+    } else if (!selectedDudiId) {
+      setDudiSearch('');
+    }
+  }, [selectedDudiId, selectedDudiMeta?.nama_dudi]);
+
+  const indexedDudi = useMemo(
+    () =>
+      dudiList.map((d) => ({
+        raw: d,
+        searchKey: `${d.nama_dudi || ''} ${d.bidang_usaha || ''} ${d.kota || ''} ${d.alamat || ''}`.toLowerCase(),
+      })),
+    [dudiList]
+  );
+
+  const filteredDudiOptions = useMemo(() => {
+    const q = deferredDudiSearch.trim().toLowerCase();
+    const isShowingSelectedLabel =
+      (selectedDudiId === 'unregistered' && q.includes('dudi tidak ada di daftar')) ||
+      (selectedDudiMeta?.nama_dudi && q === String(selectedDudiMeta.nama_dudi).trim().toLowerCase());
+    if (!q || isShowingSelectedLabel) {
+      return indexedDudi.slice(0, 30).map((x) => x.raw);
+    }
+    return indexedDudi
+      .filter((x) => x.searchKey.includes(q))
+      .slice(0, 30)
+      .map((x) => x.raw);
+  }, [indexedDudi, deferredDudiSearch, selectedDudiId, selectedDudiMeta?.nama_dudi]);
+
   return (
     <div className="space-y-4 animate-in fade-in duration-150">
       <div>
@@ -88,9 +140,9 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
         </div>
       )}
 
-      <div>
+      <div ref={comboboxRef} className="relative">
         <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-          Pilih Mitra DUDI Tujuan *
+          Cari &amp; Pilih Mitra DUDI Tujuan *
         </label>
         {loadingDudi ? (
           <div className="space-y-2" aria-busy="true" aria-live="polite">
@@ -101,22 +153,114 @@ export const WizardStep3DudiMap: React.FC<WizardStep3DudiMapProps> = ({
             <div className="h-3 skeleton-shimmer rounded w-2/3" />
           </div>
         ) : (
-          <select
-            value={selectedDudiId}
-            onChange={(e) => onSelectDudi(e.target.value)}
-            required
-            className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white"
-          >
-            <option value="">-- Pilih DUDI Mitra --</option>
-            {dudiList.map((d, idx) => (
-              <option key={`${d.id || 'dudi'}_${idx}`} value={d.id}>
-                {d.nama_dudi} ({d.bidang_usaha} - {d.kota})
-              </option>
-            ))}
-            <option value="unregistered" className="font-bold text-amber-700 bg-amber-50">
-              DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)
-            </option>
-          </select>
+          <>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={dudiSearch}
+                autoComplete="off"
+                onFocus={() => setIsDudiDropdownOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && isDudiDropdownOpen) {
+                    e.preventDefault();
+                  }
+                }}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setDudiSearch(next);
+                  setIsDudiDropdownOpen(true);
+                  if (selectedDudiId) {
+                    const selectedLabel =
+                      selectedDudiId === 'unregistered'
+                        ? 'DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)'
+                        : String(selectedDudiMeta?.nama_dudi || '');
+                    if (next !== selectedLabel) {
+                      onSelectDudi('');
+                    }
+                  }
+                }}
+                placeholder="Ketik nama bengkel/perusahaan, bidang, atau kota..."
+                className="w-full min-h-[44px] pl-10 pr-9 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 bg-white text-slate-900 placeholder:text-slate-400"
+              />
+              {(dudiSearch || selectedDudiId) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDudiSearch('');
+                    onSelectDudi('');
+                    setIsDudiDropdownOpen(true);
+                  }}
+                  aria-label="Hapus pilihan DUDI"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {isDudiDropdownOpen && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-64 overflow-y-auto py-1">
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onSelectDudi('unregistered');
+                    setDudiSearch('DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)');
+                    setIsDudiDropdownOpen(false);
+                  }}
+                  className={`w-full text-left px-3.5 py-2.5 border-b border-slate-100 hover:bg-amber-50 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                    selectedDudiId === 'unregistered' ? 'bg-amber-50' : 'bg-amber-50/40'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-amber-800">
+                      + DUDI Tidak Ada di Daftar (Ajukan Tempat Baru)
+                    </div>
+                    <div className="text-[11px] text-amber-700/80">
+                      Pilih ini jika perusahaan/bengkel tujuan belum terdaftar di sekolah
+                    </div>
+                  </div>
+                  {selectedDudiId === 'unregistered' && <Check className="w-4 h-4 text-amber-700 shrink-0" />}
+                </button>
+
+                {filteredDudiOptions.length === 0 ? (
+                  <div className="px-3.5 py-3 text-xs text-slate-500">
+                    Tidak ada DUDI mitra yang cocok dengan &quot;{dudiSearch}&quot;. Gunakan tombol di atas jika ingin mengajukan DUDI baru.
+                  </div>
+                ) : (
+                  filteredDudiOptions.map((d, idx) => {
+                    const isSelected = selectedDudiId === d.id;
+                    return (
+                      <button
+                        type="button"
+                        key={`${d.id || 'dudi'}_${idx}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          onSelectDudi(d.id);
+                          setDudiSearch(d.nama_dudi || '');
+                          setIsDudiDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 hover:bg-blue-50 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                          isSelected ? 'bg-blue-50/80' : ''
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-slate-900 truncate">
+                            {d.nama_dudi}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {d.bidang_usaha || 'Umum'} · {d.kota || '-'}
+                          </div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

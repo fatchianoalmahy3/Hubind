@@ -491,10 +491,78 @@ export function parseGradesFromMonitoringRow(row: Record<string, any>): ParsedGr
   return null;
 }
 
+export interface MonitoringLookupIndex {
+  monitoringByNisDigits: Map<string, any[]>;
+  monitoringByNisRaw: Map<string, any[]>;
+  monitoringByPlacement: Map<string, any[]>;
+  groupMonitoringRows: any[];
+  nilaiByNisDigits: Map<string, any[]>;
+  nilaiByNisRaw: Map<string, any[]>;
+  nilaiByPlacement: Map<string, any[]>;
+  allNilaiRows: any[];
+}
+
+function pushMapArray(map: Map<string, any[]>, key: string, item: any): void {
+  if (!key) return;
+  const arr = map.get(key);
+  if (arr) arr.push(item);
+  else map.set(key, [item]);
+}
+
+export function buildMonitoringLookupIndex(
+  monitoringRows: any[],
+  nilaiRows: any[]
+): MonitoringLookupIndex {
+  const monitoringByNisDigits = new Map<string, any[]>();
+  const monitoringByNisRaw = new Map<string, any[]>();
+  const monitoringByPlacement = new Map<string, any[]>();
+  const groupMonitoringRows: any[] = [];
+
+  for (const row of Array.isArray(monitoringRows) ? monitoringRows : []) {
+    const rowNisRaw = String(row.NIS ?? row.nis ?? '').trim();
+    const rowNisDigits = stripNisSymbols(rowNisRaw);
+    const rowPlt = String(row.ID_Penempatan ?? row.idPenempatan ?? '').trim();
+    const rowDaftar = String(row.Daftar_Siswa ?? row.daftarSiswa ?? '').trim();
+
+    if (rowNisDigits) pushMapArray(monitoringByNisDigits, rowNisDigits, row);
+    if (rowNisRaw && rowNisRaw !== '-') pushMapArray(monitoringByNisRaw, rowNisRaw, row);
+    if (rowPlt) pushMapArray(monitoringByPlacement, rowPlt, row);
+    if (rowDaftar && (!rowNisDigits || rowNisRaw === '-')) {
+      groupMonitoringRows.push(row);
+    }
+  }
+
+  const nilaiByNisDigits = new Map<string, any[]>();
+  const nilaiByNisRaw = new Map<string, any[]>();
+  const nilaiByPlacement = new Map<string, any[]>();
+  const allNilaiRows = Array.isArray(nilaiRows) ? nilaiRows : [];
+
+  for (const n of allNilaiRows) {
+    const rowNisRaw = String(n.NIS ?? n.nis ?? '').trim();
+    const rowNisDigits = stripNisSymbols(rowNisRaw);
+    const rowPlt = String(n.ID_Penempatan ?? n.idPenempatan ?? '').trim();
+    if (rowNisDigits) pushMapArray(nilaiByNisDigits, rowNisDigits, n);
+    if (rowNisRaw && rowNisRaw !== '-') pushMapArray(nilaiByNisRaw, rowNisRaw, n);
+    if (rowPlt) pushMapArray(nilaiByPlacement, rowPlt, n);
+  }
+
+  return {
+    monitoringByNisDigits,
+    monitoringByNisRaw,
+    monitoringByPlacement,
+    groupMonitoringRows,
+    nilaiByNisDigits,
+    nilaiByNisRaw,
+    nilaiByPlacement,
+    allNilaiRows,
+  };
+}
+
 export function buildStudentMonitoringSummary(
   student: { nis?: string; nama?: string; idPenempatan?: string; dudi_name?: string },
   monitoringRows: any[],
-  nilaiRows: any[]
+  nilaiRows: any[],
+  lookupIndex?: MonitoringLookupIndex
 ): StudentMonitoringSummary {
   const norm = (v: any) => String(v ?? '').trim().toLowerCase();
   const targetNisRaw = String(student.nis || '').trim();
@@ -503,29 +571,58 @@ export function buildStudentMonitoringSummary(
   const targetNama = norm(student.nama);
   const targetDudi = norm(student.dudi_name);
 
-  const matchedMonitoring = (Array.isArray(monitoringRows) ? monitoringRows : []).filter((row) => {
-    const rowNisRaw = String(row.NIS ?? row.nis ?? '').trim();
-    const rowNisDigits = stripNisSymbols(rowNisRaw);
-    const rowPlt = String(row.ID_Penempatan ?? row.idPenempatan ?? '').trim();
-    const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? '');
-    const rowDaftarDigits = stripNisSymbols(rowDaftar);
-    const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? '');
-    const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? '');
-
-    if (targetNisDigits && rowNisDigits === targetNisDigits) return true;
-    if (targetNisRaw && targetNisRaw !== '-' && rowNisRaw === targetNisRaw) return true;
-    if (targetPlt && rowPlt && rowPlt === targetPlt) return true;
-    if (targetNisDigits && rowDaftarDigits.includes(targetNisDigits)) return true;
-    if (targetNisRaw && targetNisRaw !== '-' && rowDaftar.includes(targetNisRaw.toLowerCase())) return true;
-    if (
-      targetNama &&
-      (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) &&
-      (!targetDudi || !rowDudi || rowDudi === targetDudi || rowDudi.includes(targetDudi))
-    ) {
-      return true;
+  let matchedMonitoring: any[];
+  if (lookupIndex) {
+    const seen = new Set<any>();
+    const addCandidate = (rows?: any[]) => {
+      if (!rows) return;
+      for (const r of rows) seen.add(r);
+    };
+    if (targetNisDigits) addCandidate(lookupIndex.monitoringByNisDigits.get(targetNisDigits));
+    if (targetNisRaw && targetNisRaw !== '-') addCandidate(lookupIndex.monitoringByNisRaw.get(targetNisRaw));
+    if (targetPlt) addCandidate(lookupIndex.monitoringByPlacement.get(targetPlt));
+    for (const row of lookupIndex.groupMonitoringRows) {
+      if (seen.has(row)) continue;
+      const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? '');
+      const rowDaftarDigits = stripNisSymbols(rowDaftar);
+      const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? '');
+      const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? '');
+      if (
+        (targetNisDigits && rowDaftarDigits.includes(targetNisDigits)) ||
+        (targetNisRaw && targetNisRaw !== '-' && rowDaftar.includes(targetNisRaw.toLowerCase())) ||
+        (targetNama &&
+          (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) &&
+          (!targetDudi || !rowDudi || rowDudi === targetDudi || rowDudi.includes(targetDudi)))
+      ) {
+        seen.add(row);
+      }
     }
-    return false;
-  });
+    matchedMonitoring = Array.from(seen);
+  } else {
+    matchedMonitoring = (Array.isArray(monitoringRows) ? monitoringRows : []).filter((row) => {
+      const rowNisRaw = String(row.NIS ?? row.nis ?? '').trim();
+      const rowNisDigits = stripNisSymbols(rowNisRaw);
+      const rowPlt = String(row.ID_Penempatan ?? row.idPenempatan ?? '').trim();
+      const rowDaftar = norm(row.Daftar_Siswa ?? row.daftarSiswa ?? '');
+      const rowDaftarDigits = stripNisSymbols(rowDaftar);
+      const rowNamaSiswa = norm(row.Nama_Siswa ?? row.namaSiswa ?? '');
+      const rowDudi = norm(row.DUDI_Tujuan ?? row.dudiTujuan ?? '');
+
+      if (targetNisDigits && rowNisDigits === targetNisDigits) return true;
+      if (targetNisRaw && targetNisRaw !== '-' && rowNisRaw === targetNisRaw) return true;
+      if (targetPlt && rowPlt && rowPlt === targetPlt) return true;
+      if (targetNisDigits && rowDaftarDigits.includes(targetNisDigits)) return true;
+      if (targetNisRaw && targetNisRaw !== '-' && rowDaftar.includes(targetNisRaw.toLowerCase())) return true;
+      if (
+        targetNama &&
+        (rowNamaSiswa === targetNama || rowDaftar.includes(targetNama)) &&
+        (!targetDudi || !rowDudi || rowDudi === targetDudi || rowDudi.includes(targetDudi))
+      ) {
+        return true;
+      }
+      return false;
+    });
+  }
 
   const stageLogs: Record<number, StageLogEntry> = {};
   const completedSet = new Set<number>();
@@ -574,8 +671,21 @@ export function buildStudentMonitoringSummary(
   }
 
   // Fallback or enrich with Nilai_Dan_Sertifikat sheet
-  if (Array.isArray(nilaiRows)) {
-    const matchedNilai = nilaiRows.find((n) => {
+  const nilaiCandidates: any[] = lookupIndex
+    ? (() => {
+        const set = new Set<any>();
+        if (targetNisDigits) lookupIndex.nilaiByNisDigits.get(targetNisDigits)?.forEach((x) => set.add(x));
+        if (targetNisRaw && targetNisRaw !== '-') lookupIndex.nilaiByNisRaw.get(targetNisRaw)?.forEach((x) => set.add(x));
+        if (targetPlt) lookupIndex.nilaiByPlacement.get(targetPlt)?.forEach((x) => set.add(x));
+        if (set.size > 0) return Array.from(set);
+        return lookupIndex.allNilaiRows;
+      })()
+    : Array.isArray(nilaiRows)
+    ? nilaiRows
+    : [];
+
+  if (nilaiCandidates.length > 0) {
+    const matchedNilai = nilaiCandidates.find((n) => {
       const rowNisRaw = String(n.NIS ?? n.nis ?? '').trim();
       const rowNisDigits = stripNisSymbols(rowNisRaw);
       const rowPlt = String(n.ID_Penempatan ?? n.idPenempatan ?? '').trim();

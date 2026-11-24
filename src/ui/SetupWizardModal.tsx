@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   FileSpreadsheet,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { HUBIN_SHEETS_BLUEPRINT } from '../core/types/sheetBlueprint';
+import { buildAutoGenerateSheetsFormScript } from '../core/gas/gasTemplateBuilder';
 import { generateAndDownloadHubinXlsx } from '../core/utils/xlsxGenerator';
 import { ToastManager } from '../core/ToastManager';
 import { normalizeGasUrl } from '../core/utils/safeFetchJson';
@@ -112,51 +113,11 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
     }
   };
 
-  const gasScriptCode = `/**
- * GOOGLE APPS SCRIPT: AUTO-GENERATE 11 SHEET & GFORM RESMI
- * SMK PGRI 2 PONOROGO (TA ${config.activeYear || '2026/2027'})
- */
-function autoGenerateAllSheetsAndForm() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const year = "${config.activeYear || '2026/2027'}";
-
-  const sheetsData = [
-    { name: "Master_Siswa_XI", headers: ["ID", "NIS", "NIK", "Nama_Lengkap", "Jenis_Kelamin", "ID_Jurusan", "Kelas", "No_HP_Siswa", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_PKL", "Foto_URL"] },
-    { name: "Master_Jurusan", headers: ["ID", "Kode", "Nama_Jurusan", "Nama_Kakomli", "NIP_Kakomli", "Kontak_WA", "Kuota_Siswa", "Total_Terdaftar"] },
-    { name: "Master_Kelas_Walas", headers: ["ID", "Nama_Kelas", "Jurusan", "Tingkat", "Wali_Kelas", "Kontak_Walas", "Jumlah_Siswa"] },
-    { name: "Master_DUDI", headers: ["ID", "Nama_DUDI", "Bidang_Keahlian", "Alamat", "Wilayah_Kota", "Nama_Pemimpin", "Nama_PIC", "Kontak_PIC", "No_Telp_DUDI", "Link_Maps", "ID_Guru_Pendamping", "Guru_Pendamping", "Hari_Kerja", "Jam_Kerja", "Kuota_Maksimal", "Terisi", "Status_Kerjasama"] },
-    { name: "Master_Guru_Pendamping", headers: ["ID", "NIP", "Nama_Lengkap", "Kontak_WA", "Email_Google", "Peran_Utama", "Jumlah_Bimbingan", "PIN"] },
-    { name: "Data_Pengajuan_PKL", headers: ["No_Pengajuan", "Timestamp", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "ID_DUDI", "DUDI_Tujuan", "Alamat_DUDI", "Bidang_Pekerjaan", "Nama_Pemimpin", "Nama_PIC", "No_Telp_DUDI", "Hari_Kerja", "Jam_Kerja", "Link_Maps", "No_WA", "Alamat_Domisili", "Nama_Ortu_Wali", "No_Ortu_Wali", "Status_Kakomli", "Catatan_Kakomli", "Status_Hubin", "ID_Guru_Pendamping", "Guru_Pendamping", "Tgl_Berangkat"] },
-    { name: "Data_Perizinan_PKL", headers: ["ID_Perizinan", "No_Pengajuan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "Nama_Ortu_Wali", "No_Ortu_Wali", "Izin", "Tgl_Mulai_Izin", "Tgl_Selesai_Izin", "Rentang_Tanggal", "No_Surat_Permohonan", "DUDI_Tujuan", "Alamat_DUDI", "Tgl_Kirim_Surat", "Status_Balasan_DUDI", "Tgl_Balasan", "Catatan_Perizinan", "Link_Bukti_Balasan", "Link_Surat_PDF"] },
-    { name: "Plotting_Pemberangkatan", headers: ["ID_Penempatan", "NIS", "Nama_Siswa", "ID_DUDI", "Nama_DUDI", "ID_Guru_Pendamping", "Guru_Pendamping", "Tanggal_Berangkat", "Tanggal_Rencana_Tarik", "Status_Penempatan", "Catatan_Penempatan"] },
-    { name: "Monitoring_5_Tahap", headers: ["ID_Monitoring", "ID_Penempatan", "NIS", "Nama_Siswa", "DUDI_Tujuan", "Alamat_DUDI", "Jurusan", "Guru_Pendamping", "Tahap", "Tanggal_Kunjungan", "Sakit", "Izin", "Alpha", "Nilai_PKL_Muncul", "Nilai_K3LH", "Nilai_Softskills", "Nilai_Hardskills", "Nilai_Alur_Bisnis_Dunia_Kerja", "Nilai_rata_rata", "Catatan_Kunjungan", "Foto_Bukti_Drive", "Nilai_DUDI_Terkumpul", "Blangko_Sertifikat_Bawa", "Status_Tahap"] },
-    { name: "Nilai_Dan_Sertifikat", headers: ["ID_Penempatan", "NIS", "Nama_Siswa", "Jurusan", "Kelas", "DUDI_Tujuan", "Nilai_K3LH", "Nilai_Softskills", "Nilai_Hardskills", "Nilai_Alur_Bisnis_Dunia_Kerja", "Nilai_rata_rata", "Predikat", "No_Seri_Blangko", "Status_Blangko", "Status_Raport", "Tgl_Terbit"] },
-    { name: "Master_Akun", headers: ["ID", "Username", "Password_Hash", "Role", "Nama_Lengkap", "Jabatan", "Status", "Updated_At"] }
-  ];
-
-  sheetsData.forEach(function(item, idx) {
-    let sheet = ss.getSheetByName(item.name);
-    if (!sheet) {
-      sheet = (idx === 0 && ss.getSheets().length === 1 && ss.getSheets()[0].getName().indexOf("Sheet1") !== -1)
-        ? ss.getSheets()[0] : ss.insertSheet(item.name);
-      sheet.setName(item.name);
-    }
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(item.headers);
-      sheet.getRange(1, 1, 1, item.headers.length)
-        .setFontWeight("bold")
-        .setBackground("#0F172A")
-        .setFontColor("#FFFFFF");
-      sheet.setFrozenRows(1);
-    }
-  });
-
-  const form = FormApp.create("Formulir Pengajuan PKL Siswa TA " + year);
-  form.setDescription("Jawaban masuk ke Sheet Data_Pengajuan_PKL")
-      .setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
-
-  Logger.log("Selesai! Form URL: " + form.getPublishedUrl());
-}`;
+  const totalSheetsCount = HUBIN_SHEETS_BLUEPRINT.length;
+  const gasScriptCode = useMemo(
+    () => buildAutoGenerateSheetsFormScript(config.activeYear || '2026/2027'),
+    [config.activeYear]
+  );
 
   const copyScript = () => {
     navigator.clipboard.writeText(gasScriptCode);
@@ -221,7 +182,7 @@ function autoGenerateAllSheetsAndForm() {
             <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-bold">
               2
             </span>
-            <span>Siapkan 10 Tabel</span>
+            <span>Siapkan {totalSheetsCount} Tabel</span>
           </div>
           <div className="w-8 h-px bg-slate-200" />
           <div
@@ -262,10 +223,10 @@ function autoGenerateAllSheetsAndForm() {
                     </div>
                     <div>
                       <h4 className="font-bold text-slate-900 text-sm group-hover:text-emerald-700">
-                        Opsi A: Auto-Generate 11 Tabel Baru
+                        Opsi A: Auto-Generate {totalSheetsCount} Tabel Baru
                       </h4>
                       <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                        Belum memiliki struktur database atau ingin tahun ajaran baru? Siapkan 11 tabel server terstandar lengkap dengan kolom resmi.
+                        Belum memiliki struktur database atau ingin tahun ajaran baru? Siapkan {totalSheetsCount} tabel server terstandar lengkap dengan kolom resmi.
                       </p>
                     </div>
                   </div>
@@ -302,7 +263,7 @@ function autoGenerateAllSheetsAndForm() {
 
               <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs space-y-1.5">
                 <span className="font-bold text-slate-700 block text-[11px]">
-                  11 Entitas Tabel Server Terkelola:
+                  {totalSheetsCount} Entitas Tabel Server Terkelola:
                 </span>
                 <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-slate-600">
                   {HUBIN_SHEETS_BLUEPRINT.map((s) => (
@@ -356,10 +317,10 @@ function autoGenerateAllSheetsAndForm() {
                       </div>
                       <div>
                         <h4 className="font-bold text-slate-800 text-sm">
-                          DATABASE_PKL_SMK_PGRI_2_PONOROGO_11_TABLES.xlsx
+                          DATABASE_PKL_SMK_PGRI_2_PONOROGO_{totalSheetsCount}_TABLES.xlsx
                         </h4>
                         <p className="text-[11px] text-slate-500">
-                          File Master Excel 11 Tabel Lengkap dengan header kolom terstandar siap isi data sekolah.
+                          File Master Excel {totalSheetsCount} Tabel Lengkap dengan header kolom terstandar siap isi data sekolah.
                         </p>
                       </div>
                     </div>

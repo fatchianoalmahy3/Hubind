@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Printer,
   ExternalLink,
@@ -61,6 +61,7 @@ import {
   buildFilteredItems,
   buildFilterMeta,
   buildSuratTugasAudit,
+  filterBundleDudiItems,
 } from './document-hub/documentDataBuilders';
 import {
   BundlePageRenderer,
@@ -383,7 +384,9 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     return map;
   }, [siswaList]);
 
-  const bundleDudiItems = useMemo(
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  const allBundleDudiItems = useMemo(
     () =>
       buildBundleDudiItems({
         activeDocKey,
@@ -396,7 +399,6 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         jurusanFilter,
         statusFilter,
         bundleStageNum,
-        searchQuery,
         requireSequential: stageControl.requireSequential,
       }),
     [
@@ -410,27 +412,26 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
       jurusanFilter,
       statusFilter,
       bundleStageNum,
-      searchQuery,
       stageControl.requireSequential,
     ]
+  );
+
+  const bundleDudiItems = useMemo(
+    () => filterBundleDudiItems(allBundleDudiItems, deferredSearchQuery),
+    [allBundleDudiItems, deferredSearchQuery]
   );
 
   useEffect(() => {
     if (activeDocKey !== 'doc_paket_monitoring') return;
     const nextMap: Record<string, boolean> = {};
-    for (const item of bundleDudiItems) {
+    for (const item of allBundleDudiItems) {
       nextMap[item.bundleKey] = !item.isLocked;
     }
     setCheckedBundleKeys(nextMap);
     setBundlePreviewIdx(0);
   }, [
     activeDocKey,
-    bundleStageNum,
-    bundleGuruFilter,
-    jurusanFilter,
-    statusFilter,
-    penempatanList.length,
-    monitoringList.length,
+    allBundleDudiItems,
   ]);
 
   const selectedBundles = useMemo(
@@ -467,7 +468,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
     () =>
       buildFilteredItems({
         activeDocKey,
-        searchQuery,
+        searchQuery: deferredSearchQuery,
         guruFilter,
         jurusanFilter,
         statusFilter,
@@ -480,7 +481,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
       }),
     [
       activeDocKey,
-      searchQuery,
+      deferredSearchQuery,
       guruFilter,
       jurusanFilter,
       statusFilter,

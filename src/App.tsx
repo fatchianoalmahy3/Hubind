@@ -13,7 +13,6 @@ import { Sidebar } from './ui/Sidebar';
 import { UserRole } from './core/types/schema';
 import { GoogleSheetClient } from './core/GoogleSheetClient';
 import { IndexedDbSheetCache } from './core/cache/IndexedDbSheetCache';
-import { signOutFirebaseAdmin } from './core/auth/GoogleAuthService';
 import {
   getStoredAdminSession,
   clearAdminSession,
@@ -303,7 +302,12 @@ export default function App() {
 
   const handleLogout = async () => {
     clearAdminSession();
-    await signOutFirebaseAdmin();
+    try {
+      const { signOutFirebaseAdmin } = await import('./core/auth/GoogleAuthService');
+      await signOutFirebaseAdmin();
+    } catch {
+      // ignore if auth chunk fails or already signed out
+    }
     clearSavedUiSession();
     setCurrentUser(null);
     setAppMode('landing');

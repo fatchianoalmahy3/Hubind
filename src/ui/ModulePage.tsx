@@ -321,6 +321,15 @@ export function ModulePage<T extends { id: string }>({
       <Toolbar
         search={search}
         onSearchChange={handleSearch}
+        searchPlaceholder={(() => {
+          const hints = metadata.fields
+            .filter((f) => f.isSearchable !== false && f.key !== 'id')
+            .slice(0, 3)
+            .map((f) => f.label.toLowerCase());
+          return hints.length > 0
+            ? `Cari ${metadata.title} (${hints.join(', ')})...`
+            : `Cari ${metadata.title}...`;
+        })()}
         activeFilterCount={activeFilterCount}
         onOpenFilterModal={() => setIsFilterModalOpen(true)}
         selectedCount={selectedIds.length}

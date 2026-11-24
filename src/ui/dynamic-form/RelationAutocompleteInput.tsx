@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useDeferredValue, useMemo } from 'react';
 import { FieldConfig } from '../../core/types/metadata';
 import { Dudi } from '../../core/types/schema';
 import { generateJurusanCode } from '../../core/utils/autoIdHelpers';
@@ -41,42 +41,83 @@ export function RelationAutocompleteInput<T>({
   onDudiManualEdit,
 }: RelationAutocompleteInputProps<T>) {
   const key = String(field.key);
+  const deferredVal = useDeferredValue(val);
   const query = normFormValue(val);
+  const deferredQuery = normFormValue(deferredVal);
 
-  if (field.relationSource === 'siswa') {
-    const isNisField = key === 'nis';
-    const nisDigits = isNisField ? stripNisSymbols(val) : '';
-    const displayVal = isNisField ? formatNisVisual(nisDigits, '') : val;
-    const queryDigits = stripNisSymbols(val);
-
-    const filtered = studentDirectory
+  const filteredStudents = useMemo(() => {
+    if (field.relationSource !== 'siswa') return [];
+    const qDigits = stripNisSymbols(deferredVal);
+    return studentDirectory
       .filter((s) => {
-        if (!query && !queryDigits) return true;
-        return (
-          normFormValue(s.nama).includes(query) ||
-          normFormValue(s.nis).includes(query) ||
-          (queryDigits && stripNisSymbols(s.nis).includes(queryDigits)) ||
-          normFormValue(s.kelas).includes(query) ||
-          normFormValue(s.jurusan).includes(query)
-        );
+        if (!deferredQuery && !qDigits) return true;
+        const hay = s._searchNorm ?? `${normFormValue(s.nama)} ${normFormValue(s.nis)} ${normFormValue(s.kelas)} ${normFormValue(s.jurusan)}`;
+        const digits = s._nisDigits ?? stripNisSymbols(s.nis);
+        return hay.includes(deferredQuery) || (Boolean(qDigits) && digits.includes(qDigits));
       })
       .sort((a, b) => {
         const aStarts =
-          normFormValue(a.nama).startsWith(query) ||
-          (queryDigits && stripNisSymbols(a.nis).startsWith(queryDigits)) ||
-          normFormValue(a.nis).startsWith(query)
+          (a._namaNorm ?? normFormValue(a.nama)).startsWith(deferredQuery) ||
+          (Boolean(qDigits) && (a._nisDigits ?? stripNisSymbols(a.nis)).startsWith(qDigits)) ||
+          (a._nisNorm ?? normFormValue(a.nis)).startsWith(deferredQuery)
             ? 0
             : 1;
         const bStarts =
-          normFormValue(b.nama).startsWith(query) ||
-          (queryDigits && stripNisSymbols(b.nis).startsWith(queryDigits)) ||
-          normFormValue(b.nis).startsWith(query)
+          (b._namaNorm ?? normFormValue(b.nama)).startsWith(deferredQuery) ||
+          (Boolean(qDigits) && (b._nisDigits ?? stripNisSymbols(b.nis)).startsWith(qDigits)) ||
+          (b._nisNorm ?? normFormValue(b.nis)).startsWith(deferredQuery)
             ? 0
             : 1;
         if (aStarts !== bStarts) return aStarts - bStarts;
         return a.nama.localeCompare(b.nama);
       })
       .slice(0, 25);
+  }, [field.relationSource, studentDirectory, deferredVal, deferredQuery]);
+
+  const indexedDudi = useMemo(
+    () =>
+      masterDudi.map((d) => ({
+        raw: d,
+        namaNorm: normFormValue(d.namaDudi),
+        bidangNorm: normFormValue(d.bidangKeahlian),
+        searchNorm: `${normFormValue(d.namaDudi)} ${normFormValue(d.wilayahKota)} ${normFormValue(d.alamat)} ${normFormValue(d.bidangKeahlian)}`,
+      })),
+    [masterDudi]
+  );
+
+  const selectedJurusanRaw = String(values.jurusan || '').trim();
+  const selectedJurusanNorm = normFormValue(selectedJurusanRaw);
+  const selectedJurusanCode = normFormValue(generateJurusanCode(selectedJurusanRaw));
+
+  const filteredDudi = useMemo(() => {
+    if (field.relationSource !== 'dudi') return [];
+    const checkJurusan = (namaNorm: string, bidangNorm: string): boolean => {
+      if (!selectedJurusanNorm) return false;
+      return Boolean(
+        (bidangNorm &&
+          (bidangNorm.includes(selectedJurusanNorm) ||
+            (selectedJurusanCode && bidangNorm.includes(selectedJurusanCode)))) ||
+          (selectedJurusanCode && namaNorm.includes(selectedJurusanCode))
+      );
+    };
+
+    return indexedDudi
+      .filter((item) => (!deferredQuery ? true : item.searchNorm.includes(deferredQuery)))
+      .sort((a, b) => {
+        const aMatch = checkJurusan(a.namaNorm, a.bidangNorm) ? 0 : 1;
+        const bMatch = checkJurusan(b.namaNorm, b.bidangNorm) ? 0 : 1;
+        if (aMatch !== bMatch) return aMatch - bMatch;
+        return String(a.raw.namaDudi || '').localeCompare(String(b.raw.namaDudi || ''));
+      })
+      .slice(0, 25)
+      .map((x) => x.raw);
+  }, [field.relationSource, indexedDudi, deferredQuery, selectedJurusanNorm, selectedJurusanCode]);
+
+  if (field.relationSource === 'siswa') {
+    const isNisField = key === 'nis';
+    const nisDigits = isNisField ? stripNisSymbols(val) : '';
+    const displayVal = isNisField ? formatNisVisual(nisDigits, '') : val;
+    const filtered = filteredStudents;
 
     return (
       <div className="relative">
@@ -216,10 +257,6 @@ export function RelationAutocompleteInput<T>({
   }
 
   if (field.relationSource === 'dudi') {
-    const selectedJurusanRaw = String(values.jurusan || '').trim();
-    const selectedJurusanNorm = normFormValue(selectedJurusanRaw);
-    const selectedJurusanCode = normFormValue(generateJurusanCode(selectedJurusanRaw));
-
     const isJurusanMatchedDudi = (d: Dudi): boolean => {
       if (!selectedJurusanNorm) return false;
       const bidang = normFormValue(d.bidangKeahlian);
@@ -229,24 +266,6 @@ export function RelationAutocompleteInput<T>({
           (selectedJurusanCode && nama.includes(selectedJurusanCode))
       );
     };
-
-    const filteredDudi = masterDudi
-      .filter((d) => {
-        if (!query) return true;
-        return (
-          normFormValue(d.namaDudi).includes(query) ||
-          normFormValue(d.wilayahKota).includes(query) ||
-          normFormValue(d.alamat).includes(query) ||
-          normFormValue(d.bidangKeahlian).includes(query)
-        );
-      })
-      .sort((a, b) => {
-        const aMatch = isJurusanMatchedDudi(a) ? 0 : 1;
-        const bMatch = isJurusanMatchedDudi(b) ? 0 : 1;
-        if (aMatch !== bMatch) return aMatch - bMatch;
-        return String(a.namaDudi || '').localeCompare(String(b.namaDudi || ''));
-      })
-      .slice(0, 25);
 
     return (
       <div className="relative">

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
@@ -67,13 +67,20 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
     prevSelectedIdRef.current = selectedPetugasId;
   }, [selectedPetugasId, selectedPetugasNama]);
 
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  const sortedPetugas = useMemo(
+    () =>
+      [...petugasList].sort((a, b) =>
+        String(a.nama || '').localeCompare(String(b.nama || ''))
+      ),
+    [petugasList]
+  );
+
   const filteredPetugas = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const sorted = [...petugasList].sort((a, b) =>
-      String(a.nama || '').localeCompare(String(b.nama || ''))
-    );
-    if (!q) return sorted.slice(0, 40);
-    return sorted
+    const q = deferredSearchQuery.trim().toLowerCase();
+    if (!q) return sortedPetugas.slice(0, 40);
+    return sortedPetugas
       .filter((p) => {
         const nama = String(p.nama || '').toLowerCase();
         const nip = String(p.nip || '').toLowerCase();
@@ -81,7 +88,7 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
         return nama.includes(q) || nip.includes(q) || peran.includes(q);
       })
       .slice(0, 40);
-  }, [petugasList, searchQuery]);
+  }, [sortedPetugas, deferredSearchQuery]);
 
   const handleSelectItem = (p: any) => {
     onSelectPetugas(p.id, p.nama, p.nip || '-');
