@@ -389,6 +389,12 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal menyimpan data baru ke Cloud Server.');
       }
+      if (commitRes.sheetRowNumber && commitRes.sheetRowNumber >= 2) {
+        (prepared as any)._sheetRowNumber = commitRes.sheetRowNumber;
+        this.memoryData = this.memoryData.map((r) =>
+          r.id === prepared.id ? ({ ...r, _sheetRowNumber: commitRes.sheetRowNumber } as T) : r
+        );
+      }
       const committedAt = Date.now();
       this.lastFetchedAt = committedAt;
       this.lastLocalMutationAt = committedAt;
@@ -448,6 +454,12 @@ export abstract class BaseRepository<T extends { id: string }> {
       );
       if (!commitRes.success) {
         throw new Error(commitRes.error || 'Gagal memperbarui data di Cloud Server.');
+      }
+      if (commitRes.sheetRowNumber && commitRes.sheetRowNumber >= 2) {
+        (candidate as any)._sheetRowNumber = commitRes.sheetRowNumber;
+        this.memoryData = this.memoryData.map((r) =>
+          r.id === candidate.id ? ({ ...r, _sheetRowNumber: commitRes.sheetRowNumber } as T) : r
+        );
       }
       const committedAt = Date.now();
       this.lastFetchedAt = committedAt;

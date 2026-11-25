@@ -128,8 +128,8 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             >
               {m.isPinVerified ? '✓' : '1'}
             </span>
-            <span className="hidden sm:inline">1. Identitas &amp; PIN</span>
-            <span className="sm:hidden">1. PIN</span>
+            <span className="hidden sm:inline">1. Identitas &amp; Password</span>
+            <span className="sm:hidden">1. Password</span>
           </div>
 
           <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 shrink-0" />

@@ -43,7 +43,7 @@ export async function syncDudiContactToMasterAndPengajuan(
     return false;
   }
 
-  const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', true).catch(() => ({ rows: [] as any[] }));
+  const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', false).catch(() => ({ rows: [] as any[] }));
   const existingDudi = dudiRes.rows.find((d: any) => {
     const dId = pickField(d, 'ID', 'id');
     const dNama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi'));
@@ -56,40 +56,45 @@ export async function syncDudiContactToMasterAndPengajuan(
   let synced = false;
   if (existingDudi) {
     const resolvedId = pickField(existingDudi, 'ID', 'id') || targetDudiId;
-    const nextPemimpin = overwrite
-      ? inputPemimpin || pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin')
-      : pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin') || inputPemimpin;
-    const nextPic = overwrite
-      ? inputPic || pickField(existingDudi, 'Nama_PIC', 'namaPic')
-      : pickField(existingDudi, 'Nama_PIC', 'namaPic') || inputPic;
-    const nextTelp = overwrite
-      ? inputTelpDudi || pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic')
-      : pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') || inputTelpDudi;
-    const nextHariKerja = overwrite
-      ? inputHariKerja || pickField(existingDudi, 'Hari_Kerja', 'hariKerja')
-      : pickField(existingDudi, 'Hari_Kerja', 'hariKerja') || inputHariKerja;
-    const nextJamKerja = overwrite
-      ? inputJamKerja || pickField(existingDudi, 'Jam_Kerja', 'jamKerja')
-      : pickField(existingDudi, 'Jam_Kerja', 'jamKerja') || inputJamKerja;
+    const currPemimpin = pickField(existingDudi, 'Nama_Pemimpin', 'namaPemimpin');
+    const currPic = pickField(existingDudi, 'Nama_PIC', 'namaPic');
+    const currTelp = pickField(existingDudi, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic');
+    const currHariKerja = pickField(existingDudi, 'Hari_Kerja', 'hariKerja');
+    const currJamKerja = pickField(existingDudi, 'Jam_Kerja', 'jamKerja');
 
-    await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
-      ...existingDudi,
-      id: resolvedId,
-      ID: resolvedId,
-      Nama_Pemimpin: nextPemimpin,
-      namaPemimpin: nextPemimpin,
-      Nama_PIC: nextPic,
-      namaPic: nextPic,
-      Kontak_PIC: nextTelp,
-      kontakPic: nextTelp,
-      No_Telp_DUDI: nextTelp,
-      noTelpDudi: nextTelp,
-      Hari_Kerja: nextHariKerja,
-      hariKerja: nextHariKerja,
-      Jam_Kerja: nextJamKerja,
-      jamKerja: nextJamKerja,
-    });
-    synced = true;
+    const nextPemimpin = overwrite ? inputPemimpin || currPemimpin : currPemimpin || inputPemimpin;
+    const nextPic = overwrite ? inputPic || currPic : currPic || inputPic;
+    const nextTelp = overwrite ? inputTelpDudi || currTelp : currTelp || inputTelpDudi;
+    const nextHariKerja = overwrite ? inputHariKerja || currHariKerja : currHariKerja || inputHariKerja;
+    const nextJamKerja = overwrite ? inputJamKerja || currJamKerja : currJamKerja || inputJamKerja;
+
+    const hasChanges =
+      nextPemimpin !== currPemimpin ||
+      nextPic !== currPic ||
+      nextTelp !== currTelp ||
+      nextHariKerja !== currHariKerja ||
+      nextJamKerja !== currJamKerja;
+
+    if (hasChanges) {
+      await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
+        ...existingDudi,
+        id: resolvedId,
+        ID: resolvedId,
+        Nama_Pemimpin: nextPemimpin,
+        namaPemimpin: nextPemimpin,
+        Nama_PIC: nextPic,
+        namaPic: nextPic,
+        Kontak_PIC: nextTelp,
+        kontakPic: nextTelp,
+        No_Telp_DUDI: nextTelp,
+        noTelpDudi: nextTelp,
+        Hari_Kerja: nextHariKerja,
+        hariKerja: nextHariKerja,
+        Jam_Kerja: nextJamKerja,
+        jamKerja: nextJamKerja,
+      });
+      synced = true;
+    }
   } else if (input.createIfMissing !== false && targetDudiNameRaw) {
     const newDudiId =
       targetDudiId && !targetDudiId.includes('::')

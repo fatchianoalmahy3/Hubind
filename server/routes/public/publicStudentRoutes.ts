@@ -16,13 +16,19 @@ import {
   getOrBuildSiswaIndex,
   writeLiveSheetViaGas,
 } from '../../services/sheetsTransport';
-import { computeWeakEtag, handlePortalError, isEtagMatched } from '../../utils/httpHelpers';
+import {
+  computeWeakEtag,
+  handlePortalError,
+  isEtagMatched,
+  setPublicSwrCacheHeaders,
+} from '../../utils/httpHelpers';
 
 export function registerPublicStudentRoutes(app: Express): void {
   // Public configuration summary (no dummy stats, no sensitive private admin data)
   app.get('/api/public/config-summary', async (_req: Request, res: Response) => {
     try {
       const cfg = await getFirestoreWorkspaceConfig();
+      setPublicSwrCacheHeaders(res, false, 15, 60);
       res.json({
         success: true,
         activeYear: cfg.activeYear,
@@ -77,6 +83,7 @@ export function registerPublicStudentRoutes(app: Express): void {
 
       const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: 'public_dudi', mapped });
       res.setHeader('ETag', etag);
+      setPublicSwrCacheHeaders(res, fresh, 15, 60);
       if (!fresh && isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -307,6 +314,8 @@ export function registerPublicStudentRoutes(app: Express): void {
       );
       const writeReceipt = await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'CREATE', persistedPengajuan);
 
+      const backfillTasks: Promise<unknown>[] = [];
+
       if (matchedStudent) {
         const siswaId = pickField(matchedStudent, 'ID', 'id', 'NIS', 'nis');
         if (siswaId) {
@@ -328,12 +337,14 @@ export function registerPublicStudentRoutes(app: Express): void {
             studentUpdates.Status_PKL = 'Diajukan';
           }
           if (Object.keys(studentUpdates).length > 0) {
-            await writeLiveSheetViaGas('Master_Siswa_XI', 'UPDATE', {
-              id: siswaId,
-              ID: siswaId,
-              _sheetRowNumber: matchedStudent._sheetRowNumber,
-              ...studentUpdates,
-            }).catch(() => {});
+            backfillTasks.push(
+              writeLiveSheetViaGas('Master_Siswa_XI', 'UPDATE', {
+                id: siswaId,
+                ID: siswaId,
+                _sheetRowNumber: matchedStudent._sheetRowNumber,
+                ...studentUpdates,
+              }).catch(() => {})
+            );
           }
         }
       }
@@ -355,20 +366,22 @@ export function registerPublicStudentRoutes(app: Express): void {
           dudiUpdates.jamKerja = inputJam;
         }
         if (Object.keys(dudiUpdates).length > 0) {
-          try {
-            const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
-            if (targetDudiId) {
-              await writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
+          const targetDudiId = pickField(matchedDudiRow, 'ID', 'id');
+          if (targetDudiId) {
+            backfillTasks.push(
+              writeLiveSheetViaGas('Master_DUDI', 'UPDATE', {
                 id: targetDudiId,
                 ID: targetDudiId,
                 _sheetRowNumber: matchedDudiRow._sheetRowNumber,
                 ...dudiUpdates,
-              });
-            }
-          } catch {
-            // non-blocking backfill
+              }).catch(() => {})
+            );
           }
         }
+      }
+
+      if (backfillTasks.length > 0) {
+        await Promise.allSettled(backfillTasks);
       }
 
       res.json({

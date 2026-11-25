@@ -2,7 +2,7 @@ import { GoogleDriveSheetService } from '../../src/core/GoogleDriveSheetService'
 import { getDependentSheets } from '../../src/core/types/sheetBlueprint';
 import { getFirestoreWorkspaceConfig, normalizeServerGasUrl } from '../config/runtimeConfig';
 import { type GasWriteAction, PortalConfigError, type WorkspaceConfig } from '../types';
-import { fetchWithTimeout, GAS_FETCH_TIMEOUT_MS } from '../utils/httpHelpers';
+import { fetchWithRetry, fetchWithTimeout, GAS_FETCH_TIMEOUT_MS } from '../utils/httpHelpers';
 import {
   SHEET_CACHE_SOFT_TTL_MS,
   SHEET_CACHE_STALE_MAX_MS,
@@ -14,6 +14,7 @@ import {
   siswaIndexCache,
 } from './serverSheetCache';
 import { tryFetchBatchSheetsViaApiV4 } from './sheetsApiV4Client';
+import { tryWriteSheetViaApiV4 } from './sheetsApiV4Write';
 
 export function validateGasUrl(rawUrl: string): string {
   const trimmed = normalizeServerGasUrl(rawUrl);
@@ -109,7 +110,7 @@ export async function fetchLiveSheetViaGas(
   rows: any[];
   config: WorkspaceConfig;
 }> {
-  const config = await getFirestoreWorkspaceConfig(forceRefresh);
+  const config = await getFirestoreWorkspaceConfig(false);
 
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
@@ -162,14 +163,14 @@ export async function fetchLiveSheetViaGas(
 
     let gasRes: globalThis.Response;
     try {
-      gasRes = await fetchWithTimeout(
+      gasRes = await fetchWithRetry(
         targetUrl,
         {
           method: 'GET',
           headers: { Accept: 'application/json' },
           redirect: 'follow',
         },
-        GAS_FETCH_TIMEOUT_MS
+        { timeoutMs: GAS_FETCH_TIMEOUT_MS, retries: 2, baseDelayMs: 300 }
       );
     } catch (err: any) {
       if (err instanceof PortalConfigError) throw err;
@@ -218,7 +219,7 @@ export async function fetchBatchSheetsViaGas(
   optionalSheets: Set<string> = new Set(),
   forceRefresh = false
 ): Promise<{ sheets: Record<string, any[]>; config: WorkspaceConfig }> {
-  const config = await getFirestoreWorkspaceConfig(forceRefresh);
+  const config = await getFirestoreWorkspaceConfig(false);
 
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
@@ -298,14 +299,14 @@ export async function fetchBatchSheetsViaGas(
         config.spreadsheetId
       )}${freshSuffix}`;
 
-      const gasRes = await fetchWithTimeout(
+      const gasRes = await fetchWithRetry(
         batchUrl,
         {
           method: 'GET',
           headers: { Accept: 'application/json' },
           redirect: 'follow',
         },
-        GAS_FETCH_TIMEOUT_MS
+        { timeoutMs: GAS_FETCH_TIMEOUT_MS, retries: 2, baseDelayMs: 300 }
       );
 
       if (gasRes.ok) {
@@ -386,7 +387,6 @@ export async function writeLiveSheetViaGas(
       'ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin.'
     );
   }
-  const gasUrl = validateGasUrl(config.gasDeployUrl);
 
   const rawId =
     payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -446,38 +446,95 @@ export async function writeLiveSheetViaGas(
     };
   }
 
-  let gasRes: globalThis.Response;
-  try {
-    gasRes = await fetchWithTimeout(
-      gasUrl,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        redirect: 'follow',
-        body: JSON.stringify({
-          action,
-          sheetName,
-          year: config.activeYear,
-          spreadsheetId: config.spreadsheetId,
-          id: cleanId || rawId,
-          sheetRowNumber: sheetRowNumber >= 2 ? sheetRowNumber : undefined,
-          data: sanitizedPayload,
-          timestamp: new Date().toISOString(),
-        }),
-      },
-      20_000
-    );
-  } catch (err: any) {
-    if (err instanceof PortalConfigError) throw err;
-    throw new PortalConfigError(
-      'GAS_WRITE_FAILED',
-      `Server gagal mengirim data ke Endpoint Cloud Server (${err?.message || 'network error'}). Periksa konfigurasi URL "/exec".`,
-      502
-    );
+  const apiV4WriteReceipt = await tryWriteSheetViaApiV4(
+    config.spreadsheetId,
+    sheetName,
+    action,
+    sanitizedPayload
+  );
+
+  if (apiV4WriteReceipt) {
+    invalidateSheetCacheEntry(config.spreadsheetId, sheetName);
+    if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
+      siswaIndexCache.delete(config.spreadsheetId);
+      invalidateSheetCacheEntry(config.spreadsheetId, 'Master_Siswa_XI');
+      invalidateSheetCacheEntry(config.spreadsheetId, 'Master_Siswa');
+    }
+    for (const dep of getDependentSheets(sheetName)) {
+      invalidateSheetCacheEntry(config.spreadsheetId, dep);
+    }
+    return apiV4WriteReceipt;
   }
 
-  const rawText = await gasRes.text();
-  const json = parseGasJsonSafely(rawText, sheetName, gasRes.status);
+  const gasUrl = validateGasUrl(config.gasDeployUrl);
+
+  const postBody = JSON.stringify({
+    action,
+    sheetName,
+    year: config.activeYear,
+    spreadsheetId: config.spreadsheetId,
+    id: cleanId || rawId,
+    sheetRowNumber: sheetRowNumber >= 2 ? sheetRowNumber : undefined,
+    data: sanitizedPayload,
+    timestamp: new Date().toISOString(),
+  });
+
+  let gasRes!: globalThis.Response;
+  let rawText = '';
+  let json: any = {};
+
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      gasRes = await fetchWithTimeout(
+        gasUrl,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          redirect: 'follow',
+          body: postBody,
+        },
+        20_000
+      );
+    } catch (err: any) {
+      if (err instanceof PortalConfigError) {
+        if (err.code === 'GAS_TIMEOUT' && attempt < 2) {
+          const jitter = 350 + Math.floor(Math.random() * 750);
+          await new Promise((r) => setTimeout(r, jitter));
+          continue;
+        }
+        throw err;
+      }
+      if (attempt < 2) {
+        const jitter = 350 + Math.floor(Math.random() * 750);
+        await new Promise((r) => setTimeout(r, jitter));
+        continue;
+      }
+      throw new PortalConfigError(
+        'GAS_WRITE_FAILED',
+        `Server gagal mengirim data ke Endpoint Cloud Server (${err?.message || 'network error'}). Periksa konfigurasi URL "/exec".`,
+        502
+      );
+    }
+
+    rawText = await gasRes.text();
+    json = parseGasJsonSafely(rawText, sheetName, gasRes.status);
+
+    const errMsgLower = String(json?.error || '').toLowerCase();
+    const isTransientGasLock =
+      gasRes.status === 429 ||
+      gasRes.status === 502 ||
+      gasRes.status === 503 ||
+      errMsgLower.includes('lock') ||
+      errMsgLower.includes('terlalu banyak') ||
+      errMsgLower.includes('exceeded maximum execution time');
+
+    if (isTransientGasLock && attempt < 2) {
+      const jitter = 400 + Math.floor(Math.random() * 850);
+      await new Promise((r) => setTimeout(r, jitter));
+      continue;
+    }
+    break;
+  }
 
   if (!gasRes.ok) {
     throw new PortalConfigError(

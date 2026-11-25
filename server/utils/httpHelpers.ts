@@ -31,6 +31,66 @@ export async function fetchWithTimeout(
   }
 }
 
+const RETRYABLE_HTTP_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+export async function fetchWithRetry(
+  url: string,
+  init: RequestInit = {},
+  options: {
+    timeoutMs?: number;
+    retries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    retryOnTimeout?: boolean;
+  } = {}
+): Promise<globalThis.Response> {
+  const timeoutMs = options.timeoutMs ?? GAS_FETCH_TIMEOUT_MS;
+  const retries = Math.max(0, options.retries ?? 2);
+  const baseDelayMs = options.baseDelayMs ?? 250;
+  const maxDelayMs = options.maxDelayMs ?? 1500;
+  const retryOnTimeout = options.retryOnTimeout ?? false;
+
+  let lastError: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, init, timeoutMs);
+      if (!RETRYABLE_HTTP_STATUSES.has(res.status) || attempt === retries) {
+        return res;
+      }
+      // Drain body before retrying to free socket
+      await res.text().catch(() => '');
+    } catch (err: any) {
+      lastError = err;
+      const isTimeout = err instanceof PortalConfigError && err.code === 'GAS_TIMEOUT';
+      if (attempt === retries || (isTimeout && !retryOnTimeout)) {
+        throw err;
+      }
+    }
+
+    const expDelay = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt));
+    const jitter = Math.floor(Math.random() * Math.max(120, Math.round(expDelay * 0.6)));
+    await new Promise((resolve) => setTimeout(resolve, expDelay + jitter));
+  }
+
+  throw lastError;
+}
+
+export function setPublicSwrCacheHeaders(
+  res: Response,
+  fresh: boolean,
+  maxAgeSec = 15,
+  swrSec = 60
+): void {
+  if (fresh) {
+    res.setHeader('Cache-Control', 'no-store');
+    return;
+  }
+  res.setHeader(
+    'Cache-Control',
+    `public, max-age=${maxAgeSec}, stale-while-revalidate=${swrSec}`
+  );
+}
+
 export function handlePortalError(res: Response, err: any) {
   if (err instanceof PortalConfigError) {
     return res.status(err.status).json({

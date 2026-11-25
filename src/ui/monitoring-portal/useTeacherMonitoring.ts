@@ -309,7 +309,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setVerifyingPin(true);
     setPinError('');
     const toastId = ToastManager.getInstance().show(
-      'Memverifikasi PIN Petugas...',
+      'Memverifikasi Password Petugas...',
       'pending',
       `Mencocokkan identitas ${selectedPetugasNama || 'petugas'} dengan Cloud Server`
     );
@@ -353,14 +353,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         setVerifyingPin(false);
         void loadAssignedDudi(verified.nama, verified.id);
       } else {
-        const errMsg = json.message || 'PIN Petugas tidak valid.';
+        const errMsg = json.message || 'Password Petugas tidak valid.';
         setPinError(errMsg);
-        ToastManager.getInstance().update(toastId, 'Verifikasi PIN Gagal', 'error', errMsg);
+        ToastManager.getInstance().update(toastId, 'Verifikasi Password Gagal', 'error', errMsg);
       }
     } catch (e: any) {
-      const errMsg = e?.message || 'Gagal memverifikasi PIN. Periksa koneksi Anda.';
+      const errMsg = e?.message || 'Gagal memverifikasi password. Periksa koneksi Anda.';
       setPinError(errMsg);
-      ToastManager.getInstance().update(toastId, 'Verifikasi PIN Gagal', 'error', errMsg);
+      ToastManager.getInstance().update(toastId, 'Verifikasi Password Gagal', 'error', errMsg);
     } finally {
       setVerifyingPin(false);
     }

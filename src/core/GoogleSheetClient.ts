@@ -1000,7 +1000,14 @@ export class GoogleSheetClient {
     action: 'CREATE' | 'UPDATE' | 'DELETE' | 'BULK_DELETE' | 'BULK_UPDATE' | 'IMPORT',
     payload: any,
     options?: { silentToast?: boolean }
-  ): Promise<{ success: boolean; fromLiveSheet: boolean; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    fromLiveSheet: boolean;
+    verified?: boolean;
+    sheetRowNumber?: number;
+    savedAt?: string;
+    error?: string;
+  }> {
     const silent = Boolean(options?.silentToast);
 
     if (!this.spreadsheetId) {
@@ -1015,7 +1022,8 @@ export class GoogleSheetClient {
       return { success: false, fromLiveSheet: false, error: msg };
     }
 
-    if (!this.gasDeployUrl) {
+    const bearerToken = await this.transport.resolveAuthBearerToken().catch(() => null);
+    if (!this.gasDeployUrl && !bearerToken) {
       const msg = 'URL Endpoint Cloud Server (/exec) belum dikonfigurasi.';
       if (!silent) ToastManager.getInstance().show('Endpoint Server Belum Diatur', 'error', msg);
       return { success: false, fromLiveSheet: false, error: msg };
@@ -1031,7 +1039,7 @@ export class GoogleSheetClient {
       : null;
 
     try {
-      await this.transport.postViaServerOrDirectGas(
+      const receipt = await this.transport.postViaServerOrDirectGas(
         this.getTransportContext(),
         sheetName,
         action,
@@ -1042,10 +1050,18 @@ export class GoogleSheetClient {
           toastId,
           'Tersimpan di Cloud Server!',
           'success',
-          'Data berhasil ditulis dan disinkronkan ke Cloud Server.'
+          receipt.sheetRowNumber
+            ? `Data berhasil ditulis ke Spreadsheet (Baris #${receipt.sheetRowNumber}).`
+            : 'Data berhasil ditulis dan disinkronkan ke Cloud Server.'
         );
       }
-      return { success: true, fromLiveSheet: true };
+      return {
+        success: true,
+        fromLiveSheet: true,
+        verified: receipt.verified,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
+      };
     } catch (err: any) {
       const errMsg = err?.message || 'Gagal menghubungi Cloud Server';
       if (toastId) {

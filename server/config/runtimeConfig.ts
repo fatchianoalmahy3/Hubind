@@ -6,7 +6,7 @@ import {
   type MonitoringStageControl,
 } from '../../src/core/types/schema';
 import type { FirebaseAppletConfig, WorkspaceConfig } from '../types';
-import { fetchWithTimeout } from '../utils/httpHelpers';
+import { fetchWithRetry } from '../utils/httpHelpers';
 
 export const __dirnameResolved =
   typeof __dirname !== 'undefined'
@@ -23,7 +23,7 @@ export const isServerlessRuntime = Boolean(
 );
 
 export const BOOTSTRAP_ADMIN_EMAIL = 'fatchiano1@gmail.com';
-const CONFIG_CACHE_TTL_MS = 60_000;
+const CONFIG_CACHE_TTL_MS = 20_000;
 
 function loadFirebaseConfig(): FirebaseAppletConfig {
   const candidates = [
@@ -165,7 +165,11 @@ export async function getFirestoreWorkspaceConfig(forceRefresh = false): Promise
       firebaseCfg.projectId
     )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/config/workspace`;
 
-    const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 10_000);
+    const res = await fetchWithRetry(
+      url,
+      { headers: { Accept: 'application/json' } },
+      { timeoutMs: 8_000, retries: 1, baseDelayMs: 200 }
+    );
     if (res.status === 404) {
       cachedWorkspaceConfig = { config: emptyConfig, fetchedAt: Date.now() };
       return emptyConfig;

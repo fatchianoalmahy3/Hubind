@@ -360,12 +360,19 @@ export function registerRestApiRoutes(app: Express): void {
       }
 
       const payload = req.body && typeof req.body === 'object' ? req.body : {};
-      await writeLiveSheetViaGas(tableName, 'CREATE', payload);
+      const receipt = await writeLiveSheetViaGas(tableName, 'CREATE', payload);
       return res.status(201).json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
-        data: payload,
+        data:
+          receipt.sheetRowNumber && !payload._sheetRowNumber
+            ? { ...payload, _sheetRowNumber: receipt.sheetRowNumber }
+            : payload,
       });
     } catch (err: any) {
       handlePortalError(res, err);
@@ -414,9 +421,13 @@ export function registerRestApiRoutes(app: Express): void {
         });
       }
 
-      await writeLiveSheetViaGas(tableName, normalizedAction as GasWriteAction, data);
+      const receipt = await writeLiveSheetViaGas(tableName, normalizedAction as GasWriteAction, data);
       return res.json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
         action: normalizedAction,
@@ -444,13 +455,20 @@ export function registerRestApiRoutes(app: Express): void {
       const id = String(req.params.id || '').trim();
       const body = req.body && typeof req.body === 'object' ? req.body : {};
       const payload = { ...body, id: body.id || id };
-      await writeLiveSheetViaGas(tableName, 'UPDATE', payload);
+      const receipt = await writeLiveSheetViaGas(tableName, 'UPDATE', payload);
       return res.json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
         id,
-        data: payload,
+        data:
+          receipt.sheetRowNumber && !payload._sheetRowNumber
+            ? { ...payload, _sheetRowNumber: receipt.sheetRowNumber }
+            : payload,
       });
     } catch (err: any) {
       handlePortalError(res, err);
@@ -476,13 +494,17 @@ export function registerRestApiRoutes(app: Express): void {
 
       const id = String(req.params.id || '').trim();
       const body = req.body && typeof req.body === 'object' ? req.body : {};
-      await writeLiveSheetViaGas(tableName, 'DELETE', {
+      const receipt = await writeLiveSheetViaGas(tableName, 'DELETE', {
         id,
         rawId: body.rawId || id,
         deletedRow: body.deletedRow,
       });
       return res.json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
         id,

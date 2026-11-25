@@ -429,8 +429,14 @@ export function registerAdminRoutes(app: Express): void {
         });
       }
 
-      await writeLiveSheetViaGas(targetSheet, normalizedAction as GasWriteAction, data);
-      res.json({ success: true });
+      const receipt = await writeLiveSheetViaGas(targetSheet, normalizedAction as GasWriteAction, data);
+      res.json({
+        success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
+      });
     } catch (err: any) {
       handlePortalError(res, err);
     }

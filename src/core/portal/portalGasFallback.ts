@@ -622,8 +622,8 @@ export async function directVerifyPetugasPin(params: {
   pin: string;
 }) {
   const enteredPin = String(params.pin || '').trim();
-  if (!enteredPin || enteredPin.length < 4) {
-    throw new Error('PIN Petugas 4 digit wajib diisi.');
+  if (!enteredPin) {
+    throw new Error('Password Petugas wajib diisi.');
   }
 
   const rows = await readSheetDirect('Master_Guru_Pendamping');
@@ -640,7 +640,7 @@ export async function directVerifyPetugasPin(params: {
     throw new Error('Data petugas tidak ditemukan di Database Cloud Server.');
   }
 
-  const explicitPin = pickField(teacher, 'PIN', 'pin', 'Pin');
+  const explicitPin = pickField(teacher, 'PIN', 'pin', 'Pin', 'Password', 'password');
   const nipDigits = pickField(teacher, 'NIP', 'nip').replace(/\D/g, '');
   const waDigits = pickField(
     teacher,
@@ -659,13 +659,13 @@ export async function directVerifyPetugasPin(params: {
 
   if (validPins.length === 0) {
     throw new Error(
-      'Petugas belum memiliki PIN atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi.'
+      'Petugas belum memiliki password atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi.'
     );
   }
 
   if (!validPins.includes(enteredPin)) {
     throw new Error(
-      'PIN Petugas tidak cocok. Gunakan PIN atau 4 digit terakhir NIP / No. WhatsApp terdaftar.'
+      'Password Petugas tidak cocok. Gunakan password atau 4 digit terakhir NIP / No. WhatsApp terdaftar.'
     );
   }
 

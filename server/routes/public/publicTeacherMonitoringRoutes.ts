@@ -38,7 +38,12 @@ import {
   fetchMasterSiswaRows,
   writeLiveSheetViaGas,
 } from '../../services/sheetsTransport';
-import { computeWeakEtag, handlePortalError, isEtagMatched } from '../../utils/httpHelpers';
+import {
+  computeWeakEtag,
+  handlePortalError,
+  isEtagMatched,
+  setPublicSwrCacheHeaders,
+} from '../../utils/httpHelpers';
 
 function constantTimeMatch(a: string, b: string): boolean {
   const hashA = crypto.createHash('sha256').update(a, 'utf8').digest();
@@ -63,6 +68,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: 'public_petugas', mapped });
       res.setHeader('ETag', etag);
+      setPublicSwrCacheHeaders(res, fresh, 15, 60);
       if (!fresh && isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -94,8 +100,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       const { petugas_id, nama_petugas, pin } = req.body || {};
       const enteredPin = String(pin || '').trim();
 
-      if (!enteredPin || enteredPin.length < 4) {
-        return res.status(400).json({ success: false, message: 'PIN Petugas 4 digit wajib diisi.' });
+      if (!enteredPin) {
+        return res.status(400).json({ success: false, message: 'Password Petugas wajib diisi.' });
       }
 
       const { rows } = await fetchLiveSheetViaGas('Master_Guru_Pendamping');
@@ -116,7 +122,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         });
       }
 
-      const explicitPin = pickField(teacher, 'PIN', 'pin', 'Pin');
+      const explicitPin = pickField(teacher, 'PIN', 'pin', 'Pin', 'Password', 'password');
       const nipDigits = pickField(teacher, 'NIP', 'nip').replace(/\D/g, '');
       const waDigits = pickField(teacher, 'Kontak_WA', 'kontakWA', 'kontakWa', 'No_WA', 'noWa', 'No_HP').replace(/\D/g, '');
 
@@ -129,7 +135,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         return res.status(400).json({
           success: false,
           message:
-            'Petugas belum memiliki PIN atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi.',
+            'Petugas belum memiliki password atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi.',
         });
       }
 
@@ -137,7 +143,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       if (!pinMatched) {
         return res.status(401).json({
           success: false,
-          message: 'PIN Petugas tidak cocok. Gunakan PIN atau 4 digit terakhir NIP / No. WhatsApp terdaftar.',
+          message: 'Password Petugas tidak cocok. Gunakan password atau 4 digit terakhir NIP / No. WhatsApp terdaftar.',
         });
       }
 
@@ -182,6 +188,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       const etag = computeWeakEtag({ k: 'petugas_dudi', petugasNama, petugasId, result });
       res.setHeader('ETag', etag);
+      setPublicSwrCacheHeaders(res, String(req.query.fresh || '') === '1', 15, 60);
       if (isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -259,6 +266,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         result,
       });
       res.setHeader('ETag', etag);
+      setPublicSwrCacheHeaders(res, String(req.query.fresh || '') === '1', 10, 45);
       if (String(req.query.fresh || '') !== '1' && isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -389,7 +397,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         });
       }
 
-      const wsConfig = await getFirestoreWorkspaceConfig(true);
+      const wsConfig = await getFirestoreWorkspaceConfig(false);
       const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
 
       if (!stageControl.unlockedStages.includes(stageNum)) {
@@ -402,12 +410,19 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         });
       }
 
+      const sheetsToFetch =
+        stageControl.requireIssuedLetter !== false
+          ? ['Log_Penerbitan_Surat', 'Monitoring_5_Tahap']
+          : ['Monitoring_5_Tahap'];
+      const { sheets: precheckSheets } = await fetchBatchSheetsViaGas(
+        sheetsToFetch,
+        new Set(sheetsToFetch),
+        true
+      ).catch(() => ({ sheets: {} as Record<string, any[]> }));
+
       if (stageControl.requireIssuedLetter !== false) {
-        const logRes = await fetchLiveSheetViaGas('Log_Penerbitan_Surat', true).catch(() => ({
-          rows: [] as any[],
-        }));
         const { issuedStages } = resolveIssuedStagesForDudi(
-          logRes.rows,
+          precheckSheets['Log_Penerbitan_Surat'] || [],
           String(payload.dudi_id || ''),
           String(payload.nama_dudi || '')
         );
@@ -420,9 +435,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         }
       }
 
-      const monRes = await fetchLiveSheetViaGas('Monitoring_5_Tahap', true).catch(() => ({
-        rows: [] as any[],
-      }));
+      const monRes = { rows: precheckSheets['Monitoring_5_Tahap'] || [] };
 
       if (stageControl.requireSequential && stageNum >= 2) {
         const summary = buildStudentMonitoringSummary(
@@ -609,9 +622,12 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       );
 
       let dudiContactSynced = false;
+      let gradeSynced = false;
+      const postSyncTasks: Promise<void>[] = [];
+
       if (inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja) {
-        try {
-          dudiContactSynced = await syncDudiContactToMasterAndPengajuan({
+        postSyncTasks.push(
+          syncDudiContactToMasterAndPengajuan({
             dudiId: resolvedDudiId || payload.dudi_id,
             namaDudi: payload.nama_dudi,
             alamatDudi: payload.alamat_dudi,
@@ -622,16 +638,19 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
             jamKerja: inputJamKerja || undefined,
             createIfMissing: true,
             overwriteExisting: true,
-          });
-        } catch (dudiErr) {
-          console.warn('[submit-monitoring] Sync DUDI contact warning:', dudiErr);
-        }
+          })
+            .then((synced) => {
+              dudiContactSynced = synced;
+            })
+            .catch((dudiErr) => {
+              console.warn('[submit-monitoring] Sync DUDI contact warning:', dudiErr);
+            })
+        );
       }
 
-      let gradeSynced = false;
       if (nilaiMuncul && avgScore > 0) {
-        try {
-          await upsertNilaiDanSertifikat({
+        postSyncTasks.push(
+          upsertNilaiDanSertifikat({
             nis: cleanNis,
             idPenempatan: String(payload.id_penempatan || `PLT-${cleanNis}`),
             idDudi: resolvedDudiId,
@@ -645,11 +664,18 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
             alurBisnis,
             avgScore,
             tglTerbit: tglVal,
-          });
-          gradeSynced = true;
-        } catch (gradeErr) {
-          console.warn('[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:', gradeErr);
-        }
+          })
+            .then(() => {
+              gradeSynced = true;
+            })
+            .catch((gradeErr) => {
+              console.warn('[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:', gradeErr);
+            })
+        );
+      }
+
+      if (postSyncTasks.length > 0) {
+        await Promise.all(postSyncTasks);
       }
 
       res.json({
@@ -751,7 +777,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       }
 
       const stageStr = getStageValueByNumber(1);
-      const wsConfig = await getFirestoreWorkspaceConfig(true);
+      const wsConfig = await getFirestoreWorkspaceConfig(false);
       const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
 
       if (!stageControl.unlockedStages.includes(1)) {
@@ -764,11 +790,22 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         });
       }
 
+      const deliveryBatchSheets =
+        stageControl.requireIssuedLetter !== false
+          ? ['Log_Penerbitan_Surat', 'Monitoring_5_Tahap']
+          : ['Monitoring_5_Tahap'];
+      const { sheets: deliverySheets } = await fetchBatchSheetsViaGas(
+        deliveryBatchSheets,
+        new Set(deliveryBatchSheets),
+        true
+      ).catch(() => ({ sheets: {} as Record<string, any[]> }));
+
       if (stageControl.requireIssuedLetter !== false) {
-        const logRes = await fetchLiveSheetViaGas('Log_Penerbitan_Surat', true).catch(() => ({
-          rows: [] as any[],
-        }));
-        const { issuedStages } = resolveIssuedStagesForDudi(logRes.rows, targetDudiId, targetDudiNama);
+        const { issuedStages } = resolveIssuedStagesForDudi(
+          deliverySheets['Log_Penerbitan_Surat'] || [],
+          targetDudiId,
+          targetDudiNama
+        );
         if (!issuedStages.includes(1)) {
           return res.status(403).json({
             success: false,
@@ -792,22 +829,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         }
       }
 
-      const dudiContactSynced = await syncDudiContactToMasterAndPengajuan({
-        dudiId: resolvedDudiId || targetDudiId,
-        namaDudi: targetDudiNama,
-        alamatDudi: payload.alamat_dudi,
-        namaPemimpin: inputPemimpin,
-        namaPic: inputPic,
-        noTelpDudi: inputTelpDudi,
-        hariKerja: inputHariKerja,
-        jamKerja: inputJamKerja,
-        createIfMissing: true,
-        overwriteExisting: true,
-      });
-
-      const monRes = await fetchLiveSheetViaGas('Monitoring_5_Tahap', true).catch(() => ({
-        rows: [] as any[],
-      }));
+      const monRes = { rows: deliverySheets['Monitoring_5_Tahap'] || [] };
       const sheetService = GoogleDriveSheetService.getInstance();
 
       const results: Array<{
@@ -822,9 +844,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         sheetRowNumber?: number;
       }> = [];
 
-      let lastWriteReceipt: { verified: boolean; sheetRowNumber?: number; savedAt?: string } = {
-        verified: false,
-      };
+      const rowsToCreate: any[] = [];
+      const rowsToUpdate: any[] = [];
 
       for (const stu of validStudents) {
         const cleanNis = stripNisSymbols(stu.nis) || String(stu.nis || '').trim();
@@ -914,11 +935,12 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
             ? { ...sheetRow, _sheetRowNumber: matchedExistingRow._sheetRowNumber }
             : sheetRow
         );
-        lastWriteReceipt = await writeLiveSheetViaGas(
-          'Monitoring_5_Tahap',
-          isUpdate ? 'UPDATE' : 'CREATE',
-          persistedRow
-        );
+
+        if (isUpdate) {
+          rowsToUpdate.push(persistedRow);
+        } else {
+          rowsToCreate.push(persistedRow);
+        }
 
         results.push({
           nis: cleanNis,
@@ -929,9 +951,43 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
           ttdSiswa: safeStuTtd,
           catatan: cleanNote,
           status: 'Terlaksana',
-          sheetRowNumber: lastWriteReceipt.sheetRowNumber,
+          sheetRowNumber: matchedExistingRow?._sheetRowNumber,
         });
       }
+
+      let lastWriteReceipt: { verified: boolean; sheetRowNumber?: number; savedAt?: string } = {
+        verified: false,
+      };
+      let dudiContactSynced = false;
+
+      const writeMonBatch = async () => {
+        if (rowsToUpdate.length > 0) {
+          lastWriteReceipt = await writeLiveSheetViaGas('Monitoring_5_Tahap', 'BULK_UPDATE', {
+            ids: rowsToUpdate.map((r) => r.id),
+            updatedRows: rowsToUpdate,
+          });
+        }
+        if (rowsToCreate.length > 0) {
+          lastWriteReceipt = await writeLiveSheetViaGas('Monitoring_5_Tahap', 'IMPORT', rowsToCreate);
+        }
+      };
+
+      const [, syncedDudiResult] = await Promise.all([
+        writeMonBatch(),
+        syncDudiContactToMasterAndPengajuan({
+          dudiId: resolvedDudiId || targetDudiId,
+          namaDudi: targetDudiNama,
+          alamatDudi: payload.alamat_dudi,
+          namaPemimpin: inputPemimpin,
+          namaPic: inputPic,
+          noTelpDudi: inputTelpDudi,
+          hariKerja: inputHariKerja,
+          jamKerja: inputJamKerja,
+          createIfMissing: true,
+          overwriteExisting: true,
+        }).catch(() => false),
+      ]);
+      dudiContactSynced = Boolean(syncedDudiResult);
 
       res.json({
         success: true,

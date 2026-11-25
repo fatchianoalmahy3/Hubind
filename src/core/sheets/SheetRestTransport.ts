@@ -511,7 +511,12 @@ export class SheetRestTransport {
     sheetName: string,
     action: SheetWriteAction,
     payload: any
-  ): Promise<void> {
+  ): Promise<{
+    verified: boolean;
+    savedId?: string;
+    sheetRowNumber?: number;
+    savedAt?: string;
+  }> {
     this.snapshotCache.markSheetMutated(ctx.spreadsheetId, ctx.activeYear, sheetName);
     const preparedPayload = this.normalizeOutgoingPayload(sheetName, action, payload);
 
@@ -553,26 +558,33 @@ export class SheetRestTransport {
       try {
         const { ok, status, data: json } = await safeFetchJson(endpoint, {
           method,
-          timeoutMs: 20_000,
+          timeoutMs: 25_000,
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${bearerToken}`,
           },
           body: JSON.stringify(requestBody),
         });
-        if (ok && json?.success) {
+        if (ok && json?.success && json?.verified !== false) {
           this.snapshotCache.markSheetMutated(ctx.spreadsheetId, ctx.activeYear, sheetName);
-          return;
+          return {
+            verified: json?.verified !== false,
+            savedId: typeof json?.savedId === 'string' ? json.savedId : undefined,
+            sheetRowNumber:
+              typeof json?.sheetRowNumber === 'number' && json.sheetRowNumber >= 2
+                ? json.sheetRowNumber
+                : undefined,
+            savedAt: typeof json?.savedAt === 'string' ? json.savedAt : undefined,
+          };
         }
-        if (
-          json?.message &&
-          status >= 400 &&
-          status < 500 &&
-          status !== 401 &&
-          status !== 403 &&
-          status !== 404
-        ) {
-          throw new Error(json.message);
+        // Never silently bypass backend RBAC (401/403), validation (400/404), or server write errors (502/500)
+        // by falling through to unauthenticated browser-to-GAS POST.
+        if (status > 0 && (status !== 404 || json?.message || json?.code)) {
+          throw new Error(
+            json?.message ||
+              json?.error ||
+              `Cloud Server menolak penyimpanan data [${sheetName}] (HTTP ${status}).`
+          );
         }
       } catch (proxyErr: any) {
         if (!isBackendProxyUnavailableError(proxyErr)) {
@@ -613,8 +625,10 @@ export class SheetRestTransport {
         }),
       });
 
-      if (!ok || json?.error) {
-        throw new Error(json?.error || `Cloud Server mengembalikan status ${status}`);
+      if (!ok || json?.error || json?.verified === false) {
+        throw new Error(
+          json?.error || `Cloud Server mengembalikan status ${status} tanpa konfirmasi simpan.`
+        );
       }
       this.snapshotCache.markSheetMutated(ctx.spreadsheetId, ctx.activeYear, sheetName);
       if (bearerToken) {
@@ -624,6 +638,15 @@ export class SheetRestTransport {
           headers: { Authorization: `Bearer ${bearerToken}` },
         }).catch(() => {});
       }
+      return {
+        verified: json?.verified !== false,
+        savedId: typeof json?.savedId === 'string' ? json.savedId : undefined,
+        sheetRowNumber:
+          typeof json?.sheetRowNumber === 'number' && json.sheetRowNumber >= 2
+            ? json.sheetRowNumber
+            : undefined,
+        savedAt: typeof json?.savedAt === 'string' ? json.savedAt : undefined,
+      };
     } catch (err: any) {
       throw new Error(formatGasNetworkError(err, gasUrl));
     }

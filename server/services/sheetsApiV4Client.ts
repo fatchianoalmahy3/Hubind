@@ -1,25 +1,40 @@
 import crypto from 'crypto';
 import { normalizeToIsoDate } from '../../src/core/utils/dateHelpers';
-import { fetchWithTimeout } from '../utils/httpHelpers';
+import { fetchWithRetry } from '../utils/httpHelpers';
 import { registerMetadataCacheClearHook } from './serverSheetCache';
 
-const SHEETS_API_TIMEOUT_MS = 8_000;
+export const SHEETS_API_TIMEOUT_MS = 8_000;
 const SHEETS_METADATA_TTL_MS = 300_000;
 
 let sheetsAccessTokenCache: { token: string; expiresAt: number; cacheKey: string } | null = null;
 let inFlightSheetsTokenPromise: Promise<string | null> | null = null;
 const sheetMetadataCache = new Map<
   string,
-  { title: string; tabNames: string[]; fetchedAt: number }
+  { title: string; tabNames: string[]; sheetIds: Record<string, number>; fetchedAt: number }
 >();
 const inFlightMetadataFetches = new Map<
   string,
-  Promise<{ title: string; tabNames: string[] }>
+  Promise<{ title: string; tabNames: string[]; sheetIds: Record<string, number> }>
 >();
 
 registerMetadataCacheClearHook(() => {
   sheetMetadataCache.clear();
 });
+
+export function invalidateSheetsAccessTokenCache(): void {
+  sheetsAccessTokenCache = null;
+}
+
+export function colIndexToLetter(index0: number): string {
+  let col = index0 + 1;
+  let letter = '';
+  while (col > 0) {
+    const rem = (col - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    col = Math.floor((col - 1) / 26);
+  }
+  return letter || 'A';
+}
 
 const SHEETS_DATE_HEADER_KEYS = new Set([
   'tglberangkat',
@@ -79,88 +94,93 @@ function getGoogleSheetsApiKey(): string {
   ).trim();
 }
 
-async function resolveGoogleSheetsReadAuth(): Promise<
-  { mode: 'bearer'; token: string } | { mode: 'apikey'; apiKey: string } | null
-> {
+export type SheetsAuthResult =
+  | { mode: 'bearer'; token: string }
+  | { mode: 'apikey'; apiKey: string };
+
+export async function resolveGoogleSheetsWriteAuth(): Promise<{ mode: 'bearer'; token: string } | null> {
   const sa = getGoogleServiceAccountCreds();
-  if (sa) {
-    const cacheKey = sa.clientEmail;
-    if (
-      sheetsAccessTokenCache &&
-      sheetsAccessTokenCache.cacheKey === cacheKey &&
-      Date.now() < sheetsAccessTokenCache.expiresAt - 60_000
-    ) {
-      return { mode: 'bearer', token: sheetsAccessTokenCache.token };
-    }
+  if (!sa) return null;
 
-    if (!inFlightSheetsTokenPromise) {
-      inFlightSheetsTokenPromise = (async (): Promise<string | null> => {
-        try {
-          const nowSec = Math.floor(Date.now() / 1000);
-          const headerB64 = Buffer.from(
-            JSON.stringify({ alg: 'RS256', typ: 'JWT' }),
-            'utf8'
-          ).toString('base64url');
-          const claimB64 = Buffer.from(
-            JSON.stringify({
-              iss: sa.clientEmail,
-              scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
-              aud: 'https://oauth2.googleapis.com/token',
-              iat: nowSec,
-              exp: nowSec + 3600,
-            }),
-            'utf8'
-          ).toString('base64url');
-          const unsignedJwt = `${headerB64}.${claimB64}`;
-          const signer = crypto.createSign('RSA-SHA256');
-          signer.update(unsignedJwt);
-          signer.end();
-          const signatureB64 = signer.sign(sa.privateKey, 'base64url');
-          const assertion = `${unsignedJwt}.${signatureB64}`;
-
-          const tokenRes = await fetchWithTimeout(
-            'https://oauth2.googleapis.com/token',
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: `grant_type=${encodeURIComponent(
-                'urn:ietf:params:oauth:grant-type:jwt-bearer'
-              )}&assertion=${encodeURIComponent(assertion)}`,
-            },
-            SHEETS_API_TIMEOUT_MS
-          );
-          if (!tokenRes.ok) {
-            const errTxt = await tokenRes.text().catch(() => '');
-            console.warn(
-              `[Sheets API v4] OAuth token failed (${tokenRes.status}): ${errTxt.slice(0, 120)}`
-            );
-            return null;
-          }
-          const tokenJson = await tokenRes.json();
-          const accessToken = String(tokenJson?.access_token || '').trim();
-          const expiresIn = Number(tokenJson?.expires_in || 3600);
-          if (!accessToken) return null;
-
-          sheetsAccessTokenCache = {
-            token: accessToken,
-            expiresAt: Date.now() + expiresIn * 1000,
-            cacheKey,
-          };
-          return accessToken;
-        } catch (err: any) {
-          console.warn('[Sheets API v4] Token exchange error:', err?.message);
-          return null;
-        } finally {
-          inFlightSheetsTokenPromise = null;
-        }
-      })();
-    }
-
-    const token = await inFlightSheetsTokenPromise;
-    if (token) {
-      return { mode: 'bearer', token };
-    }
+  const cacheKey = sa.clientEmail;
+  if (
+    sheetsAccessTokenCache &&
+    sheetsAccessTokenCache.cacheKey === cacheKey &&
+    Date.now() < sheetsAccessTokenCache.expiresAt - 60_000
+  ) {
+    return { mode: 'bearer', token: sheetsAccessTokenCache.token };
   }
+
+  if (!inFlightSheetsTokenPromise) {
+    inFlightSheetsTokenPromise = (async (): Promise<string | null> => {
+      try {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const headerB64 = Buffer.from(
+          JSON.stringify({ alg: 'RS256', typ: 'JWT' }),
+          'utf8'
+        ).toString('base64url');
+        const claimB64 = Buffer.from(
+          JSON.stringify({
+            iss: sa.clientEmail,
+            scope: 'https://www.googleapis.com/auth/spreadsheets',
+            aud: 'https://oauth2.googleapis.com/token',
+            iat: nowSec,
+            exp: nowSec + 3600,
+          }),
+          'utf8'
+        ).toString('base64url');
+        const unsignedJwt = `${headerB64}.${claimB64}`;
+        const signer = crypto.createSign('RSA-SHA256');
+        signer.update(unsignedJwt);
+        signer.end();
+        const signatureB64 = signer.sign(sa.privateKey, 'base64url');
+        const assertion = `${unsignedJwt}.${signatureB64}`;
+
+        const tokenRes = await fetchWithRetry(
+          'https://oauth2.googleapis.com/token',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `grant_type=${encodeURIComponent(
+              'urn:ietf:params:oauth:grant-type:jwt-bearer'
+            )}&assertion=${encodeURIComponent(assertion)}`,
+          },
+          { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 1, baseDelayMs: 200 }
+        );
+        if (!tokenRes.ok) {
+          const errTxt = await tokenRes.text().catch(() => '');
+          console.warn(
+            `[Sheets API v4] OAuth token failed (${tokenRes.status}): ${errTxt.slice(0, 120)}`
+          );
+          return null;
+        }
+        const tokenJson = await tokenRes.json();
+        const accessToken = String(tokenJson?.access_token || '').trim();
+        const expiresIn = Number(tokenJson?.expires_in || 3600);
+        if (!accessToken) return null;
+
+        sheetsAccessTokenCache = {
+          token: accessToken,
+          expiresAt: Date.now() + expiresIn * 1000,
+          cacheKey,
+        };
+        return accessToken;
+      } catch (err: any) {
+        console.warn('[Sheets API v4] Token exchange error:', err?.message);
+        return null;
+      } finally {
+        inFlightSheetsTokenPromise = null;
+      }
+    })();
+  }
+
+  const token = await inFlightSheetsTokenPromise;
+  return token ? { mode: 'bearer', token } : null;
+}
+
+async function resolveGoogleSheetsReadAuth(): Promise<SheetsAuthResult | null> {
+  const bearer = await resolveGoogleSheetsWriteAuth();
+  if (bearer) return bearer;
 
   const apiKey = getGoogleSheetsApiKey();
   if (apiKey) {
@@ -170,9 +190,9 @@ async function resolveGoogleSheetsReadAuth(): Promise<
   return null;
 }
 
-function buildSheetsApiRequest(
+export function buildSheetsApiRequest(
   baseUrl: string,
-  auth: { mode: 'bearer'; token: string } | { mode: 'apikey'; apiKey: string }
+  auth: SheetsAuthResult
 ): { url: string; headers: Record<string, string> } {
   if (auth.mode === 'bearer') {
     return {
@@ -190,7 +210,7 @@ function buildSheetsApiRequest(
   };
 }
 
-function resolveActualTabName(requestedSheet: string, existingTabs: string[]): string | null {
+export function resolveActualTabName(requestedSheet: string, existingTabs: string[]): string | null {
   if (existingTabs.includes(requestedSheet)) return requestedSheet;
   const lowerMap = new Map(existingTabs.map((t) => [t.toLowerCase(), t]));
   const exactCi = lowerMap.get(requestedSheet.toLowerCase());
@@ -216,14 +236,14 @@ function resolveActualTabName(requestedSheet: string, existingTabs: string[]): s
   return null;
 }
 
-async function getSpreadsheetMetadataViaApiV4(
+export async function getSpreadsheetMetadataViaApiV4(
   spreadsheetId: string,
-  auth: { mode: 'bearer'; token: string } | { mode: 'apikey'; apiKey: string },
+  auth: SheetsAuthResult,
   forceRefresh = false
-): Promise<{ title: string; tabNames: string[] }> {
+): Promise<{ title: string; tabNames: string[]; sheetIds: Record<string, number> }> {
   const cached = sheetMetadataCache.get(spreadsheetId);
   if (!forceRefresh && cached && Date.now() - cached.fetchedAt < SHEETS_METADATA_TTL_MS) {
-    return { title: cached.title, tabNames: cached.tabNames };
+    return { title: cached.title, tabNames: cached.tabNames, sheetIds: cached.sheetIds };
   }
   if (!forceRefresh) {
     const inflight = inFlightMetadataFetches.get(spreadsheetId);
@@ -234,23 +254,35 @@ async function getSpreadsheetMetadataViaApiV4(
     const { url, headers } = buildSheetsApiRequest(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
         spreadsheetId
-      )}?fields=properties.title,sheets.properties.title`,
+      )}?fields=properties.title,sheets.properties(sheetId,title)`,
       auth
     );
-    const res = await fetchWithTimeout(url, { method: 'GET', headers }, SHEETS_API_TIMEOUT_MS);
+    const res = await fetchWithRetry(
+      url,
+      { method: 'GET', headers },
+      { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 2, baseDelayMs: 200 }
+    );
     if (!res.ok) {
+      if (res.status === 401) invalidateSheetsAccessTokenCache();
       const errTxt = await res.text().catch(() => '');
       throw new Error(`Sheets metadata HTTP ${res.status}: ${errTxt.slice(0, 120)}`);
     }
     const json = await res.json();
     const title = String(json?.properties?.title || '').trim();
-    const tabNames: string[] = Array.isArray(json?.sheets)
-      ? json.sheets
-          .map((s: any) => String(s?.properties?.title || '').trim())
-          .filter(Boolean)
-      : [];
-    sheetMetadataCache.set(spreadsheetId, { title, tabNames, fetchedAt: Date.now() });
-    return { title, tabNames };
+    const tabNames: string[] = [];
+    const sheetIds: Record<string, number> = {};
+    if (Array.isArray(json?.sheets)) {
+      for (const s of json.sheets) {
+        const tabTitle = String(s?.properties?.title || '').trim();
+        if (!tabTitle) continue;
+        tabNames.push(tabTitle);
+        if (typeof s?.properties?.sheetId === 'number' && Number.isInteger(s.properties.sheetId)) {
+          sheetIds[tabTitle] = s.properties.sheetId;
+        }
+      }
+    }
+    sheetMetadataCache.set(spreadsheetId, { title, tabNames, sheetIds, fetchedAt: Date.now() });
+    return { title, tabNames, sheetIds };
   })();
 
   if (!forceRefresh) {
@@ -367,8 +399,13 @@ export async function tryFetchBatchSheetsViaApiV4(
     )}/values:batchGet?${rangesQuery}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER&majorDimension=ROWS`;
 
     const { url, headers } = buildSheetsApiRequest(batchBaseUrl, auth);
-    const res = await fetchWithTimeout(url, { method: 'GET', headers }, SHEETS_API_TIMEOUT_MS);
+    const res = await fetchWithRetry(
+      url,
+      { method: 'GET', headers },
+      { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 2, baseDelayMs: 200 }
+    );
     if (!res.ok) {
+      if (res.status === 401) invalidateSheetsAccessTokenCache();
       const errTxt = await res.text().catch(() => '');
       console.warn(`[Sheets API v4] batchGet HTTP ${res.status}: ${errTxt.slice(0, 140)}`);
       return null;

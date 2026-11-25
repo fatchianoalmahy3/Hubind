@@ -3,8 +3,11 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
+  Eye,
+  EyeOff,
   KeyRound,
   Loader2,
+  Lock,
   RefreshCw,
   Search,
   X,
@@ -41,6 +44,7 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState(selectedPetugasNama || '');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const prevSelectedIdRef = useRef(selectedPetugasId);
   const dropdownContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -109,10 +113,10 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
           <KeyRound className="w-5 h-5 sm:w-6 sm:h-6" />
         </div>
         <h3 className="text-base font-bold text-slate-900">
-          Cari Nama &amp; Masukkan PIN
+          Cari Nama &amp; Masukkan Password
         </h3>
         <p className="text-xs text-slate-500">
-          Gunakan 4 digit terakhir No. WhatsApp terdaftar atau PIN khusus Guru Pendamping
+          Gunakan password atau 4 digit terakhir No. WhatsApp terdaftar
         </p>
       </div>
 
@@ -249,19 +253,34 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-            PIN Keamanan (4 Digit):
+          <label
+            htmlFor="portal-petugas-password"
+            className="block text-xs font-semibold text-slate-700 mb-1.5"
+          >
+            Password:
           </label>
-          <input
-            type="password"
-            inputMode="numeric"
-            maxLength={8}
-            value={pinInput}
-            onChange={(e) => onChangePin(e.target.value)}
-            placeholder="PIN atau 4 digit terakhir WA"
-            className="w-full min-h-[44px] px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-center text-base tracking-widest font-mono text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all"
-            required
-          />
+          <div className="relative">
+            <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              id="portal-petugas-password"
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
+              maxLength={64}
+              value={pinInput}
+              onChange={(e) => onChangePin(e.target.value)}
+              placeholder="Masukkan password"
+              className="w-full min-h-[44px] pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition-colors cursor-pointer"
+            >
+              {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
 
         <button
@@ -272,7 +291,7 @@ export const PinVerificationStep: React.FC<PinVerificationStepProps> = ({
           {verifyingPin ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Memverifikasi PIN...</span>
+              <span>Memverifikasi Password...</span>
             </>
           ) : (
             <>

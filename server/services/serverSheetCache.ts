@@ -23,10 +23,10 @@ export const siswaIndexCache = new Map<
   { byKey: Map<string, any>; fetchedAt: number }
 >();
 
-let metadataCacheClearHook: (() => void) | null = null;
+const metadataCacheClearHooks: Array<() => void> = [];
 
 export function registerMetadataCacheClearHook(hook: () => void): void {
-  metadataCacheClearHook = hook;
+  metadataCacheClearHooks.push(hook);
 }
 
 export function isBackgroundRevalidationActive(cacheKey: string): boolean {
@@ -63,7 +63,13 @@ export async function invalidateServerCaches(sheetParam?: string): Promise<void>
   invalidateWorkspaceConfigCache();
   sheetCache.clear();
   siswaIndexCache.clear();
-  metadataCacheClearHook?.();
+  metadataCacheClearHooks.forEach((hook) => {
+    try {
+      hook();
+    } catch {
+      // ignore hook errors
+    }
+  });
 }
 
 export function getOrBuildSiswaIndex(spreadsheetId: string, rows: any[]): Map<string, any> {
