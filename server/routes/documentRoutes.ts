@@ -276,6 +276,7 @@ export function registerDocumentRoutes(app: Express): void {
             nomorSurat: String(metaObj.nomorSurat || '').trim(),
             tanggalTerbit: String(metaObj.tanggalSurat || '').trim(),
             diterbitkanOleh: actor.name || actor.username || 'Admin Hubin',
+            idGuruPendamping: String(b.guruId || b.idGuru || b.idGuruPendamping || '').trim(),
             guruPendamping: String(b.namaGuru || '').trim(),
             linkPdf: pdfUrl,
           }));
@@ -354,6 +355,7 @@ export function registerDocumentRoutes(app: Express): void {
           )
             .trim()
             .slice(0, 120),
+          idGuruPendamping: String(it?.idGuruPendamping || it?.idGuru || it?.guruId || '').trim().slice(0, 80),
           guruPendamping: String(it?.guruPendamping || '').trim().slice(0, 120),
           linkPdf: String(it?.linkPdf || '').trim().slice(0, 500),
         }))

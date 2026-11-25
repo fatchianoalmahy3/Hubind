@@ -5,15 +5,26 @@ import { ToastManager } from '../core/ToastManager';
 
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 
-export function useDataGrid<T extends { id: string }>(repository: BaseRepository<T>) {
+export interface UseDataGridOptions<T> {
+  rowPredicate?: (row: T) => boolean;
+}
+
+export function useDataGrid<T extends { id: string }>(
+  repository: BaseRepository<T>,
+  options?: UseDataGridOptions<T>
+) {
+  const rowPredicate = options?.rowPredicate;
+
   const [initialSnapshot] = useState(() => {
     const hydrated = repository.tryHydrateSync();
     if (hydrated || repository.hasHydratedData()) {
       const res = repository.querySync({}, { column: null, direction: 'asc' }, 1, 10, '');
+      const baseFiltered = res.filteredData || res.data;
+      const scopedAll = rowPredicate ? baseFiltered.filter(rowPredicate) : baseFiltered;
       return {
-        data: res.data,
-        filteredData: res.filteredData || res.data,
-        total: res.total,
+        data: scopedAll.slice(0, 10),
+        filteredData: scopedAll,
+        total: scopedAll.length,
         hasCache: true,
       };
     }
@@ -63,12 +74,32 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
   const applyLocalQuery = useCallback(
     (override?: Partial<{ filter: FilterState; sort: SortState; page: number; pageSize: number; search: string }>) => {
       const p = { ...queryParamsRef.current, ...override };
-      const res = repository.querySync(p.filter, p.sort, p.page, p.pageSize, p.search);
-      setData(res.data);
-      setFilteredData(res.filteredData || res.data);
-      setTotal(res.total);
+      const res = repository.querySync(p.filter, p.sort, 1, Number.MAX_SAFE_INTEGER, p.search);
+      const baseFiltered = res.filteredData || res.data;
+      const scopedAll = rowPredicate ? baseFiltered.filter(rowPredicate) : baseFiltered;
+
+      const totalScoped = scopedAll.length;
+      const maxPage = Math.max(1, Math.ceil(totalScoped / Math.max(1, p.pageSize)));
+      const effectivePage = p.page > maxPage ? 1 : p.page;
+      if (effectivePage !== p.page) {
+        setPage(1);
+      }
+
+      const startIndex = (effectivePage - 1) * p.pageSize;
+      setData(scopedAll.slice(startIndex, startIndex + p.pageSize));
+      setFilteredData(scopedAll);
+      setTotal(totalScoped);
+
+      if (rowPredicate) {
+        const allowedIds = new Set(scopedAll.map((r) => r.id));
+        setSelectedIds((prev) => {
+          if (prev.length === 0) return prev;
+          const next = prev.filter((id) => allowedIds.has(id));
+          return next.length === prev.length ? prev : next;
+        });
+      }
     },
-    [repository]
+    [repository, rowPredicate]
   );
 
   const fetchData = useCallback(
@@ -100,7 +131,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
     fetchData();
   }, [fetchData]);
 
-  // Synchronous local query on search/filter/sort/page changes (zero API/listener churn)
+  // Synchronous local query on search/filter/sort/page/scope changes (zero API/listener churn)
   useEffect(() => {
     applyLocalQuery({
       filter,
@@ -109,7 +140,7 @@ export function useDataGrid<T extends { id: string }>(repository: BaseRepository
       pageSize,
       search: deferredSearch,
     });
-  }, [applyLocalQuery, filter, sort, page, pageSize, deferredSearch]);
+  }, [applyLocalQuery, filter, sort, page, pageSize, deferredSearch, rowPredicate]);
 
   useEffect(() => {
     const client = GoogleSheetClient.getInstance();

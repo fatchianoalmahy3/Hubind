@@ -53,6 +53,7 @@ export interface Jurusan {
   id: string;
   kode: string; // DKV, RPL, TAB, TBKR, TKR, TKJ, TPM, TPL, TSM
   nama: string;
+  idKakomli?: string;
   namaKakomli: string;
   nipKakomli?: string;
   kontakWA: string;
@@ -262,6 +263,7 @@ export interface LogPenerbitanSurat {
   nomorSurat?: string;
   tanggalTerbit?: string;
   diterbitkanOleh?: string;
+  idGuruPendamping?: string;
   guruPendamping?: string;
   linkPdf?: string;
   updatedAt?: string;

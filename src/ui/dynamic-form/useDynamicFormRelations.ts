@@ -627,7 +627,17 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
 
   const applyGuruSelection = (matched: Guru, fieldKey: string, selectedValue?: string) => {
     const patch: Record<string, any> = { [fieldKey]: selectedValue ?? matched.nama };
-    if (formFieldKeys.has('idGuruPendamping')) {
+    if (fieldKey === 'namaKakomli' && formFieldKeys.has('idKakomli')) {
+      patch.idKakomli = matched.id;
+      if (
+        formFieldKeys.has('kontakWA') &&
+        matched.kontakWA &&
+        matched.kontakWA !== '-' &&
+        !String(values.kontakWA || '').trim()
+      ) {
+        patch.kontakWA = matched.kontakWA;
+      }
+    } else if (formFieldKeys.has('idGuruPendamping')) {
       patch.idGuruPendamping = matched.id;
     }
     setMultipleValues(patch);
@@ -638,7 +648,13 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
     const patch: Record<string, any> = { [key]: selectedValue };
 
     if (!selectedValue) {
-      if (field.relationSource === 'guru' && formFieldKeys.has('idGuruPendamping')) patch.idGuruPendamping = '';
+      if (field.relationSource === 'guru') {
+        if (key === 'namaKakomli' && formFieldKeys.has('idKakomli')) {
+          patch.idKakomli = '';
+        } else if (formFieldKeys.has('idGuruPendamping')) {
+          patch.idGuruPendamping = '';
+        }
+      }
       if (field.relationSource === 'dudi' && formFieldKeys.has('idDudi')) patch.idDudi = '';
       if (field.relationSource === 'jurusan' && formFieldKeys.has('idJurusan')) patch.idJurusan = '';
       setMultipleValues(patch);
@@ -666,7 +682,10 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
       }
     } else if (field.relationSource === 'guru') {
       const matched = masterGuru.find((g) => normFormValue(g.nama) === normFormValue(selectedValue));
-      if (matched && formFieldKeys.has('idGuruPendamping')) patch.idGuruPendamping = matched.id;
+      if (matched) {
+        applyGuruSelection(matched, key, selectedValue);
+        return;
+      }
     } else if (field.relationSource === 'jurusan' && formFieldKeys.has('idJurusan')) {
       const matchedJur = masterJurusan.find(
         (j) => normFormValue(j.nama) === normFormValue(selectedValue) || normFormValue(j.kode) === normFormValue(selectedValue)

@@ -260,6 +260,7 @@ export interface IssuedLetterTargetInput {
   nomorSurat?: string;
   tanggalTerbit?: string;
   diterbitkanOleh?: string;
+  idGuruPendamping?: string;
   guruPendamping?: string;
   linkPdf?: string;
 }
@@ -276,6 +277,7 @@ export interface IssuedLetterRecordDto {
   nomorSurat: string;
   tanggalTerbit: string;
   diterbitkanOleh: string;
+  idGuruPendamping: string;
   guruPendamping: string;
   linkPdf: string;
   updatedAt: string;
@@ -302,6 +304,7 @@ function mapRawIssuedLetterRow(row: any, idx: number): IssuedLetterRecordDto {
     nomorSurat: pickField(row, 'Nomor_Surat', 'nomorSurat'),
     tanggalTerbit: pickField(row, 'Tanggal_Terbit', 'tanggalTerbit'),
     diterbitkanOleh: pickField(row, 'Diterbitkan_Oleh', 'diterbitkanOleh'),
+    idGuruPendamping: pickField(row, 'ID_Guru_Pendamping', 'idGuruPendamping'),
     guruPendamping: pickField(row, 'Guru_Pendamping', 'guruPendamping'),
     linkPdf: pickField(row, 'Link_PDF', 'linkPdf'),
     updatedAt: pickField(row, 'Updated_At', 'updatedAt'),
@@ -326,13 +329,15 @@ export async function recordIssuedLetters(
 ): Promise<IssuedLetterRecordDto[]> {
   if (!Array.isArray(items) || items.length === 0) return [];
 
-  const [existingRes, dudiRes] = await Promise.all([
+  const [existingRes, dudiRes, guruRes] = await Promise.all([
     fetchLiveSheetViaGas('Log_Penerbitan_Surat', true).catch(() => ({ rows: [] as any[] })),
     fetchLiveSheetViaGas('Master_DUDI', false).catch(() => ({ rows: [] as any[] })),
+    fetchLiveSheetViaGas('Master_Guru_Pendamping', false).catch(() => ({ rows: [] as any[] })),
   ]);
 
   const existingRows = Array.isArray(existingRes.rows) ? [...existingRes.rows] : [];
   const dudiRows = Array.isArray(dudiRes.rows) ? dudiRes.rows : [];
+  const guruRows = Array.isArray(guruRes.rows) ? guruRes.rows : [];
   const todayIso = getTodayWibIsoDate();
   const nowIso = new Date().toISOString();
   const results: IssuedLetterRecordDto[] = [];
@@ -381,6 +386,26 @@ export async function recordIssuedLetters(
       existingIdTerbit ||
       `TRB-${(resolvedDudiId || 'DUDI').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)}-T${tahap}-${Date.now().toString(36).slice(-4)}${i}`;
 
+    const candidateGuruId =
+      String(rawItem.idGuruPendamping || '').trim().slice(0, 80) ||
+      pickField(existingRow || {}, 'ID_Guru_Pendamping', 'idGuruPendamping') ||
+      pickField(matchedDudi || {}, 'ID_Guru_Pendamping', 'idGuruPendamping');
+    const candidateGuruNama =
+      String(rawItem.guruPendamping || '').trim().slice(0, 120) ||
+      pickField(existingRow || {}, 'Guru_Pendamping', 'guruPendamping') ||
+      pickField(matchedDudi || {}, 'Guru_Pendamping', 'guruPendamping');
+    const candidateGuruNorm = normalizeStr(candidateGuruNama);
+    const matchedGuru = guruRows.find((g: any) => {
+      const gId = pickField(g, 'ID', 'ID_Guru', 'idGuru', 'id');
+      const gNama = normalizeStr(pickField(g, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama'));
+      return (candidateGuruId && gId === candidateGuruId) || (candidateGuruNorm && gNama === candidateGuruNorm);
+    });
+    const resolvedGuruId =
+      (matchedGuru ? pickField(matchedGuru, 'ID', 'ID_Guru', 'idGuru', 'id') : '') || candidateGuruId;
+    const resolvedGuruNama =
+      (matchedGuru ? pickField(matchedGuru, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama') : '') ||
+      candidateGuruNama;
+
     const recordPayload = {
       id: idTerbit,
       ID_Terbit: idTerbit,
@@ -415,12 +440,10 @@ export async function recordIssuedLetters(
         String(rawItem.diterbitkanOleh || actorName || 'Admin Hubin').trim().slice(0, 120),
       diterbitkanOleh:
         String(rawItem.diterbitkanOleh || actorName || 'Admin Hubin').trim().slice(0, 120),
-      Guru_Pendamping:
-        String(rawItem.guruPendamping || '').trim().slice(0, 120) ||
-        pickField(existingRow || {}, 'Guru_Pendamping', 'guruPendamping'),
-      guruPendamping:
-        String(rawItem.guruPendamping || '').trim().slice(0, 120) ||
-        pickField(existingRow || {}, 'Guru_Pendamping', 'guruPendamping'),
+      ID_Guru_Pendamping: resolvedGuruId,
+      idGuruPendamping: resolvedGuruId,
+      Guru_Pendamping: resolvedGuruNama,
+      guruPendamping: resolvedGuruNama,
       Link_PDF:
         String(rawItem.linkPdf || '').trim().slice(0, 500) ||
         pickField(existingRow || {}, 'Link_PDF', 'linkPdf'),

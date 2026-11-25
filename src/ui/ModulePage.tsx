@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
+import type { AdminSessionUser } from '../core/auth/LocalAccountAuthService';
 import { ModuleMetadata } from '../core/types/metadata';
 import { BaseRepository } from '../core/BaseRepository';
 import { useDataGrid } from '../hooks/useDataGrid';
-import { UserRole } from '../core/types/schema';
+import { Guru, Jurusan, Siswa, UserRole } from '../core/types/schema';
 import { isModuleReadOnlyForRole } from '../core/moduleRegistry';
+import {
+  matchAnyJurusanItem,
+  matchJurusanItem,
+  resolveKakomliJurusans,
+} from '../core/utils/jurusanHelpers';
+import { stripNisSymbols } from '../core/utils/nisHelpers';
+import { GuruService } from '../services/GuruService';
+import { JurusanService } from '../services/JurusanService';
 import { SertifikatService } from '../services/SertifikatService';
 import { RelationSyncService } from '../services/RelationSyncService';
+import { SiswaService } from '../services/SiswaService';
 import { ToastManager } from '../core/ToastManager';
 import { StatCards } from './StatCards';
 import { Toolbar } from './Toolbar';
@@ -32,10 +42,22 @@ import {
 } from './module-page/moduleWorkflowRegistry';
 import { useModuleWorkflows } from './module-page/useModuleWorkflows';
 
+const KAKOMLI_JURUSAN_SCOPED_MODULES = new Set([
+  'pengajuan',
+  'perizinan',
+  'siswa_pkl',
+  'monitoring',
+  'sertifikat',
+  'siswa',
+  'kelas',
+  'jurusan',
+]);
+
 interface ModulePageProps<T extends { id: string }> {
   metadata: ModuleMetadata<T>;
   repository: BaseRepository<T>;
   userRole: UserRole;
+  currentUser?: AdminSessionUser | null;
   onOpenDocsForStudent?: (
     studentData: any,
     selectedStudents?: any[],
@@ -52,12 +74,121 @@ export function ModulePage<T extends { id: string }>({
   metadata,
   repository,
   userRole,
+  currentUser = null,
   onOpenDocsForStudent,
   onOpenSimulator,
   onOpenGas,
   onOpenSheetConfig,
   onOpenMonitoringBundle,
 }: ModulePageProps<T>) {
+  const isKakomliScopedModule =
+    userRole === 'Kakomli' && KAKOMLI_JURUSAN_SCOPED_MODULES.has(metadata.id);
+
+  const [scopeJurusanList, setScopeJurusanList] = useState<Jurusan[]>(() => {
+    if (!isKakomliScopedModule) return [];
+    const svc = JurusanService.getInstance();
+    svc.tryHydrateSync();
+    return svc.querySync({}, { column: null, direction: 'asc' }, 1, 1000, '').filteredData || [];
+  });
+  const [scopeGuruList, setScopeGuruList] = useState<Guru[]>(() => {
+    if (!isKakomliScopedModule) return [];
+    const svc = GuruService.getInstance();
+    svc.tryHydrateSync();
+    return svc.querySync({}, { column: null, direction: 'asc' }, 1, 1000, '').filteredData || [];
+  });
+  const [scopeSiswaList, setScopeSiswaList] = useState<Siswa[]>(() => {
+    if (!isKakomliScopedModule) return [];
+    const svc = SiswaService.getInstance();
+    svc.tryHydrateSync();
+    return svc.querySync({}, { column: null, direction: 'asc' }, 1, 5000, '').filteredData || [];
+  });
+
+  useEffect(() => {
+    if (!isKakomliScopedModule) return;
+    let active = true;
+    const jurSvc = JurusanService.getInstance();
+    const guruSvc = GuruService.getInstance();
+    const siswaSvc = SiswaService.getInstance();
+
+    const syncLocalFromRepos = () => {
+      if (!active) return;
+      jurSvc.tryHydrateSync();
+      guruSvc.tryHydrateSync();
+      siswaSvc.tryHydrateSync();
+      setScopeJurusanList(
+        jurSvc.querySync({}, { column: null, direction: 'asc' }, 1, 1000, '').filteredData || []
+      );
+      setScopeGuruList(
+        guruSvc.querySync({}, { column: null, direction: 'asc' }, 1, 1000, '').filteredData || []
+      );
+      setScopeSiswaList(
+        siswaSvc.querySync({}, { column: null, direction: 'asc' }, 1, 5000, '').filteredData || []
+      );
+    };
+
+    Promise.all([
+      jurSvc.getAll().catch(() => [] as Jurusan[]),
+      guruSvc.getAll().catch(() => [] as Guru[]),
+      siswaSvc.getAll().catch(() => [] as Siswa[]),
+    ]).then(([jRows, gRows, sRows]) => {
+      if (!active) return;
+      setScopeJurusanList(jRows);
+      setScopeGuruList(gRows);
+      setScopeSiswaList(sRows);
+    });
+
+    const unsubJ = jurSvc.onDataUpdated(syncLocalFromRepos);
+    const unsubG = guruSvc.onDataUpdated(syncLocalFromRepos);
+    const unsubS = siswaSvc.onDataUpdated(syncLocalFromRepos);
+
+    return () => {
+      active = false;
+      unsubJ();
+      unsubG();
+      unsubS();
+    };
+  }, [isKakomliScopedModule]);
+
+  const matchedKakomliJurusans = useMemo(() => {
+    if (!isKakomliScopedModule) return [];
+    return resolveKakomliJurusans(currentUser, scopeJurusanList, scopeGuruList);
+  }, [isKakomliScopedModule, currentUser, scopeJurusanList, scopeGuruList]);
+
+  const siswaJurusanByNis = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of scopeSiswaList) {
+      const jurVal = String(s.jurusan || s.idJurusan || '').trim();
+      if (!jurVal) continue;
+      const digits = stripNisSymbols(s.nis);
+      if (digits && !map.has(digits)) map.set(digits, jurVal);
+      const raw = String(s.nis || '').trim();
+      if (raw && !map.has(raw)) map.set(raw, jurVal);
+    }
+    return map;
+  }, [scopeSiswaList]);
+
+  const kakomliRowPredicate = useMemo<((row: T) => boolean) | undefined>(() => {
+    if (!isKakomliScopedModule || matchedKakomliJurusans.length === 0) return undefined;
+    return (row: T) => {
+      const item = row as Record<string, any>;
+      if (metadata.id === 'jurusan') {
+        return matchedKakomliJurusans.some(
+          (jur) =>
+            (jur.id && item.id === jur.id) ||
+            matchJurusanItem(item.kode || item.nama || item.id, jur)
+        );
+      }
+      const nisDigits = stripNisSymbols(item.nis);
+      const nisRaw = String(item.nis || '').trim();
+      const rawJurusan =
+        item.jurusan ||
+        item.idJurusan ||
+        (nisDigits ? siswaJurusanByNis.get(nisDigits) : undefined) ||
+        (nisRaw ? siswaJurusanByNis.get(nisRaw) : undefined);
+      return matchAnyJurusanItem(rawJurusan, matchedKakomliJurusans);
+    };
+  }, [isKakomliScopedModule, matchedKakomliJurusans, metadata.id, siswaJurusanByNis]);
+
   const {
     data,
     filteredData,
@@ -84,7 +215,7 @@ export function ModulePage<T extends { id: string }>({
     syncWithSpreadsheet,
     syncing,
     refresh,
-  } = useDataGrid<T>(repository);
+  } = useDataGrid<T>(repository, { rowPredicate: kakomliRowPredicate });
 
   // Modal & View states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -291,6 +422,19 @@ export function ModulePage<T extends { id: string }>({
           </p>
         </div>
       </div>
+
+      {/* Kakomli Multi-Jurusan Scope Banner */}
+      {isKakomliScopedModule && matchedKakomliJurusans.length > 0 && (
+        <div className="px-3.5 py-2.5 rounded-xl bg-indigo-50/80 border border-indigo-200 flex flex-wrap items-center gap-2 text-xs text-indigo-950">
+          <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+          <span className="font-semibold">
+            Lingkup Jurusan Ampuan ({matchedKakomliJurusans.length}):
+          </span>
+          <span className="text-indigo-800">
+            {matchedKakomliJurusans.map((j) => `${j.kode || '-'} (${j.nama})`).join(', ')}
+          </span>
+        </div>
+      )}
 
       {/* Server Error Banner */}
       {loadError && (

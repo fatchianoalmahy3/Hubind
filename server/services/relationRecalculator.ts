@@ -27,10 +27,21 @@ function getTablesForRelationScope(scope: string): string[] {
   if (scope === 'guru') {
     return [
       'Master_Guru_Pendamping',
+      'Master_Jurusan',
       'Master_DUDI',
       'Data_Pengajuan_PKL',
       'Plotting_Pemberangkatan',
       'Monitoring_5_Tahap',
+      'Log_Penerbitan_Surat',
+    ];
+  }
+  if (scope === 'jurusan') {
+    return [
+      'Master_Jurusan',
+      'Master_Guru_Pendamping',
+      'Master_Kelas_Walas',
+      'Master_Siswa_XI',
+      'Plotting_Pemberangkatan',
     ];
   }
   if (scope === 'dudi') {
@@ -42,6 +53,7 @@ function getTablesForRelationScope(scope: string): string[] {
       'Plotting_Pemberangkatan',
       'Monitoring_5_Tahap',
       'Nilai_Dan_Sertifikat',
+      'Log_Penerbitan_Surat',
     ];
   }
   return [
@@ -55,6 +67,7 @@ function getTablesForRelationScope(scope: string): string[] {
     'Plotting_Pemberangkatan',
     'Monitoring_5_Tahap',
     'Nilai_Dan_Sertifikat',
+    'Log_Penerbitan_Surat',
   ];
 }
 
@@ -94,6 +107,7 @@ export async function recalculateAllRelations(
   const placements = sheets['Plotting_Pemberangkatan'] || [];
   const monitoringList = sheets['Monitoring_5_Tahap'] || [];
   const sertifikatList = sheets['Nilai_Dan_Sertifikat'] || [];
+  const logSuratList = sheets['Log_Penerbitan_Surat'] || [];
 
   const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   const hintedId = String(mutationHint?.mutatedId || '').trim();
@@ -204,6 +218,7 @@ export async function recalculateAllRelations(
   let updatedJurusan = 0;
   let updatedKelas = 0;
 
+  const jurusanUpdates: any[] = [];
   const dudiUpdates: any[] = [];
   const kelasUpdates: any[] = [];
   const siswaUpdates: any[] = [];
@@ -212,8 +227,9 @@ export async function recalculateAllRelations(
   const placementUpdates: any[] = [];
   const monitoringUpdates: any[] = [];
   const sertifikatUpdates: any[] = [];
+  const logSuratUpdates: any[] = [];
 
-  // 1. Reconcile ID_Guru_Pendamping & static Guru_Pendamping on Master_DUDI
+  // 1. Reconcile ID_Guru_Pendamping & static Guru_Pendamping on Master_DUDI + ID_Kakomli on Master_Jurusan
   if (scope === 'all' || scope === 'guru' || scope === 'dudi') {
     for (const d of dudiList) {
       const dId = pickField(d, 'ID', 'ID_DUDI', 'idDudi', 'id');
@@ -238,6 +254,36 @@ export async function recalculateAllRelations(
         });
         if (nextGuruId) d.ID_Guru_Pendamping = nextGuruId;
         if (nextGuruName) d.Guru_Pendamping = nextGuruName;
+      }
+    }
+  }
+
+  if (scope === 'all' || scope === 'guru' || scope === 'jurusan') {
+    for (const j of jurusanList) {
+      const jId = pickField(j, 'ID', 'Kode', 'id') || pickField(j, 'Kode_Jurusan', 'kode');
+      if (!jId) continue;
+      const jKakomliId = pickField(j, 'ID_Kakomli', 'idKakomli');
+      const jKakomliName = pickField(j, 'Nama_Kakomli', 'namaKakomli');
+      const jKakomliNip = pickField(j, 'NIP_Kakomli', 'nipKakomli');
+      const matchedGuru = resolveGuruRecord(jKakomliId, jKakomliName);
+      if (!matchedGuru) continue;
+
+      const nextKakomliId = pickField(matchedGuru, 'ID', 'ID_Guru', 'idGuru', 'id');
+      const nextKakomliName = pickField(matchedGuru, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama');
+      const nextKakomliNip = pickField(matchedGuru, 'NIP', 'nip');
+      const needsIdFix = Boolean(nextKakomliId && nextKakomliId !== jKakomliId);
+      const needsNameSync = Boolean(nextKakomliName && nextKakomliName !== jKakomliName);
+      const needsNipFill = Boolean(nextKakomliNip && (!jKakomliNip || jKakomliNip === '-'));
+
+      if (needsIdFix || needsNameSync || needsNipFill) {
+        jurusanUpdates.push({
+          id: jId,
+          ID: jId,
+          _sheetRowNumber: j._sheetRowNumber,
+          ...(nextKakomliId ? { ID_Kakomli: nextKakomliId, idKakomli: nextKakomliId } : {}),
+          ...(nextKakomliName ? { Nama_Kakomli: nextKakomliName, namaKakomli: nextKakomliName } : {}),
+          ...(needsNipFill ? { NIP_Kakomli: nextKakomliNip, nipKakomli: nextKakomliNip } : {}),
+        });
       }
     }
   }
@@ -516,8 +562,56 @@ export async function recalculateAllRelations(
     }
   }
 
+  // 5. Reconcile ID_DUDI & ID_Guru_Pendamping on Log_Penerbitan_Surat
+  if (scope === 'all' || scope === 'guru' || scope === 'dudi') {
+    for (const ls of logSuratList) {
+      const lsId = pickField(ls, 'ID_Terbit', 'idTerbit', 'id');
+      if (!lsId) continue;
+      const currDudiId = pickField(ls, 'ID_DUDI', 'idDudi');
+      const currDudiName = pickField(ls, 'Nama_DUDI', 'namaDudi');
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
+      const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
+      const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
+
+      const currGuruId = pickField(ls, 'ID_Guru_Pendamping', 'idGuruPendamping');
+      const currGuruName = pickField(ls, 'Guru_Pendamping', 'guruPendamping');
+      const matchedGuru =
+        resolveGuruRecord(currGuruId, currGuruName) ||
+        (matchedDudi
+          ? resolveGuruRecord(
+              pickField(matchedDudi, 'ID_Guru_Pendamping', 'idGuruPendamping'),
+              pickField(matchedDudi, 'Guru_Pendamping', 'guruPendamping')
+            )
+          : undefined);
+      const nextGuruId = matchedGuru ? pickField(matchedGuru, 'ID', 'ID_Guru', 'idGuru', 'id') : '';
+      const nextGuruName = matchedGuru
+        ? pickField(matchedGuru, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama')
+        : '';
+
+      const needsDudiUpdate =
+        Boolean(nextDudiId && nextDudiId !== currDudiId) ||
+        Boolean(nextDudiName && nextDudiName !== currDudiName);
+      const needsGuruUpdate =
+        Boolean(nextGuruId && nextGuruId !== currGuruId) ||
+        Boolean(nextGuruName && nextGuruName !== currGuruName);
+
+      if (needsDudiUpdate || needsGuruUpdate) {
+        logSuratUpdates.push({
+          id: lsId,
+          ID_Terbit: lsId,
+          _sheetRowNumber: ls._sheetRowNumber,
+          ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
+          ...(nextDudiName ? { Nama_DUDI: nextDudiName, namaDudi: nextDudiName } : {}),
+          ...(nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}),
+          ...(nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}),
+        });
+      }
+    }
+  }
+
   // Flush batched BULK_UPDATE per mutated sheet (in parallel for speed)
   const [
+    flushedJurusan,
     flushedDudi,
     flushedKelas,
     flushedSiswa,
@@ -525,7 +619,10 @@ export async function recalculateAllRelations(
     ,
     flushedPlacements,
     flushedMonitoring,
+    ,
+    flushedLogSurat,
   ] = await Promise.all([
+    flushBulkUpdates('Master_Jurusan', jurusanUpdates),
     flushBulkUpdates('Master_DUDI', dudiUpdates),
     flushBulkUpdates('Master_Kelas_Walas', kelasUpdates),
     flushBulkUpdates('Master_Siswa_XI', siswaUpdates),
@@ -534,14 +631,21 @@ export async function recalculateAllRelations(
     flushBulkUpdates('Plotting_Pemberangkatan', placementUpdates),
     flushBulkUpdates('Monitoring_5_Tahap', monitoringUpdates),
     flushBulkUpdates('Nilai_Dan_Sertifikat', sertifikatUpdates),
+    flushBulkUpdates('Log_Penerbitan_Surat', logSuratUpdates),
   ]);
 
   updatedDudi = flushedDudi;
   updatedKelas = flushedKelas;
-  updatedJurusan = flushedSiswa;
+  updatedJurusan = flushedJurusan + flushedSiswa;
   updatedPlacements = flushedPlacements;
   if (scope === 'guru') {
-    updatedGuru = flushedDudi + flushedPengajuan + flushedPlacements + flushedMonitoring;
+    updatedGuru =
+      flushedJurusan +
+      flushedDudi +
+      flushedPengajuan +
+      flushedPlacements +
+      flushedMonitoring +
+      flushedLogSurat;
   }
 
   let formulasApplied = false;

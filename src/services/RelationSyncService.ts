@@ -250,6 +250,7 @@ export class RelationSyncService {
     }
 
     const silent = { silentToast: true };
+    const jurusanPatches: Array<{ id: string; updates: Partial<Jurusan> }> = [];
     const siswaPatches: Array<{ id: string; updates: Partial<Siswa> }> = [];
     const kelasPatches: Array<{ id: string; updates: Partial<Kelas> }> = [];
     const dudiPatches: Array<{ id: string; updates: Partial<Dudi> }> = [];
@@ -260,6 +261,16 @@ export class RelationSyncService {
     const sertifikatPatches: Array<{ id: string; updates: Record<string, any> }> = [];
 
     if (_options.backfillIds) {
+      for (const j of jurusanList) {
+        const matchedGuru = resolveGuru(j.idKakomli, j.namaKakomli);
+        if (matchedGuru) {
+          const patch: Partial<Jurusan> = {};
+          if (j.idKakomli !== matchedGuru.id) patch.idKakomli = matchedGuru.id;
+          if (matchedGuru.nama && j.namaKakomli !== matchedGuru.nama) patch.namaKakomli = matchedGuru.nama;
+          if ((!j.nipKakomli || j.nipKakomli === '-') && matchedGuru.nip) patch.nipKakomli = matchedGuru.nip;
+          if (Object.keys(patch).length > 0) jurusanPatches.push({ id: j.id, updates: patch });
+        }
+      }
       for (const s of siswaList) {
         const patch: Partial<Siswa> = {};
         const canonicalJurCode = resolveJurusanCode(s.idJurusan || s.jurusan);
@@ -385,27 +396,39 @@ export class RelationSyncService {
       }
     }
 
-    const [updatedJurusan, updatedKelas, updatedDudi, , , updatedPlacements, updatedGuru] =
-      await Promise.all([
-        siswaPatches.length ? siswaService.bulkUpdateMany(siswaPatches, silent).catch(() => 0) : 0,
-        kelasPatches.length ? kelasService.bulkUpdateMany(kelasPatches, silent).catch(() => 0) : 0,
-        dudiPatches.length ? dudiService.bulkUpdateMany(dudiPatches, silent).catch(() => 0) : 0,
-        pengajuanPatches.length
-          ? pengajuanService.bulkUpdateMany(pengajuanPatches, silent).catch(() => 0)
-          : 0,
-        perizinanPatches.length
-          ? perizinanService.bulkUpdateMany(perizinanPatches, silent).catch(() => 0)
-          : 0,
-        placementPatches.length
-          ? siswaPklService.bulkUpdateMany(placementPatches, silent).catch(() => 0)
-          : 0,
-        monitoringPatches.length
-          ? monitoringService.bulkUpdateMany(monitoringPatches, silent).catch(() => 0)
-          : 0,
-        sertifikatPatches.length
-          ? sertifikatService.bulkUpdateMany(sertifikatPatches, silent).catch(() => 0)
-          : 0,
-      ]);
+    const [
+      flushedJurusan,
+      flushedSiswa,
+      updatedKelas,
+      updatedDudi,
+      ,
+      ,
+      updatedPlacements,
+      flushedMonitoring,
+    ] = await Promise.all([
+      jurusanPatches.length ? jurusanService.bulkUpdateMany(jurusanPatches, silent).catch(() => 0) : 0,
+      siswaPatches.length ? siswaService.bulkUpdateMany(siswaPatches, silent).catch(() => 0) : 0,
+      kelasPatches.length ? kelasService.bulkUpdateMany(kelasPatches, silent).catch(() => 0) : 0,
+      dudiPatches.length ? dudiService.bulkUpdateMany(dudiPatches, silent).catch(() => 0) : 0,
+      pengajuanPatches.length
+        ? pengajuanService.bulkUpdateMany(pengajuanPatches, silent).catch(() => 0)
+        : 0,
+      perizinanPatches.length
+        ? perizinanService.bulkUpdateMany(perizinanPatches, silent).catch(() => 0)
+        : 0,
+      placementPatches.length
+        ? siswaPklService.bulkUpdateMany(placementPatches, silent).catch(() => 0)
+        : 0,
+      monitoringPatches.length
+        ? monitoringService.bulkUpdateMany(monitoringPatches, silent).catch(() => 0)
+        : 0,
+      sertifikatPatches.length
+        ? sertifikatService.bulkUpdateMany(sertifikatPatches, silent).catch(() => 0)
+        : 0,
+    ]);
+
+    const updatedJurusan = flushedJurusan + flushedSiswa;
+    const updatedGuru = flushedMonitoring + flushedJurusan + updatedDudi;
 
     const gasMigrate = await client.triggerMigrateRelationalFormulas().catch(() => ({ success: false }));
     const formulasApplied = Boolean(gasMigrate.success);

@@ -21,6 +21,7 @@ import {
 import type { AdminSessionUser } from '../core/auth/LocalAccountAuthService';
 import {
   Dudi,
+  Guru,
   Jurusan,
   MONITORING_STAGES,
   Monitoring,
@@ -32,6 +33,11 @@ import {
 import { ToastManager } from '../core/ToastManager';
 import { formatIndonesianDate } from '../core/utils/dateHelpers';
 import {
+  matchAnyJurusanItem,
+  matchJurusanItem,
+  resolveKakomliJurusans,
+} from '../core/utils/jurusanHelpers';
+import {
   StageLogEntry,
   buildMonitoringLookupIndex,
   buildStudentMonitoringSummary,
@@ -41,6 +47,7 @@ import {
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { isActivePlacementStatus, normalizeRelationText } from '../core/utils/relationHelpers';
 import { DudiService } from '../services/DudiService';
+import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
 import { MonitoringService } from '../services/MonitoringService';
 import { SertifikatService } from '../services/SertifikatService';
@@ -88,65 +95,6 @@ interface DudiRecapGroup {
   highestStage: number;
 }
 
-function cleanPersonTitle(raw: string): string {
-  return String(raw || '')
-    .toLowerCase()
-    .replace(/\b(drs?|ir|hj|h|prof|s\.?pd|s\.?kom|s\.?t|s\.?si|s\.?ag|m\.?pd|m\.?kom|m\.?t|m\.?m|a\.?md)\b\.?/gi, ' ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function matchJurusanItem(rawJurusan: string, jur: Jurusan): boolean {
-  const target = String(rawJurusan || '').trim().toLowerCase();
-  if (!target || target === '-') return false;
-  const kode = String(jur.kode || '').trim().toLowerCase();
-  const nama = String(jur.nama || '').trim().toLowerCase();
-  return (
-    target === kode ||
-    target === nama ||
-    (kode.length >= 2 &&
-      (target.startsWith(`${kode} `) ||
-        target.includes(`(${kode})`) ||
-        new RegExp(`\\b${kode}\\b`, 'i').test(target))) ||
-    (nama.length >= 4 && (target.includes(nama) || nama.includes(target)))
-  );
-}
-
-function resolveKakomliJurusan(
-  currentUser: AdminSessionUser | null,
-  jurusanList: Jurusan[]
-): Jurusan | null {
-  if (!currentUser || jurusanList.length === 0) return null;
-  const userNameClean = cleanPersonTitle(currentUser.name);
-  const userTitleRaw = `${currentUser.title || ''} ${currentUser.username || ''}`.toLowerCase();
-
-  // 1. Exact or strong person-name match with Master_Jurusan.namaKakomli
-  if (userNameClean && !userNameClean.includes('ketua konsentrasi') && !userNameClean.includes('kakomli')) {
-    const byName = jurusanList.find((j) => {
-      const kakomliClean = cleanPersonTitle(j.namaKakomli);
-      if (!kakomliClean || kakomliClean.length < 3) return false;
-      return (
-        kakomliClean === userNameClean ||
-        kakomliClean.includes(userNameClean) ||
-        userNameClean.includes(kakomliClean)
-      );
-    });
-    if (byName) return byName;
-  }
-
-  // 2. Check if username or title explicitly specifies a Jurusan code or name
-  const byTitleOrCode = jurusanList.find((j) => {
-    const kode = String(j.kode || '').trim().toLowerCase();
-    const nama = String(j.nama || '').trim().toLowerCase();
-    return (
-      (kode.length >= 2 && new RegExp(`\\b${kode}\\b`, 'i').test(userTitleRaw)) ||
-      (nama.length >= 5 && userTitleRaw.includes(nama))
-    );
-  });
-  return byTitleOrCode || null;
-}
-
 function normalizeVerificationStatus(raw?: string): VerificationStatus {
   return normalizeMonitoringVerificationStatus(raw);
 }
@@ -165,6 +113,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   const [penempatanList, setPenempatanList] = useState<PenempatanPKL[]>([]);
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
   const [jurusanList, setJurusanList] = useState<Jurusan[]>([]);
+  const [guruList, setGuruList] = useState<Guru[]>([]);
   const [monitoringList, setMonitoringList] = useState<Monitoring[]>([]);
   const [sertifikatList, setSertifikatList] = useState<Sertifikat[]>([]);
 
@@ -208,6 +157,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       const pSvc = SiswaPklService.getInstance();
       const sSvc = SiswaService.getInstance();
       const jSvc = JurusanService.getInstance();
+      const gSvc = GuruService.getInstance();
       const mSvc = MonitoringService.getInstance();
       const cSvc = SertifikatService.getInstance();
 
@@ -217,16 +167,18 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           pSvc.reloadFromSpreadsheet().catch(() => []),
           sSvc.reloadFromSpreadsheet().catch(() => []),
           jSvc.reloadFromSpreadsheet().catch(() => []),
+          gSvc.reloadFromSpreadsheet().catch(() => []),
           mSvc.reloadFromSpreadsheet().catch(() => []),
           cSvc.reloadFromSpreadsheet().catch(() => []),
         ]);
       }
 
-      const [dRows, pRows, sRows, jRows, mRows, cRows] = await Promise.all([
+      const [dRows, pRows, sRows, jRows, gRows, mRows, cRows] = await Promise.all([
         dSvc.getAll(),
         pSvc.getAll(),
         sSvc.getAll(),
         jSvc.getAll(),
+        gSvc.getAll().catch(() => [] as Guru[]),
         mSvc.getAll(),
         cSvc.getAll(),
       ]);
@@ -235,6 +187,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       setPenempatanList(pRows);
       setSiswaList(sRows);
       setJurusanList(jRows);
+      setGuruList(gRows);
       setMonitoringList(mRows);
       setSertifikatList(cRows);
     } catch (err: any) {
@@ -253,34 +206,50 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     loadAllData(false);
   }, [loadAllData, refreshSignal]);
 
-  // Auto-resolve Kakomli's Jurusan from Master_Jurusan (Kompetensi Keahlian)
-  const matchedKakomliJurusan = useMemo(() => {
-    if (!isKakomliRole) return null;
-    return resolveKakomliJurusan(currentUser, jurusanList);
-  }, [isKakomliRole, currentUser, jurusanList]);
+  // Auto-resolve ALL Jurusans managed by the logged-in Kakomli (supports 1 Kakomli -> N Jurusan)
+  const matchedKakomliJurusans = useMemo(() => {
+    if (!isKakomliRole) return [];
+    return resolveKakomliJurusans(currentUser, jurusanList, guruList);
+  }, [isKakomliRole, currentUser, jurusanList, guruList]);
 
   useEffect(() => {
     if (isKakomliRole) {
-      if (matchedKakomliJurusan) {
-        setSelectedJurusanKey(matchedKakomliJurusan.kode || matchedKakomliJurusan.id);
-      } else if (selectedJurusanKey === 'ALL' && jurusanList.length > 0) {
-        setSelectedJurusanKey(jurusanList[0].kode || jurusanList[0].id);
+      if (matchedKakomliJurusans.length === 1) {
+        const singleKey = matchedKakomliJurusans[0].kode || matchedKakomliJurusans[0].id;
+        if (selectedJurusanKey !== singleKey) {
+          setSelectedJurusanKey(singleKey);
+        }
+      } else if (matchedKakomliJurusans.length >= 2) {
+        const validAssigned = matchedKakomliJurusans.some(
+          (j) => (j.kode || j.id) === selectedJurusanKey
+        );
+        if (selectedJurusanKey !== 'ALL_ASSIGNED' && !validAssigned) {
+          setSelectedJurusanKey('ALL_ASSIGNED');
+        }
+      } else if (selectedJurusanKey === 'ALL_ASSIGNED') {
+        setSelectedJurusanKey('ALL');
+      } else if (
+        selectedJurusanKey !== 'ALL' &&
+        !jurusanList.some((j) => (j.kode || j.id) === selectedJurusanKey)
+      ) {
+        setSelectedJurusanKey('ALL');
       }
     } else if (!isKakomliRole && selectedJurusanKey !== 'ALL') {
-      // Keep user's explicit selection if valid
       const exists = jurusanList.some(
         (j) => j.kode === selectedJurusanKey || j.id === selectedJurusanKey
       );
       if (!exists) setSelectedJurusanKey('ALL');
     }
-  }, [isKakomliRole, matchedKakomliJurusan, jurusanList, selectedJurusanKey]);
+  }, [isKakomliRole, matchedKakomliJurusans, jurusanList, selectedJurusanKey]);
 
   const activeJurusanObj = useMemo(() => {
-    if (selectedJurusanKey === 'ALL') return null;
+    if (selectedJurusanKey === 'ALL' || selectedJurusanKey === 'ALL_ASSIGNED') return null;
+    const pool =
+      isKakomliRole && matchedKakomliJurusans.length > 0 ? matchedKakomliJurusans : jurusanList;
     return (
-      jurusanList.find((j) => j.kode === selectedJurusanKey || j.id === selectedJurusanKey) || null
+      pool.find((j) => j.kode === selectedJurusanKey || j.id === selectedJurusanKey) || null
     );
-  }, [jurusanList, selectedJurusanKey]);
+  }, [isKakomliRole, matchedKakomliJurusans, jurusanList, selectedJurusanKey]);
 
   // Build Student Matrix Rows & Group by DUDI
   const dudiGroups = useMemo<DudiRecapGroup[]>(() => {
@@ -317,8 +286,16 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       const resolvedJurusan = matchedSiswa?.jurusan || matchedMon?.jurusan || '-';
       const resolvedKelas = matchedSiswa?.kelas || '-';
 
-      // Filter by active Jurusan (always enforced for Kakomli or when admin picks a Jurusan)
-      if (activeJurusanObj && !matchJurusanItem(resolvedJurusan, activeJurusanObj)) {
+      // Filter by active Jurusan (enforced for single/multi-jurusan Kakomli or explicit admin selection)
+      if (
+        isKakomliRole &&
+        matchedKakomliJurusans.length > 0 &&
+        selectedJurusanKey === 'ALL_ASSIGNED'
+      ) {
+        if (!matchAnyJurusanItem(resolvedJurusan, matchedKakomliJurusans)) {
+          continue;
+        }
+      } else if (activeJurusanObj && !matchJurusanItem(resolvedJurusan, activeJurusanObj)) {
         continue;
       }
 
@@ -411,6 +388,9 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     monitoringList,
     sertifikatList,
     activeJurusanObj,
+    isKakomliRole,
+    matchedKakomliJurusans,
+    selectedJurusanKey,
   ]);
 
   const deferredSearch = useDeferredValue(search);
@@ -775,15 +755,35 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
 
       {/* Filter & Jurusan Context Bar (shown on Level 1 & shows Jurusan lock info on Level 2 too) */}
       <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center gap-2.5">
-        {/* Jurusan Selector / Kakomli Lock */}
-        <div className="w-full md:w-72 shrink-0">
-          {isKakomliRole && matchedKakomliJurusan ? (
+        {/* Jurusan Selector / Kakomli Lock (Single vs Multi-Jurusan vs Unrestricted) */}
+        <div className="w-full md:w-80 shrink-0">
+          {isKakomliRole && matchedKakomliJurusans.length === 1 ? (
             <div className="h-9 px-3 rounded-lg bg-indigo-50 border border-indigo-200 text-xs font-semibold text-indigo-900 flex items-center justify-between gap-2">
               <span className="truncate">
-                Jurusan: {matchedKakomliJurusan.kode} — {matchedKakomliJurusan.nama}
+                Jurusan: {matchedKakomliJurusans[0].kode} — {matchedKakomliJurusans[0].nama}
               </span>
               <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
             </div>
+          ) : isKakomliRole && matchedKakomliJurusans.length >= 2 ? (
+            <select
+              value={selectedJurusanKey}
+              onChange={(e) => {
+                setSelectedJurusanKey(e.target.value);
+                setSelectedDudiKey(null);
+              }}
+              aria-label="Filter Jurusan Ampuan Kakomli"
+              className="w-full h-9 px-3 rounded-lg border border-indigo-200 bg-indigo-50/70 text-xs font-semibold text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:bg-white cursor-pointer"
+            >
+              <option value="ALL_ASSIGNED">
+                Semua Jurusan Ampuan ({matchedKakomliJurusans.length}:{' '}
+                {matchedKakomliJurusans.map((j) => j.kode || j.nama).join(', ')})
+              </option>
+              {matchedKakomliJurusans.map((j) => (
+                <option key={j.id} value={j.kode || j.id}>
+                  {j.kode} — {j.nama}
+                </option>
+              ))}
+            </select>
           ) : (
             <select
               value={selectedJurusanKey}
@@ -794,7 +794,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
               aria-label="Filter Kompetensi Keahlian"
               className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:bg-white cursor-pointer"
             >
-              {!isKakomliRole && <option value="ALL">Semua Kompetensi Keahlian</option>}
+              <option value="ALL">Semua Kompetensi Keahlian</option>
               {jurusanList.map((j) => (
                 <option key={j.id} value={j.kode || j.id}>
                   {j.kode} — {j.nama}

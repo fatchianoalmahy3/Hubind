@@ -738,6 +738,7 @@ export default function App() {
           metadata={entry.metadata}
           repository={entry.getRepository()}
           userRole={userRole}
+          currentUser={currentUser}
           onOpenDocsForStudent={
             entry.docShortcutModule
               ? () => setCurrentModule(entry.docShortcutModule!)

@@ -211,6 +211,7 @@ const KEY_ALIASES = {
   id: ['id', 'idguru', 'idperizinan', 'idpenempatan', 'idmonitoring', 'nopengajuan'],
   idguru: ['idguru', 'id'],
   idgurupendamping: ['idgurupendamping', 'idguru'],
+  idkakomli: ['idkakomli', 'idguru'],
   iddudi: ['iddudi'],
   idperizinan: ['idperizinan', 'noperizinan', 'id'],
   noperizinan: ['noperizinan', 'idperizinan', 'id'],
@@ -807,7 +808,9 @@ function applyRelationalFormulasToSpreadsheet(ss) {
   const shPlotting = resolveSheetAlias(targetSs, 'Plotting_Pemberangkatan');
   const shMonitoring = resolveSheetAlias(targetSs, 'Monitoring_5_Tahap');
   const shSertifikat = resolveSheetAlias(targetSs, 'Nilai_Dan_Sertifikat');
+  const shLogSurat = resolveSheetAlias(targetSs, 'Log_Penerbitan_Surat');
 
+  if (shJurusan) insertFkBeforeIfMissing(shJurusan, 'ID_Kakomli', ['namakakomli']);
   if (shKelas) insertFkBeforeIfMissing(shKelas, 'ID_Jurusan', ['jurusan']);
   if (shPerizinan) insertFkBeforeIfMissing(shPerizinan, 'ID_DUDI', ['duditujuan']);
   if (shMonitoring) {
@@ -815,6 +818,7 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     insertFkBeforeIfMissing(shMonitoring, 'ID_Guru_Pendamping', ['gurupendamping']);
   }
   if (shSertifikat) insertFkBeforeIfMissing(shSertifikat, 'ID_DUDI', ['duditujuan']);
+  if (shLogSurat) insertFkBeforeIfMissing(shLogSurat, 'ID_Guru_Pendamping', ['gurupendamping']);
 
   Object.keys(REQUIRED_SHEET_HEADERS).forEach(function(name) {
     const sh = resolveSheetAlias(targetSs, name);
@@ -840,6 +844,7 @@ function applyRelationalFormulasToSpreadsheet(ss) {
 
   const guruById = {};
   const guruByName = {};
+  const guruNameCount = {};
   if (shGuru && shGuru.getLastRow() >= 2) {
     const gd = shGuru.getDataRange().getValues();
     const gh = gd[0];
@@ -849,7 +854,35 @@ function applyRelationalFormulasToSpreadsheet(ss) {
       const id = cId !== -1 ? String(gd[r][cId] || '').trim() : '';
       const nm = cNama !== -1 ? String(gd[r][cNama] || '').trim() : '';
       if (id) guruById[id] = { id: id, nama: nm };
-      if (nm) guruByName[normText(nm)] = id;
+      if (nm) {
+        const nk = normText(nm);
+        guruNameCount[nk] = (guruNameCount[nk] || 0) + 1;
+        guruByName[nk] = id;
+      }
+    }
+  }
+
+  // Backfill ID_Kakomli di Master_Jurusan dari Master_Guru_Pendamping (tanpa menimpa Nama_Kakomli manual)
+  if (shJurusan && shJurusan.getLastRow() >= 2) {
+    const jd2 = shJurusan.getDataRange().getValues();
+    const jh2 = jd2[0];
+    const cIdKakomli = findColumnIndex(jh2, ['idkakomli']);
+    const cNmKakomli = findColumnIndex(jh2, ['namakakomli']);
+    if (cIdKakomli !== -1 && cNmKakomli !== -1) {
+      let jChanged = false;
+      for (let r = 1; r < jd2.length; r++) {
+        if (!String(jd2[r][cIdKakomli] || '').trim()) {
+          const nk = normText(jd2[r][cNmKakomli]);
+          if (nk && guruNameCount[nk] === 1 && guruByName[nk]) {
+            jd2[r][cIdKakomli] = guruByName[nk];
+            jChanged = true;
+          }
+        }
+      }
+      if (jChanged) {
+        shJurusan.getRange(2, cIdKakomli + 1, jd2.length - 1, 1)
+          .setValues(jd2.slice(1).map(function(row) { return [row[cIdKakomli]]; }));
+      }
     }
   }
 
@@ -1214,6 +1247,47 @@ function applyRelationalFormulasToSpreadsheet(ss) {
       const startRow = getNextAppendRowNonFormula(shMonitoring, mFlags);
       writeNonFormulaMatrixSpans(shMonitoring, startRow, monRowsToAppend, mFlags);
       formatNisAndTextColumns(shMonitoring, monHeaders, startRow, monRowsToAppend.length);
+    }
+  }
+
+  // Backfill ID_DUDI & ID_Guru_Pendamping di Log_Penerbitan_Surat (tanpa menghapus nama manual)
+  if (shLogSurat && shLogSurat.getLastRow() >= 2) {
+    const ld = shLogSurat.getDataRange().getValues();
+    const lh = ld[0];
+    const cIdDudi = findColumnIndex(lh, ['iddudi']);
+    const cNmDudi = findColumnIndex(lh, ['namadudi', 'duditujuan']);
+    const cIdGuru = findColumnIndex(lh, ['idgurupendamping', 'idguru']);
+    const cNmGuru = findColumnIndex(lh, ['gurupendamping']);
+    let ldChanged = false;
+    let lgChanged = false;
+    for (let r = 1; r < ld.length; r++) {
+      let dIdCurr = cIdDudi !== -1 ? String(ld[r][cIdDudi] || '').trim() : '';
+      const dNmCurr = cNmDudi !== -1 ? String(ld[r][cNmDudi] || '').trim() : '';
+      if (!dIdCurr && dNmCurr && dudiByName[normText(dNmCurr)] && cIdDudi !== -1) {
+        dIdCurr = dudiByName[normText(dNmCurr)];
+        ld[r][cIdDudi] = dIdCurr;
+        ldChanged = true;
+      }
+      if (cIdGuru !== -1 && !String(ld[r][cIdGuru] || '').trim()) {
+        const gNmCurr = cNmGuru !== -1 ? String(ld[r][cNmGuru] || '').trim() : '';
+        const gNk = normText(gNmCurr);
+        const foundG =
+          (gNk && guruNameCount[gNk] === 1 && guruByName[gNk]) ||
+          (dIdCurr && dudiById[dIdCurr] && dudiById[dIdCurr].idGuru) ||
+          '';
+        if (foundG) {
+          ld[r][cIdGuru] = foundG;
+          lgChanged = true;
+        }
+      }
+    }
+    if (ldChanged && cIdDudi !== -1) {
+      shLogSurat.getRange(2, cIdDudi + 1, ld.length - 1, 1)
+        .setValues(ld.slice(1).map(function(row) { return [row[cIdDudi]]; }));
+    }
+    if (lgChanged && cIdGuru !== -1) {
+      shLogSurat.getRange(2, cIdGuru + 1, ld.length - 1, 1)
+        .setValues(ld.slice(1).map(function(row) { return [row[cIdGuru]]; }));
     }
   }
 

@@ -206,6 +206,42 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     return out as T;
   }
 
+  if (sheetName === 'Master_Jurusan') {
+    const kId = String(out.idKakomli || out.ID_Kakomli || '').trim();
+    const kName = normalizeRelationText(out.namaKakomli);
+    const guru = (kId ? idx.guruById.get(kId) : undefined) || (kName ? idx.guruByNormName.get(kName) : undefined);
+    if (guru) {
+      if (!out.idKakomli && guru.id) out.idKakomli = guru.id;
+      const latestName = String(guru.nama || '').trim();
+      if (latestName) out.namaKakomli = latestName;
+      if ((!out.nipKakomli || out.nipKakomli === '-') && guru.nip) out.nipKakomli = guru.nip;
+      if ((!out.kontakWA || out.kontakWA === '-') && guru.kontakWA && guru.kontakWA !== '-') {
+        out.kontakWA = guru.kontakWA;
+      }
+    }
+    return out as T;
+  }
+
+  if (sheetName === 'Log_Penerbitan_Surat') {
+    const dId = String(out.idDudi || out.ID_DUDI || '').trim();
+    const dName = normalizeRelationText(out.namaDudi || out.dudiTujuan);
+    const dudi = (dId ? idx.dudiById.get(dId) : undefined) || (dName ? idx.dudiByNormName.get(dName) : undefined);
+    if (dudi) {
+      if (!out.idDudi && dudi.id) out.idDudi = dudi.id;
+      const latestDudiName = String(dudi.namaDudi || '').trim();
+      if (latestDudiName) out.namaDudi = latestDudiName;
+    }
+    const gId = String(out.idGuruPendamping || out.ID_Guru_Pendamping || dudi?.idGuruPendamping || '').trim();
+    const gName = normalizeRelationText(out.guruPendamping || dudi?.guruPendamping);
+    const guru = (gId ? idx.guruById.get(gId) : undefined) || (gName ? idx.guruByNormName.get(gName) : undefined);
+    if (guru) {
+      if (!out.idGuruPendamping && guru.id) out.idGuruPendamping = guru.id;
+      const latestGuruName = String(guru.nama || '').trim();
+      if (latestGuruName) out.guruPendamping = latestGuruName;
+    }
+    return out as T;
+  }
+
   const nisRaw = out.nis || out.NIS;
   const targetDigits = stripNisSymbols(nisRaw);
   const targetRaw = normalizeRelationText(nisRaw);
@@ -220,6 +256,10 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     if (resolvedJur) out.jurusan = resolvedJur;
     if (student.namaOrtuWali) out.namaOrtuWali = student.namaOrtuWali;
     if (student.noOrtuWali) out.noOrtuWali = student.noOrtuWali;
+    if ((!out.noWa || out.noWa === '-') && student.noHpSiswa) out.noWa = student.noHpSiswa;
+    if ((!out.alamatDomisili || out.alamatDomisili === '-') && student.alamatDomisili) {
+      out.alamatDomisili = student.alamatDomisili;
+    }
   }
 
   const placement = out.idPenempatan
@@ -245,6 +285,23 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     ) {
       if (latestDudiName) out.dudiTujuan = latestDudiName;
       if (dudi.alamat) out.alamatDudi = dudi.alamat;
+      if (sheetName === 'Data_Pengajuan_PKL') {
+        if ((!out.bidangPekerjaan || out.bidangPekerjaan === '-') && dudi.bidangKeahlian) {
+          out.bidangPekerjaan = dudi.bidangKeahlian;
+        }
+        if ((!out.namaPemimpin || out.namaPemimpin === '-') && dudi.namaPemimpin) {
+          out.namaPemimpin = dudi.namaPemimpin;
+        }
+        if ((!out.namaPic || out.namaPic === '-') && dudi.namaPic) {
+          out.namaPic = dudi.namaPic;
+        }
+        if ((!out.noTelpDudi || out.noTelpDudi === '-') && (dudi.noTelpDudi || dudi.kontakPic)) {
+          out.noTelpDudi = dudi.noTelpDudi || dudi.kontakPic;
+        }
+        if ((!out.hariKerja || out.hariKerja === '-') && dudi.hariKerja) out.hariKerja = dudi.hariKerja;
+        if ((!out.jamKerja || out.jamKerja === '-') && dudi.jamKerja) out.jamKerja = dudi.jamKerja;
+        if ((!out.linkMaps || out.linkMaps === '-') && dudi.linkMaps) out.linkMaps = dudi.linkMaps;
+      }
     }
   }
 
@@ -336,6 +393,40 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     return out as T;
   }
 
+  if (sheetName === 'Master_Jurusan') {
+    const guru = findGuru(maps.guruRows, out.idKakomli || out.ID_Kakomli, out.namaKakomli);
+    if (guru) {
+      if (!out.idKakomli && guru.id) out.idKakomli = guru.id;
+      const latestName = String(guru.nama || '').trim();
+      if (latestName) out.namaKakomli = latestName;
+      if ((!out.nipKakomli || out.nipKakomli === '-') && guru.nip) out.nipKakomli = guru.nip;
+      if ((!out.kontakWA || out.kontakWA === '-') && guru.kontakWA && guru.kontakWA !== '-') {
+        out.kontakWA = guru.kontakWA;
+      }
+    }
+    return out as T;
+  }
+
+  if (sheetName === 'Log_Penerbitan_Surat') {
+    const dudi = findDudi(maps.dudiRows, out.idDudi || out.ID_DUDI, out.namaDudi || out.dudiTujuan);
+    if (dudi) {
+      if (!out.idDudi && dudi.id) out.idDudi = dudi.id;
+      const latestDudiName = String(dudi.namaDudi || '').trim();
+      if (latestDudiName) out.namaDudi = latestDudiName;
+    }
+    const guru = findGuru(
+      maps.guruRows,
+      out.idGuruPendamping || out.ID_Guru_Pendamping || dudi?.idGuruPendamping,
+      out.guruPendamping || dudi?.guruPendamping
+    );
+    if (guru) {
+      if (!out.idGuruPendamping && guru.id) out.idGuruPendamping = guru.id;
+      const latestGuruName = String(guru.nama || '').trim();
+      if (latestGuruName) out.guruPendamping = latestGuruName;
+    }
+    return out as T;
+  }
+
   // Shared student lookup
   const student = findStudent(maps.siswaRows, out.nis || out.NIS);
   if (student) {
@@ -345,6 +436,10 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     if (resolvedJur) out.jurusan = resolvedJur;
     if (student.namaOrtuWali) out.namaOrtuWali = student.namaOrtuWali;
     if (student.noOrtuWali) out.noOrtuWali = student.noOrtuWali;
+    if ((!out.noWa || out.noWa === '-') && student.noHpSiswa) out.noWa = student.noHpSiswa;
+    if ((!out.alamatDomisili || out.alamatDomisili === '-') && student.alamatDomisili) {
+      out.alamatDomisili = student.alamatDomisili;
+    }
   }
 
   // Placement lookup when idPenempatan present
@@ -371,6 +466,23 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     ) {
       if (latestDudiName) out.dudiTujuan = latestDudiName;
       if (dudi.alamat) out.alamatDudi = dudi.alamat;
+      if (sheetName === 'Data_Pengajuan_PKL') {
+        if ((!out.bidangPekerjaan || out.bidangPekerjaan === '-') && dudi.bidangKeahlian) {
+          out.bidangPekerjaan = dudi.bidangKeahlian;
+        }
+        if ((!out.namaPemimpin || out.namaPemimpin === '-') && dudi.namaPemimpin) {
+          out.namaPemimpin = dudi.namaPemimpin;
+        }
+        if ((!out.namaPic || out.namaPic === '-') && dudi.namaPic) {
+          out.namaPic = dudi.namaPic;
+        }
+        if ((!out.noTelpDudi || out.noTelpDudi === '-') && (dudi.noTelpDudi || dudi.kontakPic)) {
+          out.noTelpDudi = dudi.noTelpDudi || dudi.kontakPic;
+        }
+        if ((!out.hariKerja || out.hariKerja === '-') && dudi.hariKerja) out.hariKerja = dudi.hariKerja;
+        if ((!out.jamKerja || out.jamKerja === '-') && dudi.jamKerja) out.jamKerja = dudi.jamKerja;
+        if ((!out.linkMaps || out.linkMaps === '-') && dudi.linkMaps) out.linkMaps = dudi.linkMaps;
+      }
     }
   }
 

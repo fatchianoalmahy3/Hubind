@@ -122,6 +122,25 @@ export function DynamicFormModal<T extends Record<string, any>>({
         }
       }
 
+      if (formFieldKeys.has('namaKakomli')) {
+        const kakomliName = String(payload.namaKakomli || '').trim();
+        if (kakomliName) {
+          const matchedGuru =
+            masterGuru.find((g) => normFormValue(g.nama) === normFormValue(kakomliName)) ||
+            (payload.idKakomli ? masterGuru.find((g) => g.id === payload.idKakomli) : undefined);
+          if (matchedGuru) {
+            payload.namaKakomli = matchedGuru.nama;
+            if (formFieldKeys.has('idKakomli')) {
+              payload.idKakomli = matchedGuru.id;
+            }
+          } else if (formFieldKeys.has('idKakomli')) {
+            payload.idKakomli = '';
+          }
+        } else if (formFieldKeys.has('idKakomli')) {
+          payload.idKakomli = '';
+        }
+      }
+
       if (moduleId === 'perizinan') {
         const startIso = normalizeToIsoDate(payload.tanggalMulaiIzin);
         const isSd = payload.statusIzinOrtu === 'Surat Dokter (SD)';

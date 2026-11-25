@@ -48,6 +48,7 @@ export class GoogleDriveSheetService {
     // Jurusan
     Kode: ['kode', 'Kode'],
     Nama_Jurusan: ['nama', 'namaJurusan', 'nama_jurusan', 'Nama_Jurusan'],
+    ID_Kakomli: ['idKakomli', 'id_kakomli', 'ID_Kakomli'],
     Nama_Kakomli: ['namaKakomli', 'nama_kakomli', 'Nama_Kakomli'],
     NIP_Kakomli: ['nipKakomli', 'nip_kakomli', 'NIP_Kakomli'],
     Kontak_WA: ['kontakWA', 'kontakWa', 'kontak_wa', 'Kontak_WA', 'noWa', 'No_WA', 'no_wa'],
@@ -406,6 +407,7 @@ export class GoogleDriveSheetService {
     'id',
     'nis',
     'idjurusan',
+    'idkakomli',
     'kode',
     'iddudi',
     'idgurupendamping',

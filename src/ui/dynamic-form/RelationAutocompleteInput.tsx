@@ -406,7 +406,13 @@ export function RelationAutocompleteInput<T>({
               } else {
                 setMultipleValues({
                   [key]: next,
-                  ...(values.idGuruPendamping !== undefined ? { idGuruPendamping: '' } : {}),
+                  ...(key === 'namaKakomli'
+                    ? values.idKakomli !== undefined
+                      ? { idKakomli: '' }
+                      : {}
+                    : values.idGuruPendamping !== undefined
+                      ? { idGuruPendamping: '' }
+                      : {}),
                 });
               }
             }}
@@ -426,7 +432,13 @@ export function RelationAutocompleteInput<T>({
                 e.preventDefault();
                 setMultipleValues({
                   [key]: '',
-                  ...(values.idGuruPendamping !== undefined ? { idGuruPendamping: '' } : {}),
+                  ...(key === 'namaKakomli'
+                    ? values.idKakomli !== undefined
+                      ? { idKakomli: '' }
+                      : {}
+                    : values.idGuruPendamping !== undefined
+                      ? { idGuruPendamping: '' }
+                      : {}),
                 });
                 setOpenAutocompleteKey(key);
               }}
