@@ -60,7 +60,7 @@ export const OfficerComplianceNoticeModal: React.FC<OfficerComplianceNoticeModal
           </div>
 
           <p className="text-[11px] text-slate-500">
-            Pastikan seluruh data kehadiran, ceklist buku laporan, aktivitas &amp; kompetensi siswa, kondisi bengkel, serta tanda tangan siswa dilengkapi setiap kali kunjungan supervisi.
+            Pastikan seluruh data kehadiran, ceklist buku laporan, aktivitas &amp; kompetensi siswa, kondisi bengkel, serta tanda tangan siswa dilengkapi setiap kali kunjungan monitoring.
           </p>
         </div>
 

@@ -20,7 +20,7 @@ export const GuruMetadata: ModuleMetadata<Guru> = {
       title: 'Guru Pendamping',
       computedValue: (data) => data.filter((g) => g.peranUtama === 'Guru Pendamping').length,
       icon: 'UserCheck',
-      change: 'Supervisi 5 tahap lapangan',
+      change: 'Monitoring 8 tahap lapangan',
       variant: 'success',
     },
     {

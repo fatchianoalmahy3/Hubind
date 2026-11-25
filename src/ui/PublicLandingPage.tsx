@@ -40,7 +40,7 @@ const SERVICE_FLOW_STEPS = [
   },
   {
     step: '04',
-    title: 'Supervisi 8 Tahap',
+    title: 'Monitoring 8 Tahap',
     desc: 'Absensi, 4 nilai DUDI, & sertifikat',
   },
 ] as const;
@@ -275,7 +275,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
                     Portal Petugas Monitoring DUDI
                   </h2>
                   <p className="text-xs sm:text-[13px] text-slate-600 leading-relaxed">
-                    Pilih nama guru pendamping dan masukkan PIN verifikasi untuk mencatat supervisi 8 tahap serta 4 kategori nilai per DUDI binaan.
+                    Pilih nama guru pendamping dan masukkan password verifikasi untuk mencatat monitoring 8 tahap serta 4 kategori nilai per DUDI binaan.
                   </p>
                 </div>
 

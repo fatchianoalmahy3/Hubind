@@ -59,6 +59,26 @@ export interface StudentMonitoringSummary {
   stageLogs: Record<number, StageLogEntry>;
 }
 
+export type MonitoringVerificationStatus =
+  | 'Belum Terlaksana'
+  | 'Terlaksana'
+  | 'Tervalidasi Kakomli'
+  | 'Tervalidasi Hubin';
+
+export function normalizeMonitoringVerificationStatus(
+  statusRaw: unknown
+): MonitoringVerificationStatus {
+  const low = String(statusRaw ?? '').trim().toLowerCase();
+  if (!low || low.includes('belum')) return 'Belum Terlaksana';
+  if (low.includes('hubin')) return 'Tervalidasi Hubin';
+  if (low.includes('kakomli')) return 'Tervalidasi Kakomli';
+  return 'Terlaksana';
+}
+
+export function isStageFullyVerified(statusRaw: unknown): boolean {
+  return normalizeMonitoringVerificationStatus(statusRaw) === 'Tervalidasi Hubin';
+}
+
 export function extractStageNumber(tahapRaw: any): number {
   const s = String(tahapRaw ?? '').trim();
   if (!s) return 0;
@@ -752,8 +772,14 @@ export function buildStudentMonitoringSummary(
   }
 
   const completedStages = Array.from(completedSet).sort((a, b) => a - b);
+  const pendingVerificationStages = completedStages.filter(
+    (st) => !isStageFullyVerified(stageLogs[st]?.status)
+  );
   const maxCompleted = completedStages.length > 0 ? completedStages[completedStages.length - 1] : 0;
-  const recommendedStage = Math.min(maxCompleted + 1, 8);
+  const recommendedStage =
+    pendingVerificationStages.length > 0
+      ? pendingVerificationStages[pendingVerificationStages.length - 1]
+      : Math.min(maxCompleted + 1, 8);
 
   return {
     completedStages,
@@ -851,7 +877,8 @@ export function resolveIssuedStagesForDudi(
 export function pickRecommendedStageForControl(
   completedStages: number[],
   control?: MonitoringStageControl | null,
-  issuedStages?: number[]
+  issuedStages?: number[],
+  stageLogs?: Record<number, Pick<StageLogEntry, 'status'> | { status?: string }> | null
 ): number {
   const unlocked = Array.isArray(control?.unlockedStages)
     ? Array.from(
@@ -870,28 +897,54 @@ export function pickRecommendedStageForControl(
     typeof control?.requireIssuedLetter === 'boolean'
       ? control.requireIssuedLetter
       : DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true;
-  const completed = Array.isArray(completedStages) ? completedStages : [];
-  const issuedSet = Array.isArray(issuedStages) ? new Set(issuedStages) : null;
+  const completed = Array.from(
+    new Set(
+      (Array.isArray(completedStages) ? completedStages : [])
+        .map((n) => Number(n))
+        .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+    )
+  ).sort((a, b) => a - b);
 
+  // 1. Prioritize the latest filled stage still waiting for full verification (Kakomli AND Hubin)
+  if (stageLogs && typeof stageLogs === 'object' && completed.length > 0) {
+    const pendingVerificationStages = completed.filter(
+      (num) => !isStageFullyVerified(stageLogs[num]?.status)
+    );
+    if (pendingVerificationStages.length > 0) {
+      return pendingVerificationStages[pendingVerificationStages.length - 1];
+    }
+  }
+
+  // 2. All filled stages are fully verified (or no stages filled yet): pick next stage to be taken
+  const allStages = [1, 2, 3, 4, 5, 6, 7, 8];
+  const uncompleted = allStages.filter((num) => !completed.includes(num));
+  if (uncompleted.length === 0) {
+    return 8;
+  }
+
+  const issuedSet = Array.isArray(issuedStages) ? new Set(issuedStages) : null;
   const isEligibleOpenStage = (num: number) =>
     unlocked.includes(num) && (!requireIssuedLetter || !issuedSet || issuedSet.has(num));
-
   const eligibleOpenStages = unlocked.filter((num) => isEligibleOpenStage(num));
 
-  if (eligibleOpenStages.length > 0) {
-    if (requireSequential) {
-      const nextSequential = eligibleOpenStages.find(
-        (num) => !completed.includes(num) && (num === 1 || completed.includes(num - 1))
-      );
-      if (nextSequential !== undefined) return nextSequential;
-    }
-    const firstEligiblePending = eligibleOpenStages.find((num) => !completed.includes(num));
-    if (firstEligiblePending !== undefined) return firstEligiblePending;
-    return eligibleOpenStages[0];
+  if (requireSequential) {
+    const nextEligibleSequential = eligibleOpenStages.find(
+      (num) => !completed.includes(num) && (num === 1 || completed.includes(num - 1))
+    );
+    if (nextEligibleSequential !== undefined) return nextEligibleSequential;
+
+    const nextLogicalSequential = uncompleted.find(
+      (num) => num === 1 || completed.includes(num - 1)
+    );
+    if (nextLogicalSequential !== undefined) return nextLogicalSequential;
+
+    return uncompleted[0];
   }
 
-  if (completed.length > 0) {
-    return completed[completed.length - 1];
-  }
-  return unlocked[0] ?? 1;
+  const firstEligiblePending = eligibleOpenStages.find((num) => !completed.includes(num));
+  if (firstEligiblePending !== undefined) return firstEligiblePending;
+
+  const maxCompleted = completed.length > 0 ? completed[completed.length - 1] : 0;
+  const nextAfterMax = uncompleted.find((num) => num > maxCompleted);
+  return nextAfterMax ?? uncompleted[0];
 }

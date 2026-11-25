@@ -6,6 +6,7 @@ import { MonitoringEntryStep } from './monitoring-portal/MonitoringEntryStep';
 import { DudiContactPopupModal } from './monitoring-portal/DudiContactPopupModal';
 import { OfficerComplianceNoticeModal } from './monitoring-portal/OfficerComplianceNoticeModal';
 import { MonitoringSaveSuccessModal } from './monitoring-portal/MonitoringSaveSuccessModal';
+import { StageEditConfirmModal } from './monitoring-portal/StageEditConfirmModal';
 import { useTeacherMonitoring } from './monitoring-portal/useTeacherMonitoring';
 import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
@@ -62,8 +63,8 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             </div>
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate">
-                <span className="sm:hidden">Portal Supervisi</span>
-                <span className="hidden sm:inline">Portal Supervisi Guru Pembimbing</span>
+                <span className="sm:hidden">Portal Monitoring</span>
+                <span className="hidden sm:inline">Portal Monitoring Guru Pembimbing</span>
               </h2>
               <p className="text-[11px] text-slate-500">
                 Langkah {m.currentStep} dari 3 · Tersinkron ke Cloud Server
@@ -86,7 +87,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               type="button"
               disabled={isSaveLocked}
               onClick={handleSafeClose}
-              aria-label="Tutup portal supervisi"
+              aria-label="Tutup portal monitoring"
               className="min-w-[40px] min-h-[40px] rounded-full hover:bg-slate-200/70 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <X className="w-4 h-4" />
@@ -103,7 +104,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             m.submitting ||
             m.savingGradeEdit
           }
-          label="Menyinkronkan data supervisi dengan Cloud Server"
+          label="Menyinkronkan data monitoring dengan Cloud Server"
         />
 
         {/* Step Progress Bar (Desktop & Tablet) */}
@@ -172,8 +173,8 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             >
               3
             </span>
-            <span className="hidden sm:inline">3. Absensi &amp; Supervisi</span>
-            <span className="sm:hidden">3. Supervisi</span>
+            <span className="hidden sm:inline">3. Absensi &amp; Monitoring</span>
+            <span className="sm:hidden">3. Monitoring</span>
           </div>
         </div>
 
@@ -229,6 +230,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               issuedStageDetails={m.issuedStageDetails}
               isStageLetterIssued={m.isStageLetterIssued}
               isStageReadOnly={m.isStageReadOnly}
+              isCompletedReadOnly={m.isCompletedReadOnly}
               isStageCompleted={m.isStageCompleted}
               activeDraft={m.activeDraft}
               activeWorkshopDraft={m.activeWorkshopDraft}
@@ -258,10 +260,9 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               deliveryContactConfirmed={m.deliveryContactConfirmed}
               deliverySelectedKeys={m.deliverySelectedKeys}
               canCopyWorkshopFromPrevStage={m.canCopyWorkshopFromPrevStage}
-              onChangeStepToDudiList={() => m.setCurrentStep(2)}
+              onChangeStepToDudiList={m.backToDudiList}
               onSelectStudentIndex={(idx) => {
                 m.setSelectedStudentIndex(idx);
-                m.setFormError('');
               }}
               onSelectStage={m.setStudentStage}
               onUpdateDraft={m.updateActiveDraft}
@@ -321,6 +322,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               onCancelEditGrade={m.cancelEditGrade}
               onUpdateGradeEditDraft={m.updateGradeEditDraft}
               onSaveEditedGrades={m.handleSaveEditedGrades}
+              onRequestUnlockEdit={m.requestUnlockCurrentStageEdit}
               onSaveSupervision={m.handleSaveSupervision}
             />
           )}
@@ -360,6 +362,13 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
           onContinueNext={() => m.handleContinueAfterSave('next')}
           onStayHere={() => m.handleContinueAfterSave('stay')}
           onClosePortal={() => m.handleContinueAfterSave('close', onClose)}
+        />
+
+        <StageEditConfirmModal
+          pending={m.pendingEditConfirm}
+          onViewReadOnly={m.confirmStageViewReadOnly}
+          onConfirmEdit={m.confirmStageEditUnlock}
+          onCancel={m.cancelStageEditConfirm}
         />
 
         <OfficerComplianceNoticeModal
@@ -414,12 +423,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
             m.setPopupSpellingConfirmed(v);
             m.setPopupError('');
           }}
-          onBackToDudiList={() => {
-            m.setDudiPopupOpen(false);
-            m.setSelectedDudi(null);
-            m.setDudiStudents([]);
-            m.setCurrentStep(2);
-          }}
+          onBackToDudiList={m.backToDudiList}
           onSubmit={m.handleSaveDudiPopup}
         />
       </div>

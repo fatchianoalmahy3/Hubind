@@ -253,7 +253,7 @@ export const QuickDocPreviewContent: React.FC<{
       { title: 'Tahap 1: Pengantaran Siswa', desc: 'Serah terima siswa resmi dengan pimpinan/pembimbing bengkel DUDI & briefing K3.', color: 'text-blue-900' },
       { title: 'Tahap 2: Monitoring 1', desc: 'Pengecekan adaptasi lingkungan kerja, Absensi (S/I/A), dan kedisiplinan harian.', color: 'text-indigo-900' },
       { title: 'Tahap 3: Monitoring 2', desc: 'Evaluasi perkembangan kompetensi kerja dan absensi S/I/A bulan berjalan.', color: 'text-violet-900' },
-      { title: 'Tahap 4: Monitoring 3', desc: 'Supervisi teknis lanjutan, penanganan kendala lapangan, dan rekap absensi.', color: 'text-purple-900' },
+      { title: 'Tahap 4: Monitoring 3', desc: 'Monitoring teknis lanjutan, penanganan kendala lapangan, dan rekap absensi.', color: 'text-purple-900' },
       {
         title: 'Tahap 5: Monitoring 4 (Cek Pengambilan Nilai PKL)',
         desc: `Input 4 kategori nilai (K3LH, Softskills, Hardskills, Alur Bisnis Dunia Kerja) · No. Seri Blangko: ${student.noSeriBlangko || '(Belum Dialokasikan)'}`,
@@ -268,7 +268,7 @@ export const QuickDocPreviewContent: React.FC<{
     return (
       <div className="space-y-4">
         <div className="text-center font-bold uppercase underline text-sm tracking-wide">
-          INSTRUMEN SUPERVISI &amp; MONITORING 8 TAHAP
+          INSTRUMEN MONITORING 8 TAHAP
         </div>
         <div className="text-center text-xs font-sans text-slate-500">
           Pokja Hubungan Industri SMK PGRI 2 Ponorogo

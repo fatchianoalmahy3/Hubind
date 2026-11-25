@@ -750,7 +750,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         `${res.count} DUDI (${targets
           .map((t) => `Tahap ${t.tahap}`)
           .filter((v, i, a) => a.indexOf(v) === i)
-          .join(', ')}) telah ditandai Sudah Terbit untuk Portal Supervisi.`
+          .join(', ')}) telah ditandai Sudah Terbit untuk Portal Monitoring.`
       );
     } catch (err: any) {
       ToastManager.getInstance().show(
@@ -1014,7 +1014,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
                   type="button"
                   disabled={issuingBusy}
                   onClick={() => setPendingIssueTargets(unissuedCurrentTargets)}
-                  title="Tandai surat DUDI & tahap terpilih sudah diterbitkan agar Portal Supervisi guru terbuka"
+                  title="Tandai surat DUDI & tahap terpilih sudah diterbitkan agar Portal Monitoring guru terbuka"
                   className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
                 >
                   {issuingBusy ? (
@@ -1489,8 +1489,8 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         description={
           pendingIssueTargets && pendingIssueTargets.length > 0
             ? pendingIssueTargets.length === 1
-              ? `Surat ${getStageValueByNumber(pendingIssueTargets[0].tahap)} untuk DUDI "${pendingIssueTargets[0].namaDudi}" akan dicatat Sudah Terbit sehingga pengisian Portal Supervisi guru untuk tahap ini otomatis terbuka.`
-              : `${pendingIssueTargets.length} DUDI untuk ${getStageValueByNumber(pendingIssueTargets[0].tahap)} akan dicatat Sudah Terbit sehingga pengisian Portal Supervisi guru untuk tahap tersebut otomatis terbuka.`
+              ? `Surat ${getStageValueByNumber(pendingIssueTargets[0].tahap)} untuk DUDI "${pendingIssueTargets[0].namaDudi}" akan dicatat Sudah Terbit sehingga pengisian Portal Monitoring guru untuk tahap ini otomatis terbuka.`
+              : `${pendingIssueTargets.length} DUDI untuk ${getStageValueByNumber(pendingIssueTargets[0].tahap)} akan dicatat Sudah Terbit sehingga pengisian Portal Monitoring guru untuk tahap tersebut otomatis terbuka.`
             : ''
         }
         sheetName="Log_Penerbitan_Surat"
@@ -1508,7 +1508,7 @@ export const DocumentHubPage: React.FC<DocumentHubPageProps> = ({
         description={
           pendingRevokeTargets && pendingRevokeTargets.length > 0
             ? pendingRevokeTargets.length === 1
-              ? `Status terbit ${getStageValueByNumber(pendingRevokeTargets[0].tahap)} untuk DUDI "${pendingRevokeTargets[0].namaDudi}" akan dibatalkan sehingga input baru Portal Supervisi untuk tahap ini kembali terkunci.`
+              ? `Status terbit ${getStageValueByNumber(pendingRevokeTargets[0].tahap)} untuk DUDI "${pendingRevokeTargets[0].namaDudi}" akan dibatalkan sehingga input baru Portal Monitoring untuk tahap ini kembali terkunci.`
               : `Status terbit ${pendingRevokeTargets.length} DUDI untuk ${getStageValueByNumber(pendingRevokeTargets[0].tahap)} akan dibatalkan.`
             : ''
         }

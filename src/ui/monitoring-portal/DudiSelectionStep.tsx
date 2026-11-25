@@ -117,7 +117,7 @@ export const DudiSelectionStep: React.FC<DudiSelectionStepProps> = ({
                   type="button"
                   className="min-h-[40px] px-3.5 py-2 rounded-xl bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 transition-all shrink-0 whitespace-nowrap"
                 >
-                  <span>Supervisi</span>
+                  <span>Monitoring</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>

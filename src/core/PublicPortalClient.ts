@@ -422,7 +422,7 @@ export const PublicPortalClient = {
     monitoring: any;
   }> {
     const toastId = ToastManager.getInstance().show(
-      'Menyimpan Supervisi ke Cloud Server...',
+      'Menyimpan Monitoring ke Cloud Server...',
       'pending',
       `Menyimpan ${payload?.tahap_monitoring || 'Monitoring'} untuk ${payload?.nama_siswa || 'Siswa'} ke Cloud Server`
     );
@@ -458,8 +458,8 @@ export const PublicPortalClient = {
         ToastManager.getInstance().update(
           toastId,
           res.gradeSynced
-            ? 'Supervisi & Nilai Tersimpan!'
-            : 'Data Supervisi Tersimpan di Cloud Server!',
+            ? 'Monitoring & Nilai Tersimpan!'
+            : 'Data Monitoring Tersimpan di Cloud Server!',
           'success',
           `${payload.nama_siswa} · ${payload.tahap_monitoring} (S:${payload.sakit ?? 0} I:${
             payload.izin ?? 0
@@ -468,7 +468,7 @@ export const PublicPortalClient = {
       } else {
         ToastManager.getInstance().update(
           toastId,
-          'Gagal Menyimpan Supervisi',
+          'Gagal Menyimpan Monitoring',
           'error',
           res?.message || 'Gagal menyimpan ke Cloud Server.'
         );
@@ -478,7 +478,7 @@ export const PublicPortalClient = {
     } catch (err: any) {
       ToastManager.getInstance().update(
         toastId,
-        'Gagal Menyimpan Supervisi',
+        'Gagal Menyimpan Monitoring',
         'error',
         err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
       );
@@ -1024,8 +1024,8 @@ export const PublicPortalClient = {
         namaTahap,
         Status_Terbit: 'Sudah Terbit',
         statusTerbit: 'Sudah Terbit',
-        Jenis_Dokumen: item.jenisDokumen || 'Paket / Surat Supervisi',
-        jenisDokumen: item.jenisDokumen || 'Paket / Surat Supervisi',
+        Jenis_Dokumen: item.jenisDokumen || 'Paket / Surat Monitoring',
+        jenisDokumen: item.jenisDokumen || 'Paket / Surat Monitoring',
         Nomor_Surat: item.nomorSurat || '',
         nomorSurat: item.nomorSurat || '',
         Tanggal_Terbit: item.tanggalTerbit || todayIso,

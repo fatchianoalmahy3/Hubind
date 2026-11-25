@@ -396,7 +396,7 @@ export const WorkspaceHubPage: React.FC<WorkspaceHubPageProps> = ({
               Folder Utama: Arsip Hubin SMK PGRI 2 Ponorogo
             </h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Penyimpanan cloud untuk foto supervisi guru, scan dokumen stempel DUDI, dan arsip surat.
+              Penyimpanan cloud untuk foto monitoring guru, scan dokumen stempel DUDI, dan arsip surat.
             </p>
           </div>
 

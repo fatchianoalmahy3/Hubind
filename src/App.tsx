@@ -86,12 +86,15 @@ interface SavedUiSession {
   appMode?: 'landing' | 'admin';
   currentModule?: string;
   userRole?: UserRole;
+  activePortal?: 'monitoring' | 'pengajuan' | null;
 }
 
 function readSavedUiSession(): SavedUiSession {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.sessionStorage.getItem(UI_SESSION_KEY);
+    const raw =
+      window.sessionStorage.getItem(UI_SESSION_KEY) ||
+      window.localStorage.getItem(UI_SESSION_KEY);
     return raw ? (JSON.parse(raw) as SavedUiSession) : {};
   } catch {
     return {};
@@ -101,7 +104,9 @@ function readSavedUiSession(): SavedUiSession {
 function writeSavedUiSession(data: SavedUiSession) {
   if (typeof window === 'undefined') return;
   try {
-    window.sessionStorage.setItem(UI_SESSION_KEY, JSON.stringify(data));
+    const serialized = JSON.stringify(data);
+    window.sessionStorage.setItem(UI_SESSION_KEY, serialized);
+    window.localStorage.setItem(UI_SESSION_KEY, serialized);
   } catch {
     // ignore storage quota issues
   }
@@ -111,30 +116,73 @@ function clearSavedUiSession() {
   if (typeof window === 'undefined') return;
   try {
     window.sessionStorage.removeItem(UI_SESSION_KEY);
+    window.localStorage.removeItem(UI_SESSION_KEY);
   } catch {
     // ignore
   }
 }
 
+function resolveInitialUiState() {
+  const savedSession = typeof window !== 'undefined' ? getStoredAdminSession() : null;
+  const savedUi = readSavedUiSession();
+  const hash = typeof window !== 'undefined' ? window.location.hash || '' : '';
+
+  const initialUser: AdminSessionUser | null = savedSession?.user || null;
+  const initialRole: UserRole =
+    (initialUser?.role as UserRole) || savedUi.userRole || 'Hubin';
+
+  let initialPortal: 'monitoring' | 'pengajuan' | null = null;
+  let initialAppMode: 'landing' | 'admin' = 'landing';
+  let initialModule: string = savedUi.currentModule || getDefaultModuleForRole(initialRole);
+
+  if (hash === '#/monitoring') {
+    initialPortal = 'monitoring';
+  } else if (hash === '#/pengajuan') {
+    initialPortal = 'pengajuan';
+  } else if (hash.startsWith('#/admin')) {
+    const hashMod = hash.replace(/^#\/admin\/?/, '').split('?')[0].trim();
+    if (initialUser) {
+      initialAppMode = 'admin';
+      if (hashMod) {
+        initialModule = hashMod;
+      }
+    }
+  } else if (savedUi.activePortal === 'monitoring' || savedUi.activePortal === 'pengajuan') {
+    initialPortal = savedUi.activePortal;
+  } else if (initialUser && savedUi.appMode === 'admin') {
+    initialAppMode = 'admin';
+  }
+
+  if (initialUser && !isModuleAllowedForRole(initialModule, initialRole)) {
+    initialModule = getDefaultModuleForRole(initialRole);
+  }
+
+  return {
+    initialUser,
+    initialRole,
+    initialAppMode,
+    initialModule,
+    initialPortal,
+  };
+}
+
 export default function App() {
-  const initialUi = readSavedUiSession();
-  const [appMode, setAppMode] = useState<'landing' | 'admin'>(
-    initialUi.appMode === 'admin' ? 'admin' : 'landing'
-  );
-  const [authReady, setAuthReady] = useState(false);
-  const [currentUser, setCurrentUser] = useState<AdminSessionUser | null>(null);
-  const [currentModule, setCurrentModule] = useState<string>(
-    initialUi.currentModule || 'pengajuan'
-  );
-  const [userRole, setUserRole] = useState<UserRole>(
-    initialUi.userRole || 'Hubin'
-  );
+  const [initialState] = useState(resolveInitialUiState);
+  const [appMode, setAppMode] = useState<'landing' | 'admin'>(initialState.initialAppMode);
+  const [authReady, setAuthReady] = useState(true);
+  const [currentUser, setCurrentUser] = useState<AdminSessionUser | null>(initialState.initialUser);
+  const [currentModule, setCurrentModule] = useState<string>(initialState.initialModule);
+  const [userRole, setUserRole] = useState<UserRole>(initialState.initialRole);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Global modals
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [isStudentWizardOpen, setIsStudentWizardOpen] = useState(false);
-  const [isTeacherMonitoringOpen, setIsTeacherMonitoringOpen] = useState(false);
+  const [isStudentWizardOpen, setIsStudentWizardOpen] = useState(
+    initialState.initialPortal === 'pengajuan'
+  );
+  const [isTeacherMonitoringOpen, setIsTeacherMonitoringOpen] = useState(
+    initialState.initialPortal === 'monitoring'
+  );
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [isDocsOpen, setIsDocsOpen] = useState(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
@@ -169,12 +217,40 @@ export default function App() {
     };
   });
 
-  // Persist non-sensitive UI view state across page reloads
+  // Persist UI view & active public portal across page reloads + keep URL hash synchronized
   useEffect(() => {
-    writeSavedUiSession({ appMode, currentModule, userRole });
-  }, [appMode, currentModule, userRole]);
+    const activePortal: 'monitoring' | 'pengajuan' | null = isTeacherMonitoringOpen
+      ? 'monitoring'
+      : isStudentWizardOpen
+      ? 'pengajuan'
+      : null;
+    writeSavedUiSession({ appMode, currentModule, userRole, activePortal });
 
-  // Restore local admin session & subscribe to Firestore Workspace config on mount
+    if (typeof window === 'undefined') return;
+    let targetHash = '';
+    if (isTeacherMonitoringOpen) {
+      targetHash = '#/monitoring';
+    } else if (isStudentWizardOpen) {
+      targetHash = '#/pengajuan';
+    } else if (appMode === 'admin' && currentUser) {
+      targetHash = `#/admin/${currentModule}`;
+    } else {
+      const curr = window.location.hash || '';
+      if (curr.startsWith('#/admin') || curr === '#/monitoring' || curr === '#/pengajuan') {
+        targetHash = '#/';
+      }
+    }
+
+    if (targetHash && window.location.hash !== targetHash) {
+      try {
+        window.history.replaceState(null, '', targetHash);
+      } catch {
+        window.location.hash = targetHash;
+      }
+    }
+  }, [appMode, currentModule, userRole, currentUser, isTeacherMonitoringOpen, isStudentWizardOpen]);
+
+  // Preload IndexedDB cache & subscribe to Firestore Workspace config on mount
   useEffect(() => {
     const initialCfg = googleClient.getConfig();
     if (initialCfg.spreadsheetId) {
@@ -193,10 +269,6 @@ export default function App() {
     if (savedSession?.user) {
       setCurrentUser(savedSession.user);
       setUserRole(savedSession.user.role);
-      const savedUi = readSavedUiSession();
-      if (savedUi.appMode === 'admin') {
-        setAppMode('admin');
-      }
     } else {
       setCurrentUser(null);
       setAppMode('landing');

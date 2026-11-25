@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Clock,
   ExternalLink,
   Loader2,
   Lock,
@@ -25,7 +26,12 @@ import {
   type MonitoringStageControl,
 } from '../../core/types/schema';
 import { formatIndonesianDate } from '../../core/utils/dateHelpers';
-import { formatRangePair, getStageValueByNumber } from '../../core/utils/monitoringHelpers';
+import {
+  formatRangePair,
+  getStageValueByNumber,
+  isStageFullyVerified,
+  normalizeMonitoringVerificationStatus,
+} from '../../core/utils/monitoringHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { formatPhoneDisplay, getWhatsAppHref } from '../../core/utils/autoIdHelpers';
 import { appendVoiceTranscript, useVoiceDictation } from '../../hooks/useVoiceDictation';
@@ -57,6 +63,7 @@ interface MonitoringEntryStepProps {
   issuedStageDetails: Record<number, IssuedStageDetail>;
   isStageLetterIssued: boolean;
   isStageReadOnly: boolean;
+  isCompletedReadOnly: boolean;
   isStageCompleted: boolean;
   activeDraft: StudentStageDraft;
   activeWorkshopDraft: WorkshopStageDraft;
@@ -111,6 +118,7 @@ interface MonitoringEntryStepProps {
   onCancelEditGrade: () => void;
   onUpdateGradeEditDraft: (patch: Partial<GradeScoresDraft>) => void;
   onSaveEditedGrades: () => void;
+  onRequestUnlockEdit: () => void;
   onSaveSupervision: () => void;
 }
 
@@ -128,6 +136,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   issuedStageDetails,
   isStageLetterIssued,
   isStageReadOnly,
+  isCompletedReadOnly,
   isStageCompleted,
   activeDraft,
   activeWorkshopDraft,
@@ -182,6 +191,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   onCancelEditGrade,
   onUpdateGradeEditDraft,
   onSaveEditedGrades,
+  onRequestUnlockEdit,
   onSaveSupervision,
 }) => {
   const errorRef = useRef<HTMLDivElement | null>(null);
@@ -419,20 +429,47 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
             </div>
           </div>
 
-          {activeStudent && (
+          {activeStudent && (() => {
+            const recStageNum = activeStudent.recommendedStage || 1;
+            const recLog = activeStudent.stageLogs?.[recStageNum];
+            const recIsCompleted = (activeStudent.completedStages || []).includes(recStageNum);
+            const recNormStatus = recIsCompleted
+              ? normalizeMonitoringVerificationStatus(recLog?.status)
+              : 'Belum Terlaksana';
+            const recAwaitingVerify = recIsCompleted && !isStageFullyVerified(recLog?.status);
+
+            const activeStageStatus = activeStudent.stageLogs?.[activeStageNum]?.status;
+            const activeNormStatus = isStageCompleted
+              ? normalizeMonitoringVerificationStatus(activeStageStatus)
+              : 'Belum Terlaksana';
+            const activeStatusText =
+              activeNormStatus === 'Tervalidasi Hubin'
+                ? 'Terverifikasi Kakomli & Hubin'
+                : activeNormStatus === 'Tervalidasi Kakomli'
+                ? 'Tervalidasi Kakomli · Menunggu Verifikasi Hubin'
+                : 'Tersimpan · Menunggu Verifikasi Kakomli & Hubin';
+
+            return (
             <div className="pt-2.5 border-t border-slate-200 space-y-3.5 sm:p-5 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-slate-50/50 sm:space-y-5">
               {/* Active Student Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 sm:pb-3 border-b border-slate-200 gap-1.5">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                    Supervisi: {activeStudent.nama}
+                    Monitoring: {activeStudent.nama}
                   </h4>
                   <p className="text-[11px] sm:text-xs text-slate-500 tabular-nums">
                     NIS: {formatNisVisual(activeStudent.nis)} · Kelas: {activeStudent.kelas} · Jurusan: {activeStudent.jurusan}
                   </p>
                 </div>
                 <div className="text-[11px] sm:text-xs font-semibold text-blue-700 tabular-nums">
-                  Deteksi Otomatis: Tahap {activeStudent.recommendedStage || 1} dari 8
+                  Deteksi Otomatis: Tahap {recStageNum} dari 8
+                  {recAwaitingVerify && (
+                    <span className="ml-1.5 text-amber-700">
+                      ({recNormStatus === 'Tervalidasi Kakomli'
+                        ? 'Menunggu Verifikasi Hubin'
+                        : 'Menunggu Verifikasi Kakomli & Hubin'})
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -447,8 +484,10 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                       ? 'Dikunci SuperAdmin · Baca-Saja'
                       : !isStageLetterIssued
                       ? 'Surat Belum Terbit · Baca-Saja'
+                      : isCompletedReadOnly
+                      ? `${activeStatusText} · Baca-Saja`
                       : isStageCompleted
-                      ? 'Tersimpan di Cloud'
+                      ? `Mode Edit Aktif (${activeStatusText})`
                       : 'Siap diisi'}
                   </span>
                 </div>
@@ -457,6 +496,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 <div className="flex sm:hidden gap-1.5 overflow-x-auto pb-1 snap-x">
                   {MONITORING_STAGES.map((st) => {
                     const isCompleted = (activeStudent.completedStages || []).includes(st.num);
+                    const isVerifiedFull =
+                      isCompleted && isStageFullyVerified(activeStudent.stageLogs?.[st.num]?.status);
                     const isGlobalUnlocked = stageControl.unlockedStages.includes(st.num);
                     const isLetterIssued =
                       stageControl.requireIssuedLetter === false || issuedStages.includes(st.num);
@@ -480,7 +521,9 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                         disabled={isDisabled}
                         onClick={() => onSelectStage(st.num)}
                         className={`snap-start shrink-0 min-h-[40px] px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                          isDisabled
+                          isDisabled && isActive
+                            ? 'border-amber-500 bg-amber-50 text-amber-900 ring-2 ring-amber-400/40 cursor-not-allowed'
+                            : isDisabled
                             ? 'border-slate-200 bg-slate-100/80 text-slate-400 cursor-not-allowed'
                             : isActive && isReadOnlyHistory
                             ? 'border-amber-600 bg-amber-600 text-white shadow-xs cursor-pointer'
@@ -488,24 +531,36 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             ? 'border-blue-600 bg-blue-600 text-white shadow-xs cursor-pointer'
                             : isReadOnlyHistory
                             ? 'border-amber-300 bg-amber-50 text-amber-800 cursor-pointer'
-                            : isCompleted
+                            : isVerifiedFull
                             ? 'border-emerald-300 bg-emerald-50 text-emerald-800 cursor-pointer'
+                            : isCompleted
+                            ? 'border-sky-300 bg-sky-50 text-sky-800 cursor-pointer'
                             : 'border-slate-200 bg-white text-slate-700 cursor-pointer'
                         }`}
                       >
                         <span>{st.label}</span>
                         {isDisabled ? (
-                          <Lock className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                          <Lock
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive ? 'text-amber-600' : 'text-slate-400'
+                            }`}
+                          />
                         ) : isReadOnlyHistory ? (
                           <Lock
                             className={`w-3.5 h-3.5 shrink-0 ${
                               isActive ? 'text-white' : 'text-amber-600'
                             }`}
                           />
-                        ) : isCompleted ? (
+                        ) : isVerifiedFull ? (
                           <CheckCircle2
                             className={`w-3.5 h-3.5 shrink-0 ${
                               isActive ? 'text-white' : 'text-emerald-600'
+                            }`}
+                          />
+                        ) : isCompleted ? (
+                          <Clock
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive ? 'text-white' : 'text-sky-600'
                             }`}
                           />
                         ) : null}
@@ -518,6 +573,11 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 <div className="hidden sm:grid sm:grid-cols-4 gap-2">
                   {MONITORING_STAGES.map((st) => {
                     const isCompleted = (activeStudent.completedStages || []).includes(st.num);
+                    const isVerifiedFull =
+                      isCompleted && isStageFullyVerified(activeStudent.stageLogs?.[st.num]?.status);
+                    const stageNormStatus = isCompleted
+                      ? normalizeMonitoringVerificationStatus(activeStudent.stageLogs?.[st.num]?.status)
+                      : 'Belum Terlaksana';
                     const isGlobalUnlocked = stageControl.unlockedStages.includes(st.num);
                     const isLetterIssued =
                       stageControl.requireIssuedLetter === false || issuedStages.includes(st.num);
@@ -544,14 +604,20 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             : !isLetterIssued && !isCompleted
                             ? `Surat ${st.value} untuk DUDI "${selectedDudi?.nama || ''}" belum diterbitkan Admin Hubin di Pusat Dokumen`
                             : isReadOnlyHistory
-                            ? `${st.value} — Riwayat Terkunci (Klik untuk melihat mode Baca-Saja)`
+                            ? `${st.value} — ${stageNormStatus} (Klik untuk melihat mode Baca-Saja)`
                             : isSequentialLocked
                             ? `Terkunci — selesaikan ${getStageValueByNumber(st.num - 1)} terlebih dahulu`
+                            : isVerifiedFull
+                            ? `${st.value} — Terverifikasi Kakomli & Hubin`
+                            : isCompleted
+                            ? `${st.value} — ${stageNormStatus === 'Tervalidasi Kakomli' ? 'Menunggu Verifikasi Hubin' : 'Menunggu Verifikasi Kakomli & Hubin'}`
                             : st.value
                         }
                         onClick={() => onSelectStage(st.num)}
                         className={`min-h-[44px] px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-all flex items-center justify-between gap-1.5 ${
-                          isDisabled
+                          isDisabled && isActive
+                            ? 'border-amber-500 bg-amber-50 text-amber-900 ring-2 ring-amber-400/40 cursor-not-allowed'
+                            : isDisabled
                             ? 'border-slate-200 bg-slate-100/80 text-slate-400 cursor-not-allowed'
                             : isActive && isReadOnlyHistory
                             ? 'border-amber-600 bg-amber-600 text-white shadow-xs cursor-pointer'
@@ -559,24 +625,36 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             ? 'border-blue-600 bg-blue-600 text-white shadow-xs cursor-pointer'
                             : isReadOnlyHistory
                             ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100/70 cursor-pointer'
-                            : isCompleted
+                            : isVerifiedFull
                             ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100/70 cursor-pointer'
+                            : isCompleted
+                            ? 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100/70 cursor-pointer'
                             : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 cursor-pointer'
                         }`}
                       >
                         <span>{st.label}</span>
                         {isDisabled ? (
-                          <Lock className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                          <Lock
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive ? 'text-amber-600' : 'text-slate-400'
+                            }`}
+                          />
                         ) : isReadOnlyHistory ? (
                           <Lock
                             className={`w-3.5 h-3.5 shrink-0 ${
                               isActive ? 'text-white' : 'text-amber-600'
                             }`}
                           />
-                        ) : isCompleted ? (
+                        ) : isVerifiedFull ? (
                           <CheckCircle2
                             className={`w-3.5 h-3.5 shrink-0 ${
                               isActive ? 'text-white' : 'text-emerald-600'
+                            }`}
+                          />
+                        ) : isCompleted ? (
+                          <Clock
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              isActive ? 'text-white' : 'text-sky-600'
                             }`}
                           />
                         ) : null}
@@ -614,21 +692,71 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   )}
 
                 {isStageReadOnly && (
-                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-900">
-                    <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-bold">
-                        {!stageControl.unlockedStages.includes(activeStageNum)
-                          ? `Tahap ${activeStageNum} Dikunci oleh SuperAdmin (Mode Baca-Saja)`
-                          : `Surat Tahap ${activeStageNum} Belum Diterbitkan Admin (Mode Baca-Saja)`}
+                  !stageControl.unlockedStages.includes(activeStageNum) || !isStageLetterIssued ? (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-900">
+                      <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold">
+                          {!stageControl.unlockedStages.includes(activeStageNum)
+                            ? `Tahap ${activeStageNum} Dikunci oleh SuperAdmin (Mode Baca-Saja)`
+                            : `Surat Tahap ${activeStageNum} Belum Diterbitkan Admin (Mode Baca-Saja)`}
+                        </div>
+                        <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                          {!stageControl.unlockedStages.includes(activeStageNum)
+                            ? `${stageControl.lockedReason ? `${stageControl.lockedReason}. ` : ''}Riwayat yang sudah tersimpan tetap ditampilkan untuk ditinjau, namun tidak dapat diubah atau disimpan ulang.`
+                            : `Admin Hubin / Pokja perlu mencetak atau menandai surat ${getStageValueByNumber(activeStageNum)} untuk DUDI "${selectedDudi?.nama || 'ini'}" sebagai Terbit di Pusat Dokumen sebelum pengisian dibuka.`}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
-                        {!stageControl.unlockedStages.includes(activeStageNum)
-                          ? `${stageControl.lockedReason ? `${stageControl.lockedReason}. ` : ''}Riwayat yang sudah tersimpan tetap ditampilkan untuk ditinjau, namun tidak dapat diubah atau disimpan ulang.`
-                          : `Admin Hubin / Pokja perlu mencetak atau menandai surat ${getStageValueByNumber(activeStageNum)} untuk DUDI "${selectedDudi?.nama || 'ini'}" sebagai Terbit di Pusat Dokumen sebelum pengisian dibuka.`}
-                      </p>
                     </div>
-                  </div>
+                  ) : (
+                    <div
+                      className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs ${
+                        activeNormStatus === 'Tervalidasi Hubin'
+                          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                          : 'bg-blue-50/80 border-blue-200 text-blue-950'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <CheckCircle2
+                          className={`w-4 h-4 shrink-0 mt-0.5 ${
+                            activeNormStatus === 'Tervalidasi Hubin'
+                              ? 'text-emerald-600'
+                              : 'text-blue-600'
+                          }`}
+                        />
+                        <div>
+                          <div className="font-bold">
+                            {getStageValueByNumber(activeStageNum)} · {activeStatusText} (Mode Baca-Saja)
+                          </div>
+                          <p
+                            className={`text-[11px] mt-0.5 leading-relaxed ${
+                              activeNormStatus === 'Tervalidasi Hubin'
+                                ? 'text-emerald-800'
+                                : 'text-blue-800'
+                            }`}
+                          >
+                            {activeNormStatus === 'Tervalidasi Hubin'
+                              ? 'Tahap ini sudah diverifikasi oleh Kakomli dan Hubin. Data dikunci untuk mencegah perubahan tidak sengaja.'
+                              : activeNormStatus === 'Tervalidasi Kakomli'
+                              ? 'Tahap ini sudah diverifikasi Kakomli dan masih menunggu validasi Hubin.'
+                              : 'Data tersimpan di Cloud Server dan masih menunggu verifikasi Kakomli dan Hubin.'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onRequestUnlockEdit}
+                        className={`min-h-[36px] px-3 py-1.5 rounded-lg bg-white border font-bold text-xs inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer transition-colors whitespace-nowrap ${
+                          activeNormStatus === 'Tervalidasi Hubin'
+                            ? 'border-emerald-300 hover:bg-emerald-100 text-emerald-800'
+                            : 'border-blue-300 hover:bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit Data</span>
+                      </button>
+                    </div>
+                  )
                 )}
               </div>
 
@@ -1253,7 +1381,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                       }}
                       title={
                         voice.isSupported
-                          ? 'Dikte catatan supervisi dengan suara Bahasa Indonesia'
+                          ? 'Dikte catatan monitoring dengan suara Bahasa Indonesia'
                           : 'Browser tidak mendukung dikte suara'
                       }
                       className={`min-h-[32px] px-3 py-1 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all ${
@@ -1349,14 +1477,43 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
               {/* Primary Save CTA OR Read-Only Notice */}
               <div className="sticky bottom-0 z-10 -mx-3 -mb-3 sm:static sm:mx-0 sm:mb-0 px-3 py-2.5 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xs sm:backdrop-blur-none border-t border-slate-200 sm:border-t-0 flex justify-end">
                 {isStageReadOnly ? (
-                  <div className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-xs flex items-center justify-center gap-2">
-                    <Lock className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>
-                      {!stageControl.unlockedStages.includes(activeStageNum)
-                        ? 'Mode Baca-Saja (Tahap Dikunci SuperAdmin)'
-                        : 'Mode Baca-Saja (Surat Tahap Belum Diterbitkan Admin)'}
-                    </span>
-                  </div>
+                  !stageControl.unlockedStages.includes(activeStageNum) || !isStageLetterIssued ? (
+                    <div className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-xs flex items-center justify-center gap-2">
+                      <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        {!stageControl.unlockedStages.includes(activeStageNum)
+                          ? 'Mode Baca-Saja (Tahap Dikunci SuperAdmin)'
+                          : 'Mode Baca-Saja (Surat Tahap Belum Diterbitkan Admin)'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="w-full sm:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div
+                        className={`min-h-[42px] px-3.5 py-2 rounded-xl border font-semibold text-xs flex items-center justify-center gap-2 ${
+                          activeNormStatus === 'Tervalidasi Hubin'
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                            : 'bg-blue-50 border-blue-200 text-blue-800'
+                        }`}
+                      >
+                        <CheckCircle2
+                          className={`w-4 h-4 shrink-0 ${
+                            activeNormStatus === 'Tervalidasi Hubin'
+                              ? 'text-emerald-600'
+                              : 'text-blue-600'
+                          }`}
+                        />
+                        <span>{activeStatusText} (Baca-Saja)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onRequestUnlockEdit}
+                        className="min-h-[44px] px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        <span>Edit Data Tahap {activeStageNum}</span>
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <button
                     type="button"
@@ -1377,7 +1534,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             ? `Simpan Validasi & Pengantaran (${deliverySelectedKeys.length} Siswa)`
                             : showGradeInputs
                             ? 'Simpan Absensi & Nilai PKL Siswa Ini'
-                            : `Simpan Supervisi Tahap ${activeStageNum}`}
+                            : `Simpan Monitoring Tahap ${activeStageNum}`}
                         </span>
                       </>
                     )}
@@ -1385,7 +1542,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 )}
               </div>
             </div>
-          )}
+            );
+          })()}
         </>
       )}
     </div>

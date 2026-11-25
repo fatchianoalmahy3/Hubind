@@ -74,7 +74,7 @@ export const DOC_META: Record<DocumentHubKey, DocMetaEntry> = {
   doc_monitoring: {
     label: 'Lembar Monitoring Lapangan (07.01)',
     shortTitle: 'Monitoring',
-    description: 'Formulir supervisi Format 07.01 berisi presensi kelompok & kondisi bengkel DUDI',
+    description: 'Formulir monitoring Format 07.01 berisi presensi kelompok & kondisi bengkel DUDI',
     sourceLabel: 'Database Penempatan & Monitoring PKL',
     icon: Compass,
     defaultNoSurat: `421.5 / ___ / MON.PKL / SMK.PGRI2 / ${new Date().getFullYear()}`,

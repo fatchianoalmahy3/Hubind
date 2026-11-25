@@ -282,7 +282,7 @@ export function ModulePage<T extends { id: string }>({
             </h1>
             {isReadOnlyModule && (
               <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-600">
-                Mode Pantau
+                Mode Baca-Saja
               </span>
             )}
           </div>

@@ -466,7 +466,8 @@ export function buildDudiStudentsWithSummary(params: {
       recommendedStage: pickRecommendedStageForControl(
         summary.completedStages,
         stageControl,
-        issuedStages
+        issuedStages,
+        summary.stageLogs
       ),
     };
   });

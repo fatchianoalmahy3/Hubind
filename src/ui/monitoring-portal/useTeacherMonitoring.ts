@@ -14,6 +14,7 @@ import {
   formatRangePair,
   getPredikatFromScore,
   getStageValueByNumber,
+  isStageFullyVerified,
   parseRangePair,
   pickRecommendedStageForControl,
 } from '../../core/utils/monitoringHelpers';
@@ -29,14 +30,68 @@ import {
   type WorkshopStageDraft,
 } from './types';
 
+import type { PendingStageEditConfirm } from './StageEditConfirmModal';
+
+const PETUGAS_CACHE_KEY = 'hubin_petugas_cache';
+const PETUGAS_DUDI_CACHE_KEY = 'hubin_petugas_dudi_cache';
 const NOTICE_ACK_KEY = 'hubin_petugas_notice_ack';
 const MONITORING_DRAFTS_KEY = 'hubin_monitoring_drafts_v1';
 const WORKSHOP_DRAFTS_KEY = 'hubin_monitoring_workshop_drafts_v1';
 const DELIVERY_DRAFTS_KEY = 'hubin_monitoring_delivery_drafts_v1';
+const PORTAL_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 interface DeliveryLocalDraft {
   ttdByKey: Record<string, string>;
   catatanPengantaran: string;
+}
+
+interface StoredPetugasDudiCache {
+  petugasId: string;
+  petugasNama: string;
+  dudi: any;
+  selectedStudentIndex: number;
+  timestamp: number;
+}
+
+function readPortalSessionJson<T>(key: string): T | null {
+  try {
+    const rawSession = sessionStorage.getItem(key);
+    const raw = rawSession || localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.timestamp === 'number' &&
+      Date.now() - parsed.timestamp > PORTAL_SESSION_TTL_MS
+    ) {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed as T;
+  } catch {
+    return null;
+  }
+}
+
+function writePortalSessionJson(key: string, value: unknown): void {
+  try {
+    const serialized = JSON.stringify(value);
+    sessionStorage.setItem(key, serialized);
+    localStorage.setItem(key, serialized);
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+function removePortalSessionKey(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
 }
 
 function readStoredMap<T>(storageKey: string): Record<string, T> {
@@ -174,6 +229,10 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   const [popupError, setPopupError] = useState('');
   const [savingPopupContact, setSavingPopupContact] = useState(false);
 
+  // Protected Edit State for already-submitted monitoring stages (1-8)
+  const [editUnlockedKeys, setEditUnlockedKeys] = useState<Record<string, boolean>>({});
+  const [pendingEditConfirm, setPendingEditConfirm] = useState<PendingStageEditConfirm | null>(null);
+
   const activeTeacherKeyRef = useRef('');
   const activeDudiKeyRef = useRef('');
 
@@ -270,29 +329,38 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     if (isOpen) {
       setDudiPopupOpen(false);
       setSaveReceipt(null);
+      setPendingEditConfirm(null);
       void loadPetugasList();
       PublicPortalClient.getMonitoringStageConfig(true)
         .then((cfg) => setStageControl(cfg))
         .catch(() => {});
 
-      try {
-        const cached = sessionStorage.getItem('hubin_petugas_cache');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed.petugasId && parsed.nama) {
-            setSelectedPetugasId(parsed.petugasId);
-            setSelectedPetugasNama(parsed.nama);
-            setSelectedPetugasNip(parsed.nip || '');
-            setIsPinVerified(true);
-            setCurrentStep(2);
-            if (sessionStorage.getItem(NOTICE_ACK_KEY) !== '1') {
-              setShowComplianceNotice(true);
-            }
-            void loadAssignedDudi(parsed.nama, parsed.petugasId);
-          }
+      const parsed = readPortalSessionJson<{
+        petugasId?: string;
+        nama?: string;
+        nip?: string;
+      }>(PETUGAS_CACHE_KEY);
+
+      if (parsed?.petugasId && parsed?.nama) {
+        setSelectedPetugasId(parsed.petugasId);
+        setSelectedPetugasNama(parsed.nama);
+        setSelectedPetugasNip(parsed.nip || '');
+        setIsPinVerified(true);
+        if (sessionStorage.getItem(NOTICE_ACK_KEY) !== '1') {
+          setShowComplianceNotice(true);
         }
-      } catch {
-        // ignore
+        void loadAssignedDudi(parsed.nama, parsed.petugasId);
+
+        const cachedDudi = readPortalSessionJson<StoredPetugasDudiCache>(PETUGAS_DUDI_CACHE_KEY);
+        if (cachedDudi?.dudi && cachedDudi.petugasId === parsed.petugasId) {
+          void handleSelectDudi(cachedDudi.dudi, {
+            initialStudentIndex: cachedDudi.selectedStudentIndex,
+            petugasIdOverride: parsed.petugasId,
+            petugasNamaOverride: parsed.nama,
+          });
+        } else {
+          setCurrentStep(2);
+        }
       }
     }
   }, [isOpen]);
@@ -330,16 +398,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         setIsPinVerified(true);
         setPinInput('');
         sessionStorage.removeItem(NOTICE_ACK_KEY);
-        sessionStorage.setItem(
-          'hubin_petugas_cache',
-          JSON.stringify({
-            petugasId: verified.id,
-            nama: verified.nama,
-            nip: verified.nip || selectedPetugasNip,
-            token: json.sessionToken,
-            timestamp: Date.now(),
-          })
-        );
+        removePortalSessionKey(PETUGAS_DUDI_CACHE_KEY);
+        writePortalSessionJson(PETUGAS_CACHE_KEY, {
+          petugasId: verified.id,
+          nama: verified.nama,
+          nip: verified.nip || selectedPetugasNip,
+          token: json.sessionToken,
+          timestamp: Date.now(),
+        });
 
         ToastManager.getInstance().update(
           toastId,
@@ -366,8 +432,17 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     }
   };
 
-  const handleSelectDudi = async (dudi: any) => {
-    const dudiKey = `${dudi.id || ''}::${dudi.nama || ''}::${selectedPetugasNama}`;
+  const handleSelectDudi = async (
+    dudi: any,
+    options?: {
+      initialStudentIndex?: number;
+      petugasIdOverride?: string;
+      petugasNamaOverride?: string;
+    }
+  ) => {
+    const effectivePetugasId = options?.petugasIdOverride ?? selectedPetugasId;
+    const effectivePetugasNama = options?.petugasNamaOverride ?? selectedPetugasNama;
+    const dudiKey = `${dudi.id || ''}::${dudi.nama || ''}::${effectivePetugasNama}`;
     activeDudiKeyRef.current = dudiKey;
 
     const initPemimpin = dudi.namaPemimpin && dudi.namaPemimpin !== '-' ? dudi.namaPemimpin : '';
@@ -375,6 +450,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     const initTelp = dudi.kontak && dudi.kontak !== '-' ? dudi.kontak : '';
     const initHariRange = parseRangePair(dudi.hariKerja, '', '');
     const initJamRange = parseRangePair(dudi.jamKerja, '', '');
+
+    writePortalSessionJson(PETUGAS_DUDI_CACHE_KEY, {
+      petugasId: effectivePetugasId,
+      petugasNama: effectivePetugasNama,
+      dudi,
+      selectedStudentIndex: options?.initialStudentIndex ?? 0,
+      timestamp: Date.now(),
+    });
 
     setSelectedDudi(dudi);
     setDudiPemimpin(initPemimpin);
@@ -390,12 +473,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setDeliveryContactConfirmed(false);
     setDeliverySelectedKeys([]);
     setSaveReceipt(null);
+    setEditUnlockedKeys({});
+    setPendingEditConfirm(null);
     setCurrentStep(3);
     setLoadingStudents(true);
     setStudentsError('');
     setFormError('');
     setDudiStudents([]);
-    setSelectedStudentIndex(0);
+    setSelectedStudentIndex(options?.initialStudentIndex ?? 0);
     setStageByStudent({});
     setDraftsByKey({});
     setWorkshopDraftsByStage({});
@@ -449,7 +534,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         const recStage = pickRecommendedStageForControl(
           Array.isArray(stu.completedStages) ? stu.completedStages : [],
           effectiveControl,
-          effectiveIssuedStages
+          effectiveIssuedStages,
+          stu.stageLogs
         );
         initStages[stuKey] = recStage;
 
@@ -539,7 +625,23 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           const completed = Array.isArray(stu.completedStages) ? stu.completedStages : [];
           return !completed.includes(recStage);
         });
-        setSelectedStudentIndex(firstPendingIdx >= 0 ? firstPendingIdx : 0);
+        const firstAwaitingIdx =
+          firstPendingIdx >= 0
+            ? firstPendingIdx
+            : students.findIndex((stu, idx) => {
+                const recStage = initStages[getStudentKey(stu, idx)] || 1;
+                return !isStageFullyVerified(stu?.stageLogs?.[recStage]?.status);
+              });
+        const hasExplicitInitialIdx =
+          typeof options?.initialStudentIndex === 'number' &&
+          options.initialStudentIndex >= 0 &&
+          options.initialStudentIndex < students.length;
+        const resolvedIdx = hasExplicitInitialIdx
+          ? (options!.initialStudentIndex as number)
+          : firstAwaitingIdx >= 0
+          ? firstAwaitingIdx
+          : 0;
+        setSelectedStudentIndex(resolvedIdx);
 
         // Initialize Stage 1 (Pengantaran) per-student TTD, Note & Student selection
         const allKeys = students.map((stu, idx) => getStudentKey(stu, idx));
@@ -579,16 +681,23 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           allStage1Done && !isDudiContactIncomplete(initPemimpin, initPic, initTelp) && bioHasSchedule
         );
       }
-      setDudiStudents(students);
+      const normalizedStudents = students.map((stu: any, idx: number) => {
+        const stuKey = getStudentKey(stu, idx);
+        return {
+          ...stu,
+          recommendedStage: initStages[stuKey] ?? stu.recommendedStage ?? 1,
+        };
+      });
+      setDudiStudents(normalizedStudents);
     };
 
     try {
       const json: any = await PublicPortalClient.getDudiStudents(
         dudi.nama,
         dudi.id || '',
-        selectedPetugasNama,
+        effectivePetugasNama,
         {
-          petugasId: selectedPetugasId,
+          petugasId: effectivePetugasId,
           onUpdate: (freshJson: any) => {
             if (activeDudiKeyRef.current !== dudiKey) return;
             if (freshJson?.stageControl) {
@@ -739,6 +848,23 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     }
   };
 
+  const getStageEditLockKey = (stageNum: number, stuKey: string): string => {
+    if (stageNum === 1) {
+      return activeDudiKeyRef.current ? `delivery::${activeDudiKeyRef.current}` : '';
+    }
+    return stuKey ? `${stuKey}::${stageNum}` : '';
+  };
+
+  const isStageCompletedInData = (stageNum: number, student: any): boolean => {
+    if (stageNum === 1) {
+      return (
+        dudiStudents.length > 0 &&
+        dudiStudents.every((s) => Array.isArray(s.completedStages) && s.completedStages.includes(1))
+      );
+    }
+    return Boolean(student && Array.isArray(student.completedStages) && student.completedStages.includes(stageNum));
+  };
+
   const activeStudent = dudiStudents[selectedStudentIndex] || null;
   const activeStudentKey = activeStudent ? getStudentKey(activeStudent, selectedStudentIndex) : '';
   const activeStageNum = activeStudent
@@ -746,16 +872,19 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       pickRecommendedStageForControl(
         Array.isArray(activeStudent.completedStages) ? activeStudent.completedStages : [],
         stageControl,
-        issuedStages
+        issuedStages,
+        activeStudent.stageLogs
       )
     : 1;
   const isStageGlobalUnlocked = stageControl.unlockedStages.includes(activeStageNum);
   const isStageLetterIssued =
     stageControl.requireIssuedLetter === false || issuedStages.includes(activeStageNum);
-  const isStageCompleted = Boolean(
-    activeStudent && (activeStudent.completedStages || []).includes(activeStageNum)
-  );
-  const isStageReadOnly = !isStageGlobalUnlocked || !isStageLetterIssued;
+  const isStageCompleted = isStageCompletedInData(activeStageNum, activeStudent);
+  const activeEditLockKey = getStageEditLockKey(activeStageNum, activeStudentKey);
+  const isStageEditUnlocked = Boolean(activeEditLockKey && editUnlockedKeys[activeEditLockKey]);
+  const isCompletedReadOnly =
+    isStageGlobalUnlocked && isStageLetterIssued && isStageCompleted && !isStageEditUnlocked;
+  const isStageReadOnly = !isStageGlobalUnlocked || !isStageLetterIssued || isCompletedReadOnly;
 
   const activeDraftKey = activeStudent ? `${activeStudentKey}::${activeStageNum}` : '';
   const activeDraft: StudentStageDraft =
@@ -876,12 +1005,31 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     );
   };
 
+  const buildEditConfirmPayload = (stageNum: number): PendingStageEditConfirm => {
+    const lockKey = getStageEditLockKey(stageNum, activeStudentKey);
+    const savedDate =
+      stageNum === 1
+        ? dudiStudents.find((s) => s.stageLogs?.[1]?.tanggal)?.stageLogs?.[1]?.tanggal
+        : activeStudent?.stageLogs?.[stageNum]?.tanggal;
+    return {
+      mode: stageNum === 1 ? 'delivery' : 'stage',
+      stageNum,
+      stageLabel: getStageValueByNumber(stageNum),
+      targetName:
+        stageNum === 1
+          ? `${dudiStudents.length} Siswa · ${selectedDudi?.nama || 'DUDI'}`
+          : activeStudent?.nama || 'Siswa',
+      lockKey,
+      savedDate,
+    };
+  };
+
   const setStudentStage = (stageNum: number) => {
     if (!activeStudentKey) return;
     const isGlobalUnlocked = stageControl.unlockedStages.includes(stageNum);
     const isLetterIssued =
       stageControl.requireIssuedLetter === false || issuedStages.includes(stageNum);
-    const isCompleted = (activeStudent?.completedStages || []).includes(stageNum);
+    const isCompleted = isStageCompletedInData(stageNum, activeStudent);
 
     if (!isGlobalUnlocked && !isCompleted) {
       reportValidationError(
@@ -912,11 +1060,61 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       );
       return;
     }
+
+    const targetLockKey = getStageEditLockKey(stageNum, activeStudentKey);
+    const isTargetEditUnlocked = Boolean(targetLockKey && editUnlockedKeys[targetLockKey]);
+    if (isGlobalUnlocked && isLetterIssued && isCompleted && !isTargetEditUnlocked) {
+      setFormError('');
+      setPendingEditConfirm(buildEditConfirmPayload(stageNum));
+      return;
+    }
+
     setFormError('');
     setStageByStudent((prev) => ({
       ...prev,
       [activeStudentKey]: stageNum,
     }));
+  };
+
+  const requestUnlockCurrentStageEdit = () => {
+    if (!activeStudentKey || !isCompletedReadOnly) return;
+    setFormError('');
+    setPendingEditConfirm(buildEditConfirmPayload(activeStageNum));
+  };
+
+  const confirmStageViewReadOnly = () => {
+    if (!pendingEditConfirm || !activeStudentKey) {
+      setPendingEditConfirm(null);
+      return;
+    }
+    const targetStage = pendingEditConfirm.stageNum;
+    setPendingEditConfirm(null);
+    setFormError('');
+    setStageByStudent((prev) => ({
+      ...prev,
+      [activeStudentKey]: targetStage,
+    }));
+  };
+
+  const confirmStageEditUnlock = () => {
+    if (!pendingEditConfirm || !activeStudentKey) {
+      setPendingEditConfirm(null);
+      return;
+    }
+    const { stageNum: targetStage, lockKey } = pendingEditConfirm;
+    if (lockKey) {
+      setEditUnlockedKeys((prev) => ({ ...prev, [lockKey]: true }));
+    }
+    setPendingEditConfirm(null);
+    setFormError('');
+    setStageByStudent((prev) => ({
+      ...prev,
+      [activeStudentKey]: targetStage,
+    }));
+  };
+
+  const cancelStageEditConfirm = () => {
+    setPendingEditConfirm(null);
   };
 
   const alreadyHasGrade = Boolean(activeStudent?.hasSubmittedGrades);
@@ -1188,42 +1386,58 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
               ? stu.completedStages
               : [];
             const nextCompleted = Array.from(new Set([...prevCompleted, 1])).sort((a, b) => a - b);
-            const nextRec = pickRecommendedStageForControl(nextCompleted, stageControl, issuedStages);
             const matchedRes = resultByNis.get(stu.nis);
             const savedMonId =
               matchedRes?.idMonitoring ||
               stu.stageLogs?.[1]?.monitoringId ||
               `MON-${Date.now()}-${idx}`;
             const savedStuTtd = deliveryTtdByKey[key] || matchedRes?.ttdSiswa || '';
+            const nextStageLogs = {
+              ...(stu.stageLogs || {}),
+              [1]: {
+                monitoringId: savedMonId,
+                stageNum: 1,
+                tahap: stageLabel,
+                sakit: 0,
+                izin: 0,
+                alpha: 0,
+                bukuLaporan: '',
+                aktivitasDp: '',
+                aktivitasMt: '',
+                aktivitasKrt: '',
+                kompetensiList: [],
+                kondisiBengkel: { ...EMPTY_KONDISI_BENGKEL },
+                ttdSiswa: savedStuTtd,
+                catatan: deliveryCatatan.trim(),
+                tanggal: todayWib,
+                status: 'Terlaksana',
+              },
+            };
+            const nextRec = pickRecommendedStageForControl(
+              nextCompleted,
+              stageControl,
+              issuedStages,
+              nextStageLogs
+            );
 
             return {
               ...stu,
               completedStages: nextCompleted,
               recommendedStage: nextRec,
-              stageLogs: {
-                ...(stu.stageLogs || {}),
-                [1]: {
-                  monitoringId: savedMonId,
-                  stageNum: 1,
-                  tahap: stageLabel,
-                  sakit: 0,
-                  izin: 0,
-                  alpha: 0,
-                  bukuLaporan: '',
-                  aktivitasDp: '',
-                  aktivitasMt: '',
-                  aktivitasKrt: '',
-                  kompetensiList: [],
-                  kondisiBengkel: { ...EMPTY_KONDISI_BENGKEL },
-                  ttdSiswa: savedStuTtd,
-                  catatan: deliveryCatatan.trim(),
-                  tanggal: todayWib,
-                  status: 'Terlaksana',
-                },
-              },
+              stageLogs: nextStageLogs,
             };
           })
         );
+
+        if (activeDudiKeyRef.current) {
+          const deliveryLockKey = `delivery::${activeDudiKeyRef.current}`;
+          setEditUnlockedKeys((prev) => {
+            if (!prev[deliveryLockKey]) return prev;
+            const next = { ...prev };
+            delete next[deliveryLockKey];
+            return next;
+          });
+        }
 
         if (onSuccess) onSuccess();
 
@@ -1488,7 +1702,33 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
             const nextCompleted = Array.from(new Set([...prevCompleted, activeStageNum])).sort(
               (a, b) => a - b
             );
-            const nextRec = pickRecommendedStageForControl(nextCompleted, stageControl, issuedStages);
+            const nextStageLogs = {
+              ...(stu.stageLogs || {}),
+              [activeStageNum]: {
+                monitoringId: savedMonId,
+                stageNum: activeStageNum,
+                tahap: stageLabel,
+                sakit: activeDraft.sakit,
+                izin: activeDraft.izin,
+                alpha: activeDraft.alpha,
+                bukuLaporan: activeDraft.bukuLaporan,
+                aktivitasDp: activeDraft.aktivitasDp,
+                aktivitasMt: activeDraft.aktivitasMt,
+                aktivitasKrt: activeDraft.aktivitasKrt,
+                kompetensiList: filledKompetensi,
+                kondisiBengkel: { ...activeWorkshopDraft.kondisiBengkel },
+                ttdSiswa: activeDraft.ttdSiswa,
+                catatan: activeDraft.catatanPerkembangan,
+                tanggal: payload.tanggal,
+                status: 'Terlaksana',
+              },
+            };
+            const nextRec = pickRecommendedStageForControl(
+              nextCompleted,
+              stageControl,
+              issuedStages,
+              nextStageLogs
+            );
 
             return {
               ...stu,
@@ -1507,27 +1747,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
                     tanggal: payload.tanggal,
                   }
                 : stu.submittedGradeSummary,
-              stageLogs: {
-                ...(stu.stageLogs || {}),
-                [activeStageNum]: {
-                  monitoringId: savedMonId,
-                  stageNum: activeStageNum,
-                  tahap: stageLabel,
-                  sakit: activeDraft.sakit,
-                  izin: activeDraft.izin,
-                  alpha: activeDraft.alpha,
-                  bukuLaporan: activeDraft.bukuLaporan,
-                  aktivitasDp: activeDraft.aktivitasDp,
-                  aktivitasMt: activeDraft.aktivitasMt,
-                  aktivitasKrt: activeDraft.aktivitasKrt,
-                  kompetensiList: filledKompetensi,
-                  kondisiBengkel: { ...activeWorkshopDraft.kondisiBengkel },
-                  ttdSiswa: activeDraft.ttdSiswa,
-                  catatan: activeDraft.catatanPerkembangan,
-                  tanggal: payload.tanggal,
-                  status: 'Terlaksana',
-                },
-              },
+              stageLogs: nextStageLogs,
             };
           })
         );
@@ -1541,6 +1761,16 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
             WORKSHOP_DRAFTS_KEY,
             `${activeDudiKeyRef.current}::stage::${activeStageNum}`
           );
+        }
+
+        const stageLockKey = getStageEditLockKey(activeStageNum, activeStudentKey);
+        if (stageLockKey) {
+          setEditUnlockedKeys((prev) => {
+            if (!prev[stageLockKey]) return prev;
+            const next = { ...prev };
+            delete next[stageLockKey];
+            return next;
+          });
         }
 
         if (onSuccess) onSuccess();
@@ -1615,9 +1845,35 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setShowComplianceNotice(false);
   };
 
+  const selectStudentIndex = (idx: number) => {
+    setSelectedStudentIndex(idx);
+    setFormError('');
+    if (selectedDudi && selectedPetugasId) {
+      writePortalSessionJson(PETUGAS_DUDI_CACHE_KEY, {
+        petugasId: selectedPetugasId,
+        petugasNama: selectedPetugasNama,
+        dudi: selectedDudi,
+        selectedStudentIndex: idx,
+        timestamp: Date.now(),
+      });
+    }
+  };
+
+  const backToDudiList = () => {
+    removePortalSessionKey(PETUGAS_DUDI_CACHE_KEY);
+    setDudiPopupOpen(false);
+    setPendingEditConfirm(null);
+    setEditUnlockedKeys({});
+    setSelectedDudi(null);
+    setDudiStudents([]);
+    setFormError('');
+    setCurrentStep(2);
+  };
+
   const handlePetugasLogout = () => {
+    removePortalSessionKey(PETUGAS_CACHE_KEY);
+    removePortalSessionKey(PETUGAS_DUDI_CACHE_KEY);
     try {
-      sessionStorage.removeItem('hubin_petugas_cache');
       sessionStorage.removeItem(NOTICE_ACK_KEY);
     } catch {
       // ignore
@@ -1625,6 +1881,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setIsPinVerified(false);
     setShowComplianceNotice(false);
     setSaveReceipt(null);
+    setPendingEditConfirm(null);
+    setEditUnlockedKeys({});
     setSelectedPetugasId('');
     setSelectedPetugasNama('');
     setSelectedPetugasNip('');
@@ -1643,7 +1901,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     ToastManager.getInstance().show(
       'Sesi Petugas Berakhir',
       'info',
-      'Silakan pilih kembali nama petugas dan verifikasi PIN untuk melanjutkan.'
+      'Silakan pilih kembali nama petugas dan verifikasi password untuk melanjutkan.'
     );
   };
 
@@ -1675,7 +1933,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     loadingStudents,
     studentsError,
     selectedStudentIndex,
-    setSelectedStudentIndex,
+    setSelectedStudentIndex: selectStudentIndex,
     savingGradeEdit,
     submitting,
     formError,
@@ -1733,8 +1991,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     activeStudent,
     activeStageNum,
     isStageReadOnly,
+    isCompletedReadOnly,
     isStageLetterIssued,
     isStageCompleted,
+    pendingEditConfirm,
+    requestUnlockCurrentStageEdit,
+    confirmStageViewReadOnly,
+    confirmStageEditUnlock,
+    cancelStageEditConfirm,
     activeDraft,
     activeWorkshopDraft,
     alreadyHasGrade,
@@ -1750,6 +2014,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     loadPetugasList,
     handleVerifyPin,
     handleSelectDudi,
+    backToDudiList,
     handleSaveDudiPopup,
     updateActiveDraft,
     updateActiveWorkshopDraft,

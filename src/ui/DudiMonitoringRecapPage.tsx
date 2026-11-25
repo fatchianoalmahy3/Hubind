@@ -36,6 +36,7 @@ import {
   buildMonitoringLookupIndex,
   buildStudentMonitoringSummary,
   getStageValueByNumber,
+  normalizeMonitoringVerificationStatus,
 } from '../core/utils/monitoringHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { isActivePlacementStatus, normalizeRelationText } from '../core/utils/relationHelpers';
@@ -147,11 +148,7 @@ function resolveKakomliJurusan(
 }
 
 function normalizeVerificationStatus(raw?: string): VerificationStatus {
-  const low = String(raw || '').trim().toLowerCase();
-  if (!low || low.includes('belum')) return 'Belum Terlaksana';
-  if (low.includes('hubin')) return 'Tervalidasi Hubin';
-  if (low.includes('kakomli')) return 'Tervalidasi Kakomli';
-  return 'Terlaksana';
+  return normalizeMonitoringVerificationStatus(raw);
 }
 
 export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = ({
@@ -423,11 +420,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     const qDigits = !/[a-z]/i.test(deferredSearch) ? stripNisSymbols(deferredSearch) : '';
     return dudiGroups.filter((g) => {
       if (statusFilter === 'PENDING_KAKOMLI' && g.pendingKakomliCount === 0) return false;
-      if (
-        statusFilter === 'PENDING_HUBIN' &&
-        g.pendingHubinCount === 0 &&
-        g.pendingKakomliCount === 0
-      ) {
+      if (statusFilter === 'PENDING_HUBIN' && g.pendingHubinCount === 0) {
         return false;
       }
       if (
@@ -482,32 +475,54 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     };
   }, [filteredDudiGroups]);
 
-  // Auto-select most relevant stage when opening a DUDI
+  // Auto-select latest stage waiting for verification when opening a DUDI
   const handleSelectDudi = (group: DudiRecapGroup) => {
     setSelectedDudiKey(group.key);
-    // Pick earliest stage needing verification by current role, else highest stage
-    for (const st of MONITORING_STAGES) {
+    const stagesDesc = [...MONITORING_STAGES].reverse();
+
+    // 1. Prioritize latest stage directly actionable by the current verifier role
+    for (const st of stagesDesc) {
       const hasPendingKakomli = group.students.some((s) => {
         const l = s.stageLogs[st.num];
         return l?.monitoringId && normalizeVerificationStatus(l.status) === 'Terlaksana';
       });
       const hasPendingHubin = group.students.some((s) => {
         const l = s.stageLogs[st.num];
-        const status = normalizeVerificationStatus(l?.status);
         return (
           l?.monitoringId &&
-          (status === 'Tervalidasi Kakomli' || status === 'Terlaksana')
+          normalizeVerificationStatus(l.status) === 'Tervalidasi Kakomli'
         );
       });
       if (isKakomliRole && hasPendingKakomli) {
         setSelectedStageNum(st.num);
         return;
       }
-      if (canVerifyHubin && hasPendingHubin) {
+      if (canVerifyHubin && !canVerifyKakomli && hasPendingHubin) {
+        setSelectedStageNum(st.num);
+        return;
+      }
+      if (canVerifyKakomli && canVerifyHubin && (hasPendingHubin || hasPendingKakomli)) {
         setSelectedStageNum(st.num);
         return;
       }
     }
+
+    // 2. Fallback to latest stage still waiting either Kakomli or Hubin verification
+    for (const st of stagesDesc) {
+      const hasUnverified = group.students.some((s) => {
+        const l = s.stageLogs[st.num];
+        const status = normalizeVerificationStatus(l?.status);
+        return (
+          l?.monitoringId &&
+          (status === 'Terlaksana' || status === 'Tervalidasi Kakomli')
+        );
+      });
+      if (hasUnverified) {
+        setSelectedStageNum(st.num);
+        return;
+      }
+    }
+
     setSelectedStageNum(Math.max(1, group.highestStage || 1));
   };
 
@@ -519,7 +534,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   ) => {
     if (!log.monitoringId) {
       ToastManager.getInstance().show(
-        'Data Supervisi Belum Tersimpan',
+        'Data Monitoring Belum Tersimpan',
         'error',
         `Tahap ${log.stageNum} untuk ${student.namaSiswa} belum memiliki ID monitoring di Cloud Server.`
       );
@@ -646,7 +661,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   }, [activeDudiGroup, selectedStageNum]);
 
   const hubinEligibleTargets = useMemo(
-    () => [...stageStats.kakomliTargets, ...stageStats.terlaksanaTargets],
+    () => stageStats.kakomliTargets,
     [stageStats]
   );
 
@@ -730,10 +745,10 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           </h1>
           <p className="text-xs text-slate-500 mt-1 leading-relaxed">
             {isKakomliRole
-              ? 'Daftar mitra DUDI dan verifikasi manual progres supervisi siswa per fase sesuai kompetensi keahlian.'
+              ? 'Daftar mitra DUDI dan verifikasi manual progres monitoring siswa per fase sesuai kompetensi keahlian.'
               : canVerifyHubin
-              ? 'Pantau progres 8 tahap per DUDI dan lakukan validasi Hubin secara manual per fase supervisi.'
-              : 'Ringkasan status pelaksanaan & verifikasi supervisi 8 tahap seluruh siswa per mitra DUDI.'}
+              ? 'Monitoring progres 8 tahap per DUDI dan lakukan validasi Hubin secara manual per fase monitoring.'
+              : 'Ringkasan status pelaksanaan & verifikasi monitoring 8 tahap seluruh siswa per mitra DUDI.'}
           </p>
         </div>
 
@@ -819,9 +834,9 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
               className="h-9 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 cursor-pointer shrink-0"
             >
               <option value="ALL">Semua Status</option>
-              <option value="PENDING_KAKOMLI">Perlu Verifikasi Kakomli</option>
-              <option value="PENDING_HUBIN">Perlu Verifikasi Hubin / Waka</option>
-              <option value="ALL_VERIFIED">Semua Sudah Terverifikasi</option>
+              <option value="PENDING_KAKOMLI">Menunggu Verifikasi Kakomli</option>
+              <option value="PENDING_HUBIN">Menunggu Verifikasi Hubin / Waka</option>
+              <option value="ALL_VERIFIED">Terverifikasi Lengkap (Kakomli &amp; Hubin)</option>
             </select>
           </>
         )}
@@ -869,7 +884,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
 
             <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
               <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">Siswa Terpantau</span>
+                <span className="leading-snug font-medium">Siswa Dimonitoring</span>
                 <Users className="w-4 h-4 text-indigo-600 shrink-0" />
               </div>
               <div className="text-2xl font-bold text-slate-900 tabular-nums leading-none">
@@ -895,7 +910,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
 
             <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
               <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">Tervalidasi Hubin</span>
+                <span className="leading-snug font-medium">Terverifikasi Kakomli &amp; Hubin</span>
                 <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
               </div>
               <div className="text-2xl font-bold text-emerald-700 tabular-nums leading-none">
@@ -922,8 +937,10 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
               {filteredDudiGroups.map((group) => {
                 const needsAttention = isKakomliRole
                   ? group.pendingKakomliCount > 0
+                  : canVerifyHubin && !canVerifyKakomli
+                  ? group.pendingHubinCount > 0
                   : canVerifyHubin
-                  ? group.pendingHubinCount > 0 || group.pendingKakomliCount > 0
+                  ? group.pendingKakomliCount > 0 || group.pendingHubinCount > 0
                   : false;
 
                 return (
@@ -968,13 +985,13 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                     <div className="pt-2.5 border-t border-slate-100 space-y-2">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums">
                         <span className="font-semibold text-blue-700">
-                          Terlaksana: {group.pendingKakomliCount}
+                          Menunggu Kakomli: {group.pendingKakomliCount}
                         </span>
                         <span className="font-semibold text-indigo-700">
-                          Kakomli: {group.pendingHubinCount}
+                          Menunggu Hubin: {group.pendingHubinCount}
                         </span>
                         <span className="font-semibold text-emerald-700">
-                          Hubin: {group.verifiedHubinCount}
+                          Terverifikasi: {group.verifiedHubinCount}
                         </span>
                       </div>
 
@@ -1014,24 +1031,24 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-600 shrink-0">
               <span className="inline-flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                <span>Terlaksana (Otomatis)</span>
+                <span>Terlaksana (Menunggu Kakomli)</span>
               </span>
               <span className="inline-flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
-                <span>Tervalidasi Kakomli</span>
+                <span>Tervalidasi Kakomli (Menunggu Hubin)</span>
               </span>
               <span className="inline-flex items-center gap-1">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-                <span>Tervalidasi Hubin</span>
+                <span>Terverifikasi Kakomli &amp; Hubin</span>
               </span>
             </div>
           </div>
 
-          {/* Fase Supervisi Selector + Manual Batch Verify Actions */}
+          {/* Fase Monitoring Selector + Manual Batch Verify Actions */}
           <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="text-xs font-bold text-slate-900">
-                Pilih Fase Supervisi untuk Verifikasi:
+                Pilih Fase Monitoring untuk Verifikasi:
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[11px] tabular-nums">
                 <span className="text-slate-500">
@@ -1039,15 +1056,15 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                 </span>
                 <span className="text-slate-300">·</span>
                 <span className="text-blue-700 font-semibold">
-                  Terlaksana: {stageStats.terlaksanaTargets.length}
+                  Menunggu Kakomli: {stageStats.terlaksanaTargets.length}
                 </span>
                 <span className="text-slate-300">·</span>
                 <span className="text-indigo-700 font-semibold">
-                  Kakomli: {stageStats.kakomliTargets.length}
+                  Menunggu Hubin: {stageStats.kakomliTargets.length}
                 </span>
                 <span className="text-slate-300">·</span>
                 <span className="text-emerald-700 font-semibold">
-                  Hubin: {stageStats.hubinTargets.length}
+                  Lengkap (K+H): {stageStats.hubinTargets.length}
                 </span>
               </div>
             </div>
@@ -1088,7 +1105,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             {(canVerifyKakomli || canVerifyHubin) && (
               <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] text-slate-500">
-                  Verifikasi bersifat manual untuk memastikan kelayakan data supervisi pada{' '}
+                  Verifikasi wajib melalui persetujuan Kakomli lalu validasi Hubin secara berurutan pada{' '}
                   <strong className="text-slate-700">{getStageValueByNumber(selectedStageNum)}</strong>.
                 </p>
 
@@ -1264,8 +1281,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                               )}
 
                               {canVerifyHubin &&
-                                (activeStatus === 'Tervalidasi Kakomli' ||
-                                  activeStatus === 'Terlaksana') && (
+                                activeStatus === 'Tervalidasi Kakomli' && (
                                   <button
                                     type="button"
                                     disabled={isRowSaving || batchSaving}
@@ -1287,11 +1303,19 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                                   </button>
                                 )}
 
+                              {canVerifyHubin &&
+                                !canVerifyKakomli &&
+                                activeStatus === 'Terlaksana' && (
+                                  <span className="px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold">
+                                    Menunggu Kakomli
+                                  </span>
+                                )}
+
                               <button
                                 type="button"
                                 onClick={() => setInspectTarget({ student, log: activeLog })}
                                 className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                                title="Lihat rincian catatan supervisi"
+                                title="Lihat rincian catatan monitoring"
                               >
                                 <Eye className="w-3.5 h-3.5 text-slate-500" />
                                 <span>Detail</span>
@@ -1332,7 +1356,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                 type="button"
                 disabled={savingId === inspectTarget.log.monitoringId}
                 onClick={() => setInspectTarget(null)}
-                aria-label="Tutup detail supervisi"
+                aria-label="Tutup detail monitoring"
                 className="w-8 h-8 rounded-lg hover:bg-slate-200/70 text-slate-500 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <X className="w-4 h-4" />
@@ -1341,7 +1365,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
 
             <TopProgressBar
               active={savingId === inspectTarget.log.monitoringId}
-              label="Menyimpan verifikasi supervisi ke Cloud Server"
+              label="Menyimpan verifikasi monitoring ke Cloud Server"
             />
 
             <div className="p-5 overflow-y-auto space-y-3.5 text-xs">
@@ -1443,7 +1467,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                 )}
 
               {canVerifyHubin &&
-                normalizeVerificationStatus(inspectTarget.log.status) !== 'Tervalidasi Hubin' && (
+                normalizeVerificationStatus(inspectTarget.log.status) === 'Tervalidasi Kakomli' && (
                   <button
                     type="button"
                     disabled={savingId === inspectTarget.log.monitoringId}
@@ -1467,6 +1491,14 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                         : 'Verifikasi Hubin'}
                     </span>
                   </button>
+                )}
+
+              {canVerifyHubin &&
+                !canVerifyKakomli &&
+                normalizeVerificationStatus(inspectTarget.log.status) === 'Terlaksana' && (
+                  <span className="text-[11px] font-medium text-amber-700 mr-auto">
+                    Menunggu verifikasi Kakomli sebelum validasi Hubin.
+                  </span>
                 )}
             </div>
 

@@ -122,7 +122,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
                 Kontrol Kunci &amp; Buka Tahapan Monitoring
               </h3>
               <p className="text-xs text-slate-500 mt-0.5 truncate">
-                Kebijakan global SuperAdmin untuk Portal Supervisi Guru Pendamping
+                Kebijakan global SuperAdmin untuk Portal Monitoring Guru Pendamping
               </p>
             </div>
           </div>
@@ -387,7 +387,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
         <CrudLoadingOverlay
           visible={saving}
           title="Menyimpan Kebijakan Tahap ke Cloud Server..."
-          subtitle="Kebijakan baru akan langsung diterapkan pada Portal Supervisi Guru."
+          subtitle="Kebijakan baru akan langsung diterapkan pada Portal Monitoring Guru."
         />
       </div>
     </div>

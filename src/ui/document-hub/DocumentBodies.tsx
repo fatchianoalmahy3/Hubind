@@ -160,7 +160,7 @@ export const SuratTugasMultiPreview: React.FC<{
           </div>
           <p className="leading-relaxed">{suratTugasAudit.blockReason}</p>
           <p className="text-rose-700">
-            Silakan isi dan simpan tahap sebelumnya pada Portal Supervisi Guru atau pilih DUDI lain yang sudah memenuhi syarat tahap di panel kiri.
+            Silakan isi dan simpan tahap sebelumnya pada Portal Monitoring Guru atau pilih DUDI lain yang sudah memenuhi syarat tahap di panel kiri.
           </p>
         </div>
       </div>

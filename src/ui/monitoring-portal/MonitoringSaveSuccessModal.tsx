@@ -44,7 +44,7 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
           </div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-emerald-200 text-[11px] font-bold text-emerald-800">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>Data Supervisi Resmi Masuk ke Cloud Server</span>
+            <span>Data Monitoring Resmi Masuk ke Cloud Server</span>
           </div>
           <h3
             id="monitoring-save-receipt-title"
@@ -52,7 +52,7 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
           >
             {receipt.isDeliveryBatch
               ? 'Validasi & Pengantaran DUDI Tersimpan!'
-              : `Supervisi ${receipt.stageLabel} Tersimpan!`}
+              : `Monitoring ${receipt.stageLabel} Tersimpan!`}
           </h3>
           <p className="text-[11px] text-slate-600">
             {receipt.sheetRowNumber

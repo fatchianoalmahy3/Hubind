@@ -45,7 +45,7 @@ const ALL_DOC_TABS: DocTabMeta[] = [
   { id: 'pengajuan', label: '1. Rekomendasi Kakomli', icon: FileText },
   { id: 'perizinan', label: '2. Permohonan DUDI', icon: Building2 },
   { id: 'pengantaran', label: '3. Surat Pengantaran', icon: Send },
-  { id: 'monitoring', label: '4. Instrumen Supervisi', icon: Layers },
+  { id: 'monitoring', label: '4. Instrumen Monitoring', icon: Layers },
   { id: 'penarikan', label: '5. Surat Penarikan', icon: LogOut },
   { id: 'nilai', label: '6. Lembar Nilai DUDI', icon: FileCheck },
   { id: 'blangko', label: '7. Blangko Sertifikat', icon: Award, isGold: true },
@@ -73,7 +73,7 @@ const MODULE_DOC_CONTEXT: Record<
   monitoring: {
     defaultType: 'monitoring',
     allowed: ['monitoring'],
-    label: 'Supervisi 8 Tahap',
+    label: 'Monitoring 8 Tahap',
   },
   sertifikat: {
     defaultType: 'blangko',

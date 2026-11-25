@@ -95,8 +95,8 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
   {
     id: 'monitoring',
     group: 'operasional',
-    sidebarLabel: 'Supervisi 8 Tahap',
-    navbarTitle: 'Supervisi 8 Tahap Guru',
+    sidebarLabel: 'Monitoring 8 Tahap',
+    navbarTitle: 'Monitoring 8 Tahap Guru',
     icon: Compass,
     metadata: MonitoringMetadata,
     getRepository: () => MonitoringService.getInstance(),

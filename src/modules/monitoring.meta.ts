@@ -14,7 +14,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       title: 'Total Kunjungan Terdata',
       computedValue: (data) => data.length,
       icon: 'Compass',
-      change: 'Log supervisi industri',
+      change: 'Log monitoring industri',
       variant: 'primary',
     },
     {
@@ -229,7 +229,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'catatanKunjungan',
-      label: 'Catatan Supervisi',
+      label: 'Catatan Monitoring',
       type: 'textarea',
       isTableColumn: true,
       isFormInput: true,
