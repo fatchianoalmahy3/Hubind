@@ -983,11 +983,20 @@ export class GoogleSheetClient {
     );
   }
 
-  public async recalculateRelationsOnServer(scope: string = 'all', forceRefresh: boolean = true) {
+  public async recalculateRelationsOnServer(
+    scope: string = 'all',
+    forceRefresh: boolean = true,
+    mutationHint?: {
+      mutatedId?: string;
+      previousName?: string;
+      nextName?: string;
+    }
+  ) {
     return this.transport.recalculateRelationsOnServer(
       this.getTransportContext(),
       scope,
-      forceRefresh
+      forceRefresh,
+      mutationHint
     );
   }
 

@@ -165,7 +165,16 @@ export function registerRestApiRoutes(app: Express): void {
       }
       const scope = String(req.body?.scope || 'all');
       const forceRefresh = Boolean(req.body?.forceRefresh);
-      const summary = await recalculateAllRelations(scope, forceRefresh);
+      const rawHint = req.body?.mutationHint;
+      const mutationHint =
+        rawHint && typeof rawHint === 'object'
+          ? {
+              mutatedId: typeof rawHint.mutatedId === 'string' ? rawHint.mutatedId : undefined,
+              previousName: typeof rawHint.previousName === 'string' ? rawHint.previousName : undefined,
+              nextName: typeof rawHint.nextName === 'string' ? rawHint.nextName : undefined,
+            }
+          : undefined;
+      const summary = await recalculateAllRelations(scope, forceRefresh, mutationHint);
       return res.json({ success: true, summary });
     } catch (err: any) {
       handlePortalError(res, err);

@@ -7,6 +7,7 @@ import {
 import {
   formatGasNetworkError,
   isBackendProxyUnavailableError,
+  isTimeoutError,
   normalizeGasUrl,
   safeFetchJson,
   validateGasDeployUrl,
@@ -587,7 +588,15 @@ export class SheetRestTransport {
           );
         }
       } catch (proxyErr: any) {
-        if (!isBackendProxyUnavailableError(proxyErr)) {
+        const proxyStatus = Number(proxyErr?.status || 0);
+        // Never double-wait with direct GAS fallback when Vercel/server returned 5xx (e.g. 504 HTML timeout)
+        // or when the client request already timed out (write may already be completing on server).
+        if (proxyStatus >= 500 || isTimeoutError(proxyErr) || !isBackendProxyUnavailableError(proxyErr)) {
+          if (proxyStatus === 504 || isTimeoutError(proxyErr)) {
+            throw new Error(
+              `Koneksi Cloud Server melebihi batas waktu saat menyimpan [${sheetName}]. Segarkan tabel untuk memeriksa apakah data sudah tersimpan.`
+            );
+          }
           throw proxyErr;
         }
       }
@@ -655,7 +664,12 @@ export class SheetRestTransport {
   public async recalculateRelationsOnServer(
     ctx: SheetTransportContext,
     scope: string = 'all',
-    forceRefresh: boolean = true
+    forceRefresh: boolean = true,
+    mutationHint?: {
+      mutatedId?: string;
+      previousName?: string;
+      nextName?: string;
+    }
   ): Promise<{
     handledByServer: boolean;
     summary?: {
@@ -678,11 +692,20 @@ export class SheetRestTransport {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${bearerToken}`,
         },
-        body: JSON.stringify({ scope, forceRefresh }),
+        body: JSON.stringify({ scope, forceRefresh, mutationHint }),
       });
 
       if (ok && json?.success && json?.summary) {
-        this.snapshotCache.invalidateClientSheetCache(ctx.spreadsheetId, ctx.activeYear, undefined);
+        const s = json.summary;
+        const totalChanges =
+          (s.updatedPlacements || 0) +
+          (s.updatedDudi || 0) +
+          (s.updatedGuru || 0) +
+          (s.updatedJurusan || 0) +
+          (s.updatedKelas || 0);
+        if (scope === 'all' || totalChanges > 0) {
+          this.snapshotCache.invalidateClientSheetCache(ctx.spreadsheetId, ctx.activeYear, undefined);
+        }
         return { handledByServer: true, summary: json.summary };
       }
       return { handledByServer: false };

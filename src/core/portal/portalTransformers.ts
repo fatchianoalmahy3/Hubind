@@ -135,23 +135,110 @@ export function aggregatePetugasDudiGroups(params: {
   const grouped = new Map<string, { dudi: any; studentNisSet: Set<string> }>();
   const targetNamaNorm = normalizeStr(petugasNama);
 
-  const isTeacherMatch = (row: any) => {
-    const rowGuruId = pickField(row, 'ID_Guru_Pendamping', 'idGuruPendamping');
-    const rowGuruNama = normalizeStr(pickField(row, 'Guru_Pendamping', 'guruPendamping'));
-    return (
+  const matchesTeacherFields = (guruIdRaw: unknown, guruNamaRaw: unknown): boolean => {
+    const rowGuruId = String(guruIdRaw || '').trim();
+    const rowGuruNama = normalizeStr(guruNamaRaw);
+    return Boolean(
       (petugasId && rowGuruId && rowGuruId === petugasId) ||
-      (targetNamaNorm &&
-        rowGuruNama &&
-        (rowGuruNama === targetNamaNorm ||
-          rowGuruNama.includes(targetNamaNorm) ||
-          targetNamaNorm.includes(rowGuruNama)))
+        (targetNamaNorm &&
+          rowGuruNama &&
+          (rowGuruNama === targetNamaNorm ||
+            rowGuruNama.includes(targetNamaNorm) ||
+            targetNamaNorm.includes(rowGuruNama)))
     );
+  };
+
+  const matchesRowOrMasterTeacher = (row: any, master?: any): boolean => {
+    const rowGuruId = pickField(row, 'ID_Guru_Pendamping', 'idGuruPendamping');
+    const rowGuruNama = pickField(row, 'Guru_Pendamping', 'guruPendamping');
+    if (rowGuruId) {
+      if (petugasId) {
+        return rowGuruId === petugasId;
+      }
+      return matchesTeacherFields(rowGuruId, rowGuruNama);
+    }
+    if (rowGuruNama) {
+      if (matchesTeacherFields('', rowGuruNama)) return true;
+      if (master && petugasId) {
+        const masterGuruId = pickField(master, 'ID_Guru_Pendamping', 'idGuruPendamping');
+        if (masterGuruId && masterGuruId === petugasId) return true;
+      }
+      return false;
+    }
+    if (master) {
+      const masterGuruId = pickField(master, 'ID_Guru_Pendamping', 'idGuruPendamping');
+      const masterGuruNama = pickField(master, 'Guru_Pendamping', 'guruPendamping');
+      return matchesTeacherFields(masterGuruId, masterGuruNama);
+    }
+    return false;
+  };
+
+  const ensureDudiGroup = (
+    key: string,
+    master: any | undefined,
+    fallbackId: string,
+    resolvedName: string,
+    fallbackRow?: any
+  ) => {
+    if (grouped.has(key)) return;
+    const masterId = pickField(master || {}, 'ID', 'id') || fallbackId || key;
+    const resolvedKontak =
+      pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
+      (fallbackRow
+        ? pickField(fallbackRow, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic')
+        : '') ||
+      '-';
+    const resolvedMaps =
+      pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
+      (fallbackRow ? pickField(fallbackRow, 'Link_Maps', 'linkMaps', 'link_maps') : '') ||
+      pengajuanMapsByDudi.get(masterId) ||
+      pengajuanMapsByDudi.get(key) ||
+      '';
+    const resolvedHari =
+      pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
+      (fallbackRow ? pickField(fallbackRow, 'Hari_Kerja', 'hariKerja', 'hari_kerja') : '') ||
+      pengajuanHariByDudi.get(masterId) ||
+      pengajuanHariByDudi.get(key) ||
+      '';
+    const resolvedJam =
+      pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
+      (fallbackRow ? pickField(fallbackRow, 'Jam_Kerja', 'jamKerja', 'jam_kerja') : '') ||
+      pengajuanJamByDudi.get(masterId) ||
+      pengajuanJamByDudi.get(key) ||
+      '';
+    grouped.set(key, {
+      dudi: {
+        id: masterId,
+        nama: resolvedName,
+        alamat:
+          pickField(master || {}, 'Alamat', 'alamat') ||
+          (fallbackRow ? pickField(fallbackRow, 'Alamat_DUDI', 'alamatDudi') : '') ||
+          '-',
+        bidang:
+          pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') ||
+          (fallbackRow ? pickField(fallbackRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') : '') ||
+          '-',
+        namaPemimpin:
+          pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') ||
+          (fallbackRow ? pickField(fallbackRow, 'Nama_Pemimpin', 'namaPemimpin') : '') ||
+          '',
+        pic:
+          pickField(master || {}, 'Nama_PIC', 'namaPic') ||
+          (fallbackRow ? pickField(fallbackRow, 'Nama_PIC', 'namaPic') : '') ||
+          '-',
+        kontak: resolvedKontak,
+        hariKerja: resolvedHari,
+        jamKerja: resolvedJam,
+        linkMaps: resolvedMaps,
+        kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
+      },
+      studentNisSet: new Set<string>(),
+    });
   };
 
   for (const p of plottingRows) {
     const statusPlt = normalizeStr(pickField(p, 'Status_Penempatan', 'statusPenempatan'));
     if (statusPlt === 'dibatalkan' || statusPlt === 'batal' || statusPlt === 'pindah dudi') continue;
-    if (!isTeacherMatch(p)) continue;
 
     const dudiId = pickField(p, 'ID_DUDI', 'idDudi');
     const dudiNamaRaw = pickField(p, 'Nama_DUDI', 'namaDudi');
@@ -159,46 +246,13 @@ export function aggregatePetugasDudiGroups(params: {
       (dudiId && dudiMapById.get(dudiId)) ||
       (dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw)));
 
+    if (!matchesRowOrMasterTeacher(p, master)) continue;
+
     const resolvedName = pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw;
     if (!resolvedName) continue;
 
     const key = normalizeStr(resolvedName);
-    if (!grouped.has(key)) {
-      const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
-      const resolvedKontak =
-        pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') || '-';
-      const resolvedMaps =
-        pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
-        pengajuanMapsByDudi.get(masterId) ||
-        pengajuanMapsByDudi.get(key) ||
-        '';
-      const resolvedHari =
-        pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
-        pengajuanHariByDudi.get(masterId) ||
-        pengajuanHariByDudi.get(key) ||
-        '';
-      const resolvedJam =
-        pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
-        pengajuanJamByDudi.get(masterId) ||
-        pengajuanJamByDudi.get(key) ||
-        '';
-      grouped.set(key, {
-        dudi: {
-          id: masterId,
-          nama: resolvedName,
-          alamat: pickField(master || {}, 'Alamat', 'alamat') || '-',
-          bidang: pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') || '-',
-          namaPemimpin: pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') || '',
-          pic: pickField(master || {}, 'Nama_PIC', 'namaPic') || '-',
-          kontak: resolvedKontak,
-          hariKerja: resolvedHari,
-          jamKerja: resolvedJam,
-          linkMaps: resolvedMaps,
-          kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
-        },
-        studentNisSet: new Set<string>(),
-      });
-    }
+    ensureDudiGroup(key, master, dudiId, resolvedName);
     const rawNis = pickField(p, 'NIS', 'nis');
     const canonicalStudentKey =
       stripNisSymbols(rawNis) || normalizeStr(pickField(p, 'Nama_Siswa', 'namaSiswa'));
@@ -209,73 +263,37 @@ export function aggregatePetugasDudiGroups(params: {
     const statusHubin = normalizeStr(pickField(reqRow, 'Status_Hubin', 'statusHubin'));
     const statusKakomli = normalizeStr(pickField(reqRow, 'Status_Kakomli', 'statusKakomli'));
     if (statusHubin === 'batal' || statusKakomli === 'ditolak') continue;
-    if (!isTeacherMatch(reqRow)) continue;
 
     const dudiId = pickField(reqRow, 'ID_DUDI', 'idDudi');
     const dudiNamaRaw = pickField(reqRow, 'DUDI_Tujuan', 'dudiTujuan');
-    if (!dudiNamaRaw) continue;
+    if (!dudiNamaRaw && !dudiId) continue;
     const master =
-      (dudiId && dudiMapById.get(dudiId)) || dudiMapByName.get(normalizeStr(dudiNamaRaw));
+      (dudiId && dudiMapById.get(dudiId)) ||
+      (dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw)));
+
+    if (!matchesRowOrMasterTeacher(reqRow, master)) continue;
+
     const resolvedName = pickField(master || {}, 'Nama_DUDI', 'namaDudi') || dudiNamaRaw;
+    if (!resolvedName) continue;
     const key = normalizeStr(resolvedName);
 
-    if (!grouped.has(key)) {
-      const masterId = pickField(master || {}, 'ID', 'id') || dudiId || key;
-      const resolvedKontak =
-        pickField(master || {}, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
-        pickField(reqRow, 'No_Telp_DUDI', 'noTelpDudi', 'Kontak_PIC', 'kontakPic') ||
-        '-';
-      const resolvedMaps =
-        pickField(master || {}, 'Link_Maps', 'linkMaps', 'link_maps') ||
-        pickField(reqRow, 'Link_Maps', 'linkMaps', 'link_maps') ||
-        pengajuanMapsByDudi.get(masterId) ||
-        pengajuanMapsByDudi.get(key) ||
-        '';
-      const resolvedHari =
-        pickField(master || {}, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
-        pickField(reqRow, 'Hari_Kerja', 'hariKerja', 'hari_kerja') ||
-        pengajuanHariByDudi.get(masterId) ||
-        pengajuanHariByDudi.get(key) ||
-        '';
-      const resolvedJam =
-        pickField(master || {}, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
-        pickField(reqRow, 'Jam_Kerja', 'jamKerja', 'jam_kerja') ||
-        pengajuanJamByDudi.get(masterId) ||
-        pengajuanJamByDudi.get(key) ||
-        '';
-      grouped.set(key, {
-        dudi: {
-          id: masterId,
-          nama: resolvedName,
-          alamat:
-            pickField(master || {}, 'Alamat', 'alamat') ||
-            pickField(reqRow, 'Alamat_DUDI', 'alamatDudi') ||
-            '-',
-          bidang:
-            pickField(master || {}, 'Bidang_Keahlian', 'bidangKeahlian') ||
-            pickField(reqRow, 'Bidang_Pekerjaan', 'bidangPekerjaan') ||
-            '-',
-          namaPemimpin:
-            pickField(master || {}, 'Nama_Pemimpin', 'namaPemimpin') ||
-            pickField(reqRow, 'Nama_Pemimpin', 'namaPemimpin') ||
-            '',
-          pic:
-            pickField(master || {}, 'Nama_PIC', 'namaPic') ||
-            pickField(reqRow, 'Nama_PIC', 'namaPic') ||
-            '-',
-          kontak: resolvedKontak,
-          hariKerja: resolvedHari,
-          jamKerja: resolvedJam,
-          linkMaps: resolvedMaps,
-          kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0),
-        },
-        studentNisSet: new Set<string>(),
-      });
-    }
+    ensureDudiGroup(key, master, dudiId, resolvedName, reqRow);
     const rawNis = pickField(reqRow, 'NIS', 'nis');
     const canonicalStudentKey =
       stripNisSymbols(rawNis) || normalizeStr(pickField(reqRow, 'Nama_Siswa', 'namaSiswa'));
     if (canonicalStudentKey) grouped.get(key)!.studentNisSet.add(canonicalStudentKey);
+  }
+
+  for (const master of dudiRows) {
+    const masterName = pickField(master, 'Nama_DUDI', 'namaDudi', 'nama_dudi');
+    if (!masterName) continue;
+    const masterGuruId = pickField(master, 'ID_Guru_Pendamping', 'idGuruPendamping');
+    const masterGuruNama = pickField(master, 'Guru_Pendamping', 'guruPendamping');
+    if (!matchesTeacherFields(masterGuruId, masterGuruNama)) continue;
+
+    const key = normalizeStr(masterName);
+    const masterId = pickField(master, 'ID', 'id') || key;
+    ensureDudiGroup(key, master, masterId, masterName);
   }
 
   return Array.from(grouped.values()).map((entry) => ({
@@ -288,6 +306,8 @@ export function buildDudiStudentsWithSummary(params: {
   dudiNama: string;
   dudiId: string;
   petugasNama: string;
+  petugasId?: string;
+  dudiRows?: any[];
   plottingRows: any[];
   pengajuanRows: any[];
   siswaRows: any[];
@@ -300,6 +320,8 @@ export function buildDudiStudentsWithSummary(params: {
     dudiNama,
     dudiId,
     petugasNama,
+    petugasId = '',
+    dudiRows = [],
     plottingRows,
     pengajuanRows,
     siswaRows,
@@ -317,8 +339,20 @@ export function buildDudiStudentsWithSummary(params: {
     if (nis) siswaByNis.set(nis, s);
   }
 
-  const studentsMap = new Map<string, any>();
   const targetDudiNorm = normalizeStr(dudiNama);
+  const masterDudiRow = dudiRows.find((d: any) => {
+    const id = pickField(d, 'ID', 'id');
+    const nama = normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi', 'nama_dudi'));
+    return (dudiId && id && id === dudiId) || (targetDudiNorm && nama === targetDudiNorm);
+  });
+  const masterGuruId = masterDudiRow
+    ? pickField(masterDudiRow, 'ID_Guru_Pendamping', 'idGuruPendamping')
+    : '';
+  const masterGuruNorm = masterDudiRow
+    ? normalizeStr(pickField(masterDudiRow, 'Guru_Pendamping', 'guruPendamping'))
+    : '';
+
+  const studentsMap = new Map<string, any>();
   const targetPetugasNorm = normalizeStr(petugasNama);
 
   const checkDudiAndPetugasMatch = (row: any, rowDudiNameField: 'Nama_DUDI' | 'DUDI_Tujuan') => {
@@ -335,10 +369,25 @@ export function buildDudiStudentsWithSummary(params: {
         (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm)));
     if (!dudiMatches) return false;
 
-    if (targetPetugasNorm) {
+    if (targetPetugasNorm || petugasId) {
+      const rowGuruId = pickField(row, 'ID_Guru_Pendamping', 'idGuruPendamping');
       const rowGuru = normalizeStr(pickField(row, 'Guru_Pendamping', 'guruPendamping'));
-      if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
-        return false;
+      if (rowGuruId) {
+        if (petugasId) return rowGuruId === petugasId;
+      }
+      if (rowGuru) {
+        const directTextMatch =
+          targetPetugasNorm &&
+          (rowGuru.includes(targetPetugasNorm) || targetPetugasNorm.includes(rowGuru));
+        const masterIdMatch = Boolean(petugasId && masterGuruId && masterGuruId === petugasId);
+        const masterTextMatch = Boolean(
+          targetPetugasNorm &&
+            masterGuruNorm &&
+            (masterGuruNorm.includes(targetPetugasNorm) || targetPetugasNorm.includes(masterGuruNorm))
+        );
+        if (!directTextMatch && !masterIdMatch && !masterTextMatch) {
+          return false;
+        }
       }
     }
     return true;

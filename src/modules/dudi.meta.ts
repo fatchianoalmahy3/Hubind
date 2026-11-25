@@ -160,7 +160,9 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       isSearchable: true,
       isSortable: true,
       relationSource: 'guru',
-      placeholder: 'Pilih Guru Pendamping default untuk DUDI ini',
+      autocomplete: true,
+      allowCustomValue: false,
+      placeholder: 'Cari nama atau NIP Guru Pendamping...',
       helperText: 'Otomatis terisi ke Pengajuan & Penempatan PKL baru di DUDI ini',
     },
     {

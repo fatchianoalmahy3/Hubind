@@ -64,24 +64,31 @@ export class RelationSyncService {
 
   /**
    * Sinkronisasi ringan otomatis setelah mutasi CRUD/Import pada modul.
-   * Tidak menimpa kolom ARRAYFORMULA; cukup invalidasi dependensi & trigger server recalc.
+   * Server membaca dari cache untuk tabel tak berubah & hanya menulis ulang sheet yang terpengaruh.
    */
   public async syncAfterMutation(
     moduleId: string,
-    _mutationType: 'create' | 'update' | 'delete' | 'import' = 'update'
+    _mutationType: 'create' | 'update' | 'delete' | 'import' = 'update',
+    mutationHint?: {
+      mutatedId?: string;
+      previousName?: string;
+      nextName?: string;
+    }
   ): Promise<void> {
     this.invalidatePortalCachesIfNeeded(moduleId);
 
     const client = GoogleSheetClient.getInstance();
     const serverRes = await client
-      .recalculateRelationsOnServer(moduleId, true)
+      .recalculateRelationsOnServer(moduleId, false, mutationHint)
       .catch(() => ({ handledByServer: false, summary: undefined }));
+
+    this.invalidatePortalCachesIfNeeded(moduleId);
 
     if (serverRes.handledByServer) {
       return;
     }
 
-    // Static SPA fallback: pastikan cache turunan dibersihkan agar fetch berikutnya mendapat nilai ARRAYFORMULA terbaru
+    // Static SPA fallback: pastikan cache turunan dibersihkan agar fetch berikutnya mendapat nilai terbaru
     if (moduleId === 'siswa') {
       client.invalidateClientSheetCache('Master_Siswa_XI');
     } else if (moduleId === 'jurusan') {

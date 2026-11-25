@@ -185,12 +185,14 @@ export function ModulePage<T extends { id: string }>({
             { silentToast: true }
           );
         }
-        await repository.create(nextValues);
+        const created = await repository.create(nextValues);
         setPage(1);
-        await RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id, 'create')
+        void RelationSyncService.getInstance()
+          .syncAfterMutation(metadata.id, 'create', {
+            mutatedId: created?.id,
+            nextName: String((created as any)?.nama || (created as any)?.namaDudi || '').trim() || undefined,
+          })
           .catch(() => {});
-        await refresh();
       },
     });
   };
@@ -198,6 +200,8 @@ export function ModulePage<T extends { id: string }>({
   const handleEditSubmit = (values: T) => {
     if (!editingRow) return;
     const prevRow = editingRow as any;
+    const targetId = editingRow.id;
+    const previousName = String(prevRow?.nama || prevRow?.namaDudi || '').trim();
     const { nextValues, shouldSyncSertifikatGrades } = applyModulePreSubmitTransforms(
       metadata.id,
       values,
@@ -207,7 +211,7 @@ export function ModulePage<T extends { id: string }>({
     setConfirmModal({
       isOpen: true,
       title: 'Perbarui Data di Cloud Server?',
-      description: `Perubahan data baris ID ${editingRow.id} akan disinkronkan ke Database Cloud Server.`,
+      description: `Perubahan data baris ID ${targetId} akan disinkronkan ke Database Cloud Server.`,
       variant: 'primary',
       confirmText: 'Perbarui di Server',
       onConfirm: async () => {
@@ -218,12 +222,22 @@ export function ModulePage<T extends { id: string }>({
             { silentToast: true }
           );
         }
-        await repository.update(editingRow.id, nextValues);
-        await RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id, 'update')
-          .catch(() => {});
+        const updated = await repository.update(targetId, nextValues);
         setEditingRow(null);
-        await refresh();
+        const nextName = String(
+          (updated as any)?.nama ||
+            (updated as any)?.namaDudi ||
+            (nextValues as any)?.nama ||
+            (nextValues as any)?.namaDudi ||
+            ''
+        ).trim();
+        void RelationSyncService.getInstance()
+          .syncAfterMutation(metadata.id, 'update', {
+            mutatedId: targetId,
+            previousName: previousName || undefined,
+            nextName: nextName || undefined,
+          })
+          .catch(() => {});
       },
     });
   };
@@ -238,8 +252,8 @@ export function ModulePage<T extends { id: string }>({
       confirmText: 'Ya, Hapus Data',
       onConfirm: async () => {
         await deleteRow(row.id);
-        await RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id, 'delete')
+        void RelationSyncService.getInstance()
+          .syncAfterMutation(metadata.id, 'delete', { mutatedId: row.id })
           .catch(() => {});
       },
     });
@@ -515,10 +529,9 @@ export function ModulePage<T extends { id: string }>({
           if (rowsToImport.length === 0) return 0;
           const count = await repository.importRows(rowsToImport, { onProgress });
           setPage(1);
-          await RelationSyncService.getInstance()
+          void RelationSyncService.getInstance()
             .syncAfterMutation(metadata.id, 'import')
             .catch(() => {});
-          await refresh();
           return count;
         }}
       />

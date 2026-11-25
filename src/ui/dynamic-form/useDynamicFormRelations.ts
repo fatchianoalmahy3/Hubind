@@ -476,7 +476,7 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
       }
     }
 
-    if (formFieldKeys.has('guruPendamping') && masterGuru.length > 0) {
+    if (formFieldKeys.has('guruPendamping') && masterGuru.length > 0 && openAutocompleteKey !== 'guruPendamping') {
       const effectiveGuruName = cleanPlaceholderDash(patch.guruPendamping ?? values.guruPendamping);
       const effectiveGuruId = cleanPlaceholderDash(patch.idGuruPendamping ?? values.idGuruPendamping);
       const matchedById = effectiveGuruId ? masterGuru.find((g) => g.id === effectiveGuruId) : undefined;
@@ -489,7 +489,7 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
         if (formFieldKeys.has('idGuruPendamping') && effectiveGuruId !== matchedByName.id) {
           patch.idGuruPendamping = matchedByName.id;
         }
-      } else if (matchedById && effectiveGuruName !== matchedById.nama) {
+      } else if (matchedById && effectiveGuruName !== matchedById.nama && !effectiveGuruName) {
         patch.guruPendamping = matchedById.nama;
       }
     }
@@ -621,6 +621,14 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
       if (formFieldKeys.has('idGuruPendamping')) {
         patch.idGuruPendamping = guruObj?.id || matched.idGuruPendamping || '';
       }
+    }
+    setMultipleValues(patch);
+  };
+
+  const applyGuruSelection = (matched: Guru, fieldKey: string, selectedValue?: string) => {
+    const patch: Record<string, any> = { [fieldKey]: selectedValue ?? matched.nama };
+    if (formFieldKeys.has('idGuruPendamping')) {
+      patch.idGuruPendamping = matched.id;
     }
     setMultipleValues(patch);
   };
@@ -795,6 +803,7 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
     resolvePreferredDudi,
     applyStudentSelection,
     applyDudiSelection,
+    applyGuruSelection,
     handleRelationSelect,
     hasRelationOptions,
     getRelationOptions,

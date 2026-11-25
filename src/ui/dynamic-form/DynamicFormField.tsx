@@ -1,6 +1,6 @@
 import React from 'react';
 import { FieldConfig } from '../../core/types/metadata';
-import { Dudi } from '../../core/types/schema';
+import { Dudi, Guru } from '../../core/types/schema';
 import { getPredikatFromScore } from '../../core/utils/monitoringHelpers';
 import { formatNisVisual, handleNisKeyDown, processNisInputChange, stripNisSymbols } from '../../core/utils/nisHelpers';
 import {
@@ -25,6 +25,7 @@ interface DynamicFormFieldProps<T> {
   imageUrlInputKey: string | null;
   studentDirectory: StudentDirectoryEntry[];
   masterDudi: Dudi[];
+  masterGuru: Guru[];
   setValue: (key: string, value: any) => void;
   setMultipleValues: (patch: Record<string, any>) => void;
   setOpenAutocompleteKey: React.Dispatch<React.SetStateAction<string | null>>;
@@ -33,6 +34,7 @@ interface DynamicFormFieldProps<T> {
   handleRelationSelect: (field: FieldConfig<T>, selectedValue: string) => void;
   applyStudentSelection: (matched: StudentDirectoryEntry, triggerPatch?: Record<string, any>) => void;
   applyDudiSelection: (matched: Dudi, fieldKey: string, selectedValue?: string) => void;
+  applyGuruSelection: (matched: Guru, fieldKey: string, selectedValue?: string) => void;
   resolvePreferredDudi: (matched?: StudentDirectoryEntry) => { dudiTujuan: string; alamatDudi: string };
   onDudiManualEdit: () => void;
   onOpenImageCropper?: (currentImage: string, onDone: (croppedUrl: string) => void) => void;
@@ -49,6 +51,7 @@ export function DynamicFormField<T>({
   imageUrlInputKey,
   studentDirectory,
   masterDudi,
+  masterGuru,
   setValue,
   setMultipleValues,
   setOpenAutocompleteKey,
@@ -57,6 +60,7 @@ export function DynamicFormField<T>({
   handleRelationSelect,
   applyStudentSelection,
   applyDudiSelection,
+  applyGuruSelection,
   resolvePreferredDudi,
   onDudiManualEdit,
   onOpenImageCropper,
@@ -84,7 +88,9 @@ export function DynamicFormField<T>({
   if (
     field.autocomplete &&
     field.relationSource &&
-    (field.relationSource === 'siswa' || field.relationSource === 'dudi') &&
+    (field.relationSource === 'siswa' ||
+      field.relationSource === 'dudi' ||
+      field.relationSource === 'guru') &&
     !isManual
   ) {
     return (
@@ -97,10 +103,13 @@ export function DynamicFormField<T>({
         loadingRelations={loadingRelations}
         studentDirectory={studentDirectory}
         masterDudi={masterDudi}
+        masterGuru={masterGuru}
         setValue={setValue}
+        setMultipleValues={setMultipleValues}
         setOpenAutocompleteKey={setOpenAutocompleteKey}
         applyStudentSelection={applyStudentSelection}
         applyDudiSelection={applyDudiSelection}
+        applyGuruSelection={applyGuruSelection}
         resolvePreferredDudi={resolvePreferredDudi}
         onDudiManualEdit={onDudiManualEdit}
       />

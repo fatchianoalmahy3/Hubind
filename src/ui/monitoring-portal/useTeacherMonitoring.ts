@@ -225,9 +225,9 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     const prefetchTopDudiStudents = (list: any[]) => {
       list.slice(0, 2).forEach((dudi) => {
         if (dudi?.nama) {
-          void PublicPortalClient.getDudiStudents(dudi.nama, dudi.id || '', teacherName).catch(
-            () => {}
-          );
+          void PublicPortalClient.getDudiStudents(dudi.nama, dudi.id || '', teacherName, {
+            petugasId: teacherId,
+          }).catch(() => {});
         }
       });
     };
@@ -588,6 +588,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         dudi.id || '',
         selectedPetugasNama,
         {
+          petugasId: selectedPetugasId,
           onUpdate: (freshJson: any) => {
             if (activeDudiKeyRef.current !== dudiKey) return;
             if (freshJson?.stageControl) {

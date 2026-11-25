@@ -372,7 +372,8 @@ export async function fetchMasterSiswaRows(forceRefresh = false): Promise<{
 export async function writeLiveSheetViaGas(
   sheetName: string,
   action: GasWriteAction,
-  payload: any
+  payload: any,
+  options?: { preserveDisplayColumnsForNonFormula?: boolean }
 ): Promise<{
   verified: boolean;
   savedId?: string;
@@ -406,51 +407,54 @@ export async function writeLiveSheetViaGas(
 
   const sheetSvc = GoogleDriveSheetService.getInstance();
   let sanitizedPayload = payload;
-  if (
-    (action === 'CREATE' || action === 'UPDATE') &&
-    payload &&
-    typeof payload === 'object' &&
-    !Array.isArray(payload)
-  ) {
-    sanitizedPayload = sheetSvc.stripFormulaManagedFields(sheetName, payload);
-  } else if ((action === 'BULK_UPDATE' || action === 'IMPORT') && Array.isArray(payload)) {
-    sanitizedPayload = payload.map((item) =>
-      item && typeof item === 'object' ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
-    );
-  } else if (
-    action === 'BULK_UPDATE' &&
-    payload &&
-    typeof payload === 'object' &&
-    (Array.isArray(payload.updatedRows) || Array.isArray(payload.rows))
-  ) {
-    sanitizedPayload = {
-      ...payload,
-      ...(Array.isArray(payload.updatedRows)
-        ? {
-            updatedRows: payload.updatedRows.map((item: any) =>
-              item && typeof item === 'object'
-                ? sheetSvc.stripFormulaManagedFields(sheetName, item)
-                : item
-            ),
-          }
-        : {}),
-      ...(Array.isArray(payload.rows)
-        ? {
-            rows: payload.rows.map((item: any) =>
-              item && typeof item === 'object'
-                ? sheetSvc.stripFormulaManagedFields(sheetName, item)
-                : item
-            ),
-          }
-        : {}),
-    };
+  if (!options?.preserveDisplayColumnsForNonFormula) {
+    if (
+      (action === 'CREATE' || action === 'UPDATE') &&
+      payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload)
+    ) {
+      sanitizedPayload = sheetSvc.stripFormulaManagedFields(sheetName, payload);
+    } else if ((action === 'BULK_UPDATE' || action === 'IMPORT') && Array.isArray(payload)) {
+      sanitizedPayload = payload.map((item) =>
+        item && typeof item === 'object' ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
+      );
+    } else if (
+      action === 'BULK_UPDATE' &&
+      payload &&
+      typeof payload === 'object' &&
+      (Array.isArray(payload.updatedRows) || Array.isArray(payload.rows))
+    ) {
+      sanitizedPayload = {
+        ...payload,
+        ...(Array.isArray(payload.updatedRows)
+          ? {
+              updatedRows: payload.updatedRows.map((item: any) =>
+                item && typeof item === 'object'
+                  ? sheetSvc.stripFormulaManagedFields(sheetName, item)
+                  : item
+              ),
+            }
+          : {}),
+        ...(Array.isArray(payload.rows)
+          ? {
+              rows: payload.rows.map((item: any) =>
+                item && typeof item === 'object'
+                  ? sheetSvc.stripFormulaManagedFields(sheetName, item)
+                  : item
+              ),
+            }
+          : {}),
+      };
+    }
   }
 
   const apiV4WriteReceipt = await tryWriteSheetViaApiV4(
     config.spreadsheetId,
     sheetName,
     action,
-    sanitizedPayload
+    sanitizedPayload,
+    { respectActualFormulasOnly: Boolean(options?.preserveDisplayColumnsForNonFormula) }
   );
 
   if (apiV4WriteReceipt) {

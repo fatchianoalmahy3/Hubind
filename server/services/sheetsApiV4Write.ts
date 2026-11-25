@@ -15,7 +15,7 @@ import {
 const SCHEMA_CACHE_TTL_MS = 300_000;
 const sheetWriteSchemaCache = new Map<
   string,
-  { headers: string[]; isFormulaCol: boolean[]; fetchedAt: number }
+  { headers: string[]; actualFormulaCol: boolean[]; managedFormulaCol: boolean[]; fetchedAt: number }
 >();
 const writeMutexChains = new Map<string, Promise<unknown>>();
 
@@ -336,12 +336,16 @@ async function getSheetWriteSchema(
   spreadsheetId: string,
   actualTab: string,
   requestedSheetName: string,
-  token: string
+  token: string,
+  respectActualFormulasOnly = false
 ): Promise<{ headers: string[]; isFormulaCol: boolean[] } | null> {
   const cacheKey = `${spreadsheetId}::${actualTab}`;
   const cached = sheetWriteSchemaCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < SCHEMA_CACHE_TTL_MS) {
-    return { headers: cached.headers, isFormulaCol: cached.isFormulaCol };
+    return {
+      headers: cached.headers,
+      isFormulaCol: respectActualFormulasOnly ? cached.actualFormulaCol : cached.managedFormulaCol,
+    };
   }
 
   const range12 = encodeURIComponent(`${quoteA1Sheet(actualTab)}!1:2`);
@@ -376,19 +380,29 @@ async function getSheetWriteSchema(
     return null;
   }
 
-  const isFormulaCol = headers.map((header, idx) => {
+  const actualFormulaCol = headers.map((_header, idx) => {
     const f1 = String(rawHeaders[idx] ?? '');
     const f2 = String(row2[idx] ?? '');
-    return (
-      f1.startsWith('=') ||
-      f2.startsWith('=') ||
-      isFormulaManagedColumn(requestedSheetName, header) ||
-      isFormulaManagedColumn(actualTab, header)
-    );
+    return f1.startsWith('=') || f2.startsWith('=');
   });
 
-  sheetWriteSchemaCache.set(cacheKey, { headers, isFormulaCol, fetchedAt: Date.now() });
-  return { headers, isFormulaCol };
+  const managedFormulaCol = headers.map(
+    (header, idx) =>
+      actualFormulaCol[idx] ||
+      isFormulaManagedColumn(requestedSheetName, header) ||
+      isFormulaManagedColumn(actualTab, header)
+  );
+
+  sheetWriteSchemaCache.set(cacheKey, {
+    headers,
+    actualFormulaCol,
+    managedFormulaCol,
+    fetchedAt: Date.now(),
+  });
+  return {
+    headers,
+    isFormulaCol: respectActualFormulasOnly ? actualFormulaCol : managedFormulaCol,
+  };
 }
 
 async function readSheetValuesMatrix(
@@ -676,7 +690,8 @@ export async function tryWriteSheetViaApiV4(
   spreadsheetId: string,
   sheetName: string,
   action: GasWriteAction,
-  payload: any
+  payload: any,
+  options?: { respectActualFormulasOnly?: boolean }
 ): Promise<{
   verified: boolean;
   savedId?: string;
@@ -705,7 +720,13 @@ export async function tryWriteSheetViaApiV4(
     }
 
     return await withSheetWriteLock(`${spreadsheetId}::${actualTab}`, async () => {
-      const schema = await getSheetWriteSchema(spreadsheetId, actualTab, sheetName, auth.token);
+      const schema = await getSheetWriteSchema(
+        spreadsheetId,
+        actualTab,
+        sheetName,
+        auth.token,
+        Boolean(options?.respectActualFormulasOnly)
+      );
       if (!schema) return null;
       const { headers, isFormulaCol } = schema;
 

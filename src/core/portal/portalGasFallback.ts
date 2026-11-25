@@ -704,7 +704,8 @@ export async function directFetchPetugasDudi(petugasNama: string, petugasId: str
 export async function directFetchDudiStudents(
   dudiNama: string,
   dudiId: string,
-  petugasNama: string
+  petugasNama: string,
+  petugasId = ''
 ): Promise<{
   success: boolean;
   total: number;
@@ -713,8 +714,9 @@ export async function directFetchDudiStudents(
   issuedStageDetails: Record<number, IssuedStageDetail>;
   data: any[];
 }> {
-  const [plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows, logSuratRows] =
+  const [dudiRows, plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows, logSuratRows] =
     await Promise.all([
+      readSheetDirect('Master_DUDI').catch(() => [] as any[]),
       readSheetDirect('Plotting_Pemberangkatan', true),
       readSheetDirect('Data_Pengajuan_PKL', true),
       readMasterSiswaDirect().catch(() => [] as any[]),
@@ -733,6 +735,8 @@ export async function directFetchDudiStudents(
     dudiNama,
     dudiId,
     petugasNama,
+    petugasId,
+    dudiRows,
     plottingRows,
     pengajuanRows,
     siswaRows,

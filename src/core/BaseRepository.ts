@@ -63,24 +63,42 @@ export abstract class BaseRepository<T extends { id: string }> {
           ((this.tableName === 'Master_Siswa_XI' || this.tableName === 'Master_Siswa') &&
             (t === 'Master_Siswa_XI' || t === 'Master_Siswa'))
       );
-      if (!matches) return;
       const activeId = client.getSpreadsheetId();
-      const snapshot = client.getCachedSnapshotSync(this.tableName);
-      if (activeId && snapshot && Array.isArray(snapshot.data)) {
-        const snapshotTs = snapshot.updatedAt || 0;
-        if (this.lastLocalMutationAt > 0 && snapshotTs <= this.lastLocalMutationAt) {
+      if (matches) {
+        const snapshot = client.getCachedSnapshotSync(this.tableName);
+        if (activeId && snapshot && Array.isArray(snapshot.data)) {
+          const snapshotTs = snapshot.updatedAt || 0;
+          if (this.lastLocalMutationAt > 0 && snapshotTs <= this.lastLocalMutationAt) {
+            return;
+          }
+          this.memoryData = this.enrichLoadedRows(snapshot.data as T[]);
+          this.loadedSpreadsheetId = activeId;
+          this.lastFetchedAt = snapshotTs || Date.now();
+          this.isInitialized = true;
+          this.lastError = null;
+          this.notifyDataUpdated();
           return;
         }
-        this.memoryData = snapshot.data as T[];
-        this.loadedSpreadsheetId = activeId;
-        this.lastFetchedAt = snapshotTs || Date.now();
-        this.isInitialized = true;
-        this.lastError = null;
-        this.notifyDataUpdated();
+      }
+
+      // Re-enrich dependent memory rows when a Master lookup table finishes bootstrapping
+      const hasMasterUpdate = tables.some((t) =>
+        [
+          'Master_Siswa_XI',
+          'Master_Siswa',
+          'Master_Jurusan',
+          'Master_DUDI',
+          'Master_Guru_Pendamping',
+          'Plotting_Pemberangkatan',
+        ].includes(t)
+      );
+      if (hasMasterUpdate && this.isInitialized && this.memoryData.length > 0) {
+        this.memoryData = this.enrichLoadedRows(this.memoryData);
+        this.notifyDataUpdated({ revalidatingOnly: true });
       }
     });
 
-    // Invalidate RAM cache when external portals / another tab writes to the same sheet
+    // Invalidate RAM cache when external portals / another tab / Master table writes
     client.onSheetCacheInvalidate((sheetName) => {
       if (this.isCommittingSelf) return;
       const matchesThis =
@@ -91,6 +109,9 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (matchesThis) {
         this.isInitialized = false;
         this.lastFetchedAt = 0;
+        if (this.memoryData.length > 0) {
+          this.memoryData = this.enrichLoadedRows(this.memoryData);
+        }
       }
     });
   }
@@ -157,7 +178,7 @@ export abstract class BaseRepository<T extends { id: string }> {
     }
     const snapshot = client.getCachedSnapshotSync(this.tableName);
     if (snapshot && Array.isArray(snapshot.data)) {
-      this.memoryData = snapshot.data as T[];
+      this.memoryData = this.enrichLoadedRows(snapshot.data as T[]);
       this.loadedSpreadsheetId = activeId;
       this.lastFetchedAt = snapshot.updatedAt || 0;
       this.isInitialized = true;
@@ -194,7 +215,7 @@ export abstract class BaseRepository<T extends { id: string }> {
     if (activeId && (!this.isInitialized || !isSameSheet || this.memoryData.length === 0)) {
       const snapshot = await client.getCachedSnapshot(this.tableName);
       if (snapshot && Array.isArray(snapshot.data)) {
-        this.memoryData = snapshot.data as T[];
+        this.memoryData = this.enrichLoadedRows(snapshot.data as T[]);
         this.loadedSpreadsheetId = activeId;
         this.lastFetchedAt = snapshot.updatedAt || 0;
         this.isInitialized = true;
@@ -374,8 +395,8 @@ export abstract class BaseRepository<T extends { id: string }> {
     this.memoryData = [prepared, ...this.memoryData];
     this.lastFetchedAt = now;
     this.lastLocalMutationAt = now;
-    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+    client.markSheetMutated(this.tableName);
     this.notifyDataUpdated();
 
     this.isCommittingSelf = true;
@@ -440,8 +461,8 @@ export abstract class BaseRepository<T extends { id: string }> {
     this.memoryData = nextMemory;
     this.lastFetchedAt = now;
     this.lastLocalMutationAt = now;
-    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+    client.markSheetMutated(this.tableName);
     this.notifyDataUpdated();
 
     this.isCommittingSelf = true;
@@ -492,8 +513,8 @@ export abstract class BaseRepository<T extends { id: string }> {
     this.memoryData = this.memoryData.filter((row) => row.id !== id);
     this.lastFetchedAt = now;
     this.lastLocalMutationAt = now;
-    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+    client.markSheetMutated(this.tableName);
     this.notifyDataUpdated();
 
     this.isCommittingSelf = true;
@@ -611,8 +632,8 @@ export abstract class BaseRepository<T extends { id: string }> {
     this.memoryData = nextMemory;
     this.lastFetchedAt = now;
     this.lastLocalMutationAt = now;
-    client.markSheetMutated(this.tableName);
     client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+    client.markSheetMutated(this.tableName);
     this.notifyDataUpdated();
 
     this.isCommittingSelf = true;

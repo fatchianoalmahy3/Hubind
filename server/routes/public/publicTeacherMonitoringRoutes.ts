@@ -205,6 +205,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       const dudiNama = String(req.query.dudiNama || '').trim();
       const dudiId = String(req.query.dudiId || '').trim();
       const petugasNama = String(req.query.petugasNama || '').trim();
+      const petugasId = String(req.query.petugasId || '').trim();
 
       if (!dudiNama && !dudiId) {
         return res.status(400).json({ success: false, message: 'Parameter dudiNama atau dudiId wajib diisi.' });
@@ -212,6 +213,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       const { sheets } = await fetchBatchSheetsViaGas(
         [
+          'Master_DUDI',
           'Plotting_Pemberangkatan',
           'Data_Pengajuan_PKL',
           'Master_Siswa_XI',
@@ -247,6 +249,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         dudiNama,
         dudiId,
         petugasNama,
+        petugasId,
+        dudiRows: sheets['Master_DUDI'] || [],
         plottingRows: sheets['Plotting_Pemberangkatan'] || [],
         pengajuanRows: sheets['Data_Pengajuan_PKL'] || [],
         siswaRows,

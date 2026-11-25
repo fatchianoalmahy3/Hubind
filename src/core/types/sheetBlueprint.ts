@@ -427,6 +427,7 @@ export const SHEET_DEPENDENTS_MAP: Record<string, string[]> = {
     'Nilai_Dan_Sertifikat',
   ],
   Master_DUDI: [
+    'Data_Pengajuan_PKL',
     'Data_Perizinan_PKL',
     'Plotting_Pemberangkatan',
     'Monitoring_5_Tahap',

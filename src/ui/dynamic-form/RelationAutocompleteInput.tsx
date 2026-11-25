@@ -1,6 +1,6 @@
 import React, { useDeferredValue, useMemo } from 'react';
 import { FieldConfig } from '../../core/types/metadata';
-import { Dudi } from '../../core/types/schema';
+import { Dudi, Guru } from '../../core/types/schema';
 import { generateJurusanCode } from '../../core/utils/autoIdHelpers';
 import { formatNisVisual, handleNisKeyDown, processNisInputChange, stripNisSymbols } from '../../core/utils/nisHelpers';
 import { getCanonicalNisDigits } from '../../core/utils/relationHelpers';
@@ -16,10 +16,13 @@ interface RelationAutocompleteInputProps<T> {
   loadingRelations: boolean;
   studentDirectory: StudentDirectoryEntry[];
   masterDudi: Dudi[];
+  masterGuru: Guru[];
   setValue: (key: string, value: any) => void;
+  setMultipleValues: (patch: Record<string, any>) => void;
   setOpenAutocompleteKey: React.Dispatch<React.SetStateAction<string | null>>;
   applyStudentSelection: (matched: StudentDirectoryEntry, triggerPatch?: Record<string, any>) => void;
   applyDudiSelection: (matched: Dudi, fieldKey: string, selectedValue?: string) => void;
+  applyGuruSelection: (matched: Guru, fieldKey: string, selectedValue?: string) => void;
   resolvePreferredDudi: (matched?: StudentDirectoryEntry) => { dudiTujuan: string; alamatDudi: string };
   onDudiManualEdit: () => void;
 }
@@ -33,10 +36,13 @@ export function RelationAutocompleteInput<T>({
   loadingRelations,
   studentDirectory,
   masterDudi,
+  masterGuru,
   setValue,
+  setMultipleValues,
   setOpenAutocompleteKey,
   applyStudentSelection,
   applyDudiSelection,
+  applyGuruSelection,
   resolvePreferredDudi,
   onDudiManualEdit,
 }: RelationAutocompleteInputProps<T>) {
@@ -112,6 +118,23 @@ export function RelationAutocompleteInput<T>({
       .slice(0, 25)
       .map((x) => x.raw);
   }, [field.relationSource, indexedDudi, deferredQuery, selectedJurusanNorm, selectedJurusanCode]);
+
+  const filteredGuru = useMemo(() => {
+    if (field.relationSource !== 'guru') return [];
+    return masterGuru
+      .filter((g) => {
+        if (!deferredQuery) return true;
+        const hay = `${normFormValue(g.nama)} ${normFormValue(g.nip)} ${normFormValue(g.peranUtama)} ${normFormValue(g.id)}`;
+        return hay.includes(deferredQuery);
+      })
+      .sort((a, b) => {
+        const aStarts = deferredQuery && normFormValue(a.nama).startsWith(deferredQuery) ? 0 : 1;
+        const bStarts = deferredQuery && normFormValue(b.nama).startsWith(deferredQuery) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return String(a.nama || '').localeCompare(String(b.nama || ''));
+      })
+      .slice(0, 30);
+  }, [field.relationSource, masterGuru, deferredQuery]);
 
   if (field.relationSource === 'siswa') {
     const isNisField = key === 'nis';
@@ -350,6 +373,107 @@ export function RelationAutocompleteInput<T>({
                         {d.wilayahKota ? `${d.wilayahKota} · ` : ''}
                         {d.alamat || '-'}
                         {d.guruPendamping ? ` · Pendamping: ${d.guruPendamping}` : ''}
+                      </div>
+                    </div>
+                    {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (field.relationSource === 'guru') {
+    return (
+      <div className="relative">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={val}
+            autoComplete="off"
+            onFocus={() => setOpenAutocompleteKey(key)}
+            onBlur={() => setTimeout(() => setOpenAutocompleteKey((k) => (k === key ? null : k)), 140)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setOpenAutocompleteKey(key);
+              const exact = masterGuru.find((g) => normFormValue(g.nama) === normFormValue(next));
+              if (exact) {
+                applyGuruSelection(exact, key, next);
+              } else {
+                setMultipleValues({
+                  [key]: next,
+                  ...(values.idGuruPendamping !== undefined ? { idGuruPendamping: '' } : {}),
+                });
+              }
+            }}
+            placeholder={
+              loadingRelations
+                ? 'Memuat daftar Guru Pendamping...'
+                : field.placeholder || 'Ketik nama atau NIP Guru Pendamping...'
+            }
+            className={`w-full h-10 pl-8 pr-8 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
+              err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
+            }`}
+          />
+          {val && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setMultipleValues({
+                  [key]: '',
+                  ...(values.idGuruPendamping !== undefined ? { idGuruPendamping: '' } : {}),
+                });
+                setOpenAutocompleteKey(key);
+              }}
+              aria-label="Bersihkan pencarian"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {isDropdownOpen && (
+          <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto py-1">
+            {loadingRelations ? (
+              <div className="px-3 py-2.5 text-xs text-slate-500">
+                Memuat daftar Guru Pendamping dari Cloud Server...
+              </div>
+            ) : filteredGuru.length === 0 ? (
+              <div className="px-3 py-2.5 text-xs text-slate-500">
+                {field.allowCustomValue === false
+                  ? `Tidak ada guru pendamping cocok dengan "${val}". Pilih dari daftar Master Guru.`
+                  : `Tidak ada guru pendamping cocok dengan "${val}".`}
+              </div>
+            ) : (
+              filteredGuru.map((g, idx) => {
+                const isCurrent = normFormValue(g.nama) === query;
+                return (
+                  <button
+                    type="button"
+                    key={`${g.id || g.nama}_${idx}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyGuruSelection(g, key);
+                      setOpenAutocompleteKey(null);
+                    }}
+                    className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                      isCurrent ? 'bg-blue-50/80' : ''
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-900 truncate">
+                        {g.nama}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        {g.peranUtama || 'Guru Pendamping'}
+                        {g.nip && g.nip !== '-' ? ` · NIP: ${g.nip}` : ''}
+                        {g.kontakWA && g.kontakWA !== '-' ? ` · WA: ${g.kontakWA}` : ''}
                       </div>
                     </div>
                     {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}

@@ -359,6 +359,7 @@ export const PublicPortalClient = {
     dudiId: string,
     petugasNama: string,
     options?: {
+      petugasId?: string;
       forceRefresh?: boolean;
       onUpdate?: (res: {
         success: boolean;
@@ -378,7 +379,8 @@ export const PublicPortalClient = {
     issuedStageDetails?: Record<number, IssuedStageDetail>;
   }> {
     const cfg = GoogleSheetClient.getInstance().getConfig();
-    const dudiKey = `${String(dudiId || '').trim()}::${normalizeStr(dudiNama)}::${normalizeStr(petugasNama)}`;
+    const petugasId = String(options?.petugasId || '').trim();
+    const dudiKey = `${String(dudiId || '').trim()}::${normalizeStr(dudiNama)}::${petugasId}::${normalizeStr(petugasNama)}`;
     const idbKey = IndexedDbSheetCache.buildKey(
       cfg.spreadsheetId || 'public',
       cfg.activeYear || 'active',
@@ -398,10 +400,12 @@ export const PublicPortalClient = {
       useSyncIdbHit: true,
       apiUrl: `/api/public/dudi-students?dudiNama=${encodeURIComponent(
         dudiNama
-      )}&dudiId=${encodeURIComponent(dudiId || '')}&petugasNama=${encodeURIComponent(petugasNama)}${
+      )}&dudiId=${encodeURIComponent(dudiId || '')}&petugasNama=${encodeURIComponent(
+        petugasNama
+      )}&petugasId=${encodeURIComponent(petugasId)}${
         options?.forceRefresh ? `&fresh=1&_ts=${Date.now()}` : ''
       }`,
-      directFetcher: () => directFetchDudiStudents(dudiNama, dudiId, petugasNama),
+      directFetcher: () => directFetchDudiStudents(dudiNama, dudiId, petugasNama, petugasId),
       onUpdate: options?.onUpdate,
     });
   },

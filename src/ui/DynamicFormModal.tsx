@@ -114,6 +114,8 @@ export function DynamicFormModal<T extends Record<string, any>>({
             if (formFieldKeys.has('idGuruPendamping')) {
               payload.idGuruPendamping = matchedGuru.id;
             }
+          } else if (formFieldKeys.has('idGuruPendamping')) {
+            payload.idGuruPendamping = '';
           }
         } else if (formFieldKeys.has('idGuruPendamping')) {
           payload.idGuruPendamping = '';
@@ -207,6 +209,24 @@ export function DynamicFormModal<T extends Record<string, any>>({
         if (startIso && endIso && endIso < startIso) {
           extraErrors.tanggalSelesaiIzin =
             'Tanggal Selesai Izin tidak boleh lebih awal dari Tanggal Mulai Izin';
+        }
+      }
+
+      const guruFieldCfg = formFields.find((f) => String(f.key) === 'guruPendamping');
+      if (
+        guruFieldCfg?.autocomplete &&
+        guruFieldCfg.allowCustomValue === false &&
+        rel?.masterGuru?.length
+      ) {
+        const guruInput = String(formValues.guruPendamping || '').trim();
+        if (guruInput) {
+          const matchedGuru = rel.masterGuru.find(
+            (g) => normFormValue(g.nama) === normFormValue(guruInput)
+          );
+          if (!matchedGuru) {
+            extraErrors.guruPendamping =
+              'Pilih Guru Pendamping dari daftar hasil pencarian Master Guru atau kosongkan kolom ini.';
+          }
         }
       }
 
@@ -347,6 +367,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
                       imageUrlInputKey={imageUrlInputKey}
                       studentDirectory={relations.studentDirectory}
                       masterDudi={relations.masterDudi}
+                      masterGuru={relations.masterGuru}
                       setValue={setValue}
                       setMultipleValues={setMultipleValues}
                       setOpenAutocompleteKey={setOpenAutocompleteKey}
@@ -355,6 +376,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
                       handleRelationSelect={relations.handleRelationSelect}
                       applyStudentSelection={relations.applyStudentSelection}
                       applyDudiSelection={relations.applyDudiSelection}
+                      applyGuruSelection={relations.applyGuruSelection}
                       resolvePreferredDudi={relations.resolvePreferredDudi}
                       onDudiManualEdit={() => {
                         relations.dudiManuallyEditedRef.current = true;
