@@ -213,7 +213,7 @@ export async function getFirestoreWorkspaceConfig(forceRefresh = false): Promise
       res = await fetchWithRetry(
         url,
         { headers: { Accept: 'application/json' } },
-        { timeoutMs: 8_000, retries: 2, baseDelayMs: 250 }
+        { timeoutMs: 10_000, retries: 1, retryOnTimeout: true, baseDelayMs: 250 }
       );
     } catch (err: any) {
       if (cachedWorkspaceConfig) {

@@ -13,7 +13,7 @@ export class SiswaPklService extends BaseRepository<PenempatanPKL> {
   private static instance: SiswaPklService;
 
   private constructor() {
-    super('Plotting_Pemberangkatan', SiswaPklMetadata, initialSiswaPkl);
+    super('data_plotting', SiswaPklMetadata, initialSiswaPkl);
   }
 
   public static getInstance(): SiswaPklService {
@@ -106,7 +106,7 @@ export class SiswaPklService extends BaseRepository<PenempatanPKL> {
       { silentToast: true }
     );
 
-    const newId = generateNextSequentialId('Plotting_Pemberangkatan', allPlottings as any);
+    const newId = generateNextSequentialId('data_plotting', allPlottings as any);
     const newLog = `[${today}] Pindahan dari ${source.namaDudi}${reasonSuffix}`;
 
     const newPlacement = await this.create(

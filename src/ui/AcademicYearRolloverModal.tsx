@@ -341,8 +341,8 @@ export const AcademicYearRolloverModal: React.FC<AcademicYearRolloverModalProps>
                 <div>
                   <b>Tabel Siswa &amp; Transaksi Dimulai Bersih:</b>{' '}
                   <code>Master_Siswa_XI</code>, <code>Data_Pengajuan_PKL</code>,{' '}
-                  <code>Data_Perizinan_PKL</code>, <code>Plotting_Pemberangkatan</code>,{' '}
-                  <code>Monitoring_5_Tahap</code>, <code>Nilai_Dan_Sertifikat</code>, dan{' '}
+                  <code>Data_Perizinan_PKL</code>, <code>data_plotting</code>,{' '}
+                  <code>Monitoring_5_Tahap</code>, dan{' '}
                   <code>Log_Penerbitan_Surat</code> otomatis dibuat kosong dengan header &amp;{' '}
                   <code>ARRAYFORMULA</code> Baris-1 aktif.
                 </div>

@@ -2,10 +2,8 @@ import {
   ArrowRightLeft,
   Calendar,
   CheckCircle2,
-  FileCheck,
   MessageCircle,
   Printer,
-  Send,
   XCircle,
 } from 'lucide-react';
 import { Dudi, Guru, Jurusan, UserRole } from '../../core/types/schema';
@@ -95,39 +93,22 @@ export function getCustomRowActionsForModule(
             label: 'Tolak',
             icon: XCircle,
             color: 'hover:text-rose-600 hover:bg-rose-50 text-rose-500',
-          },
-          {
-            name: 'create_perizinan',
-            label: 'Buat Berkas Perizinan',
-            icon: FileCheck,
-            color: 'hover:text-indigo-600 hover:bg-indigo-50 text-indigo-600',
           }
         );
       }
       if (isHubinOrPokja) {
-        actions.push({
-          name: 'schedule_hubin',
-          label: 'Jadwalkan',
-          icon: Calendar,
-          color: 'hover:text-blue-600 hover:bg-blue-50 text-blue-600',
-        });
-      }
-      break;
-
-    case 'perizinan':
-      if (isHubinOrPokja) {
         actions.push(
           {
-            name: 'send_wa_dudi',
-            label: 'Kirim WA & PDF',
-            icon: MessageCircle,
-            color: 'hover:text-emerald-700 hover:bg-emerald-50 text-emerald-600',
+            name: 'schedule_hubin',
+            label: 'Jadwalkan',
+            icon: Calendar,
+            color: 'hover:text-blue-600 hover:bg-blue-50 text-blue-600',
           },
           {
-            name: 'promote_to_pkl',
-            label: 'Terbitkan ke Data Siswa PKL',
-            icon: Send,
-            color: 'hover:text-blue-600 hover:bg-blue-50 text-blue-600',
+            name: 'send_wa_dudi',
+            label: 'Kirim WA & Surat',
+            icon: MessageCircle,
+            color: 'hover:text-emerald-700 hover:bg-emerald-50 text-emerald-600',
           }
         );
       }
@@ -139,6 +120,9 @@ export function getCustomRowActionsForModule(
           color: 'hover:text-amber-600 hover:bg-amber-50 text-amber-600',
         });
       }
+      break;
+
+    case 'perizinan':
       break;
 
     case 'siswa_pkl':

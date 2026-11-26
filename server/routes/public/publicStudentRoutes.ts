@@ -152,7 +152,7 @@ export function registerPublicStudentRoutes(app: Express): void {
       let autoGuruPendamping = '';
       let matchedDudiRow: any = null;
 
-      if (!payload.is_dudi_unregistered && (resolvedDudiId || resolvedDudiNama)) {
+      if (resolvedDudiId || resolvedDudiNama) {
         try {
           const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', false);
           matchedDudiRow =
@@ -175,9 +175,25 @@ export function registerPublicStudentRoutes(app: Express): void {
               'idGuruPendamping'
             );
             autoGuruPendamping = pickField(matchedDudiRow, 'Guru_Pendamping', 'guruPendamping');
+          } else if (resolvedDudiNama) {
+            const newDudiId = `DUD-${Date.now().toString(36).toUpperCase()}`;
+            await writeLiveSheetViaGas('Master_DUDI', 'CREATE', {
+              id: newDudiId,
+              ID: newDudiId,
+              Nama_DUDI: resolvedDudiNama,
+              Bidang_Keahlian: String(payload.bidang_dudi || '-').trim() || '-',
+              Alamat: String(payload.alamat_dudi || '-').trim() || '-',
+              Wilayah_Kota: 'Ponorogo',
+              Link_Maps: mapsCheck.normalizedUrl,
+              Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+              Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
+              Kuota_Maksimal: 4,
+              Status_Kerjasama: 'Mitra Baru',
+            });
+            resolvedDudiId = newDudiId;
           }
         } catch {
-          // non-blocking DUDI lookup
+          // non-blocking DUDI lookup/creation
         }
       }
 
@@ -264,35 +280,16 @@ export function registerPublicStudentRoutes(app: Express): void {
         ID_DUDI: resolvedDudiId,
         idDudi: resolvedDudiId,
         nama_dudi: resolvedDudiNama,
-        Alamat_DUDI: String(payload.alamat_dudi || ''),
-        alamatDudi: String(payload.alamat_dudi || ''),
-        Bidang_Pekerjaan: String(payload.bidang_dudi || ''),
-        bidangPekerjaan: String(payload.bidang_dudi || ''),
-        Nama_Pemimpin: '',
-        namaPemimpin: '',
-        Nama_PIC: '',
-        namaPic: '',
-        No_Telp_DUDI: '',
-        noTelpDudi: '',
-        Kontak_PIC: '',
-        kontakPic: '',
-        Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
-        hariKerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
-        hari_kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
-        Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
-        jamKerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
-        jam_kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
-        Link_Maps: mapsCheck.normalizedUrl,
-        linkMaps: mapsCheck.normalizedUrl,
-        link_maps: mapsCheck.normalizedUrl,
-        No_WA: String(payload.telepon || ''),
-        noWa: String(payload.telepon || ''),
-        Alamat_Domisili: String(payload.alamat_domisili || ''),
-        alamatDomisili: String(payload.alamat_domisili || ''),
-        Nama_Ortu_Wali: String(payload.nama_orang_tua || ''),
-        namaOrtuWali: String(payload.nama_orang_tua || ''),
-        No_Ortu_Wali: String(payload.telepon_orang_tua || ''),
-        noOrtuWali: String(payload.telepon_orang_tua || ''),
+        No_Surat_Permohonan: '',
+        noSuratPermohonan: '',
+        Tgl_Kirim_Surat: '',
+        tanggalKirimSurat: '',
+        Status_Balasan_DUDI: 'Belum Dikirim',
+        statusBalasanDudi: 'Belum Dikirim',
+        Tgl_Balasan: '',
+        tanggalBalasan: '',
+        Link_Surat_PDF: '',
+        linkSuratPdf: '',
         Status_Kakomli: 'Pending',
         statusKakomli: 'Pending',
         Catatan_Kakomli: baseStatusNote,

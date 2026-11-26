@@ -11,7 +11,6 @@ import {
   normalizeRelationText,
 } from '../../core/utils/relationHelpers';
 import { PengajuanService } from '../../services/PengajuanService';
-import { PerizinanService } from '../../services/PerizinanService';
 import { RelationSyncService } from '../../services/RelationSyncService';
 import { SiswaPklService } from '../../services/SiswaPklService';
 import { ModuleActionModalState } from './ModuleActionModal';
@@ -147,32 +146,11 @@ export function useModuleWorkflows<T extends { id: string }>({
         setConfirmModal({
           isOpen: true,
           title: 'Setujui Pengajuan Siswa (ACC Kakomli)?',
-          description: `Setujui permohonan PKL ${item.namaSiswa} di ${item.dudiTujuan}. Sistem juga akan membuatkan antrean berkas pada menu Perizinan PKL.`,
+          description: `Setujui permohonan PKL ${item.namaSiswa} di ${item.dudiTujuan}. Status akan diperbarui menjadi Disetujui dan siap dijadwalkan Hubin.`,
           variant: 'success',
-          confirmText: 'Ya, Setujui & Catat',
+          confirmText: 'Ya, Setujui Pengajuan',
           onConfirm: async () => {
             await PengajuanService.getInstance().approveByKakomli(row.id);
-            await refresh();
-          },
-        });
-        return;
-
-      case 'create_perizinan':
-        setConfirmModal({
-          isOpen: true,
-          title: 'Buat Berkas Perizinan PKL?',
-          description: `Kirim data ${item.namaSiswa} (${item.dudiTujuan}) ke modul Perizinan PKL untuk pencatatan izin orang tua & balasan DUDI.`,
-          variant: 'primary',
-          confirmText: 'Buat Berkas Perizinan',
-          onConfirm: async () => {
-            await PengajuanService.getInstance().createPerizinanFromPengajuan(row.id, {
-              silentToast: true,
-            });
-            ToastManager.getInstance().show(
-              'Berkas Perizinan Dibuat',
-              'success',
-              `${item.namaSiswa} kini tercatat di menu Perizinan PKL.`
-            );
             await refresh();
           },
         });
@@ -215,27 +193,6 @@ export function useModuleWorkflows<T extends { id: string }>({
       case 'send_wa_dudi': {
         const nextWaState = await buildPerizinanWaModalState(item);
         setWaModal(nextWaState);
-        return;
-      }
-
-      case 'promote_to_pkl': {
-        const { dudis } = await refreshGuruAndDudiOptions();
-        const targetDudiNorm = normalizeRelationText(item.dudiTujuan);
-        const matchedDudi =
-          (item.idDudi ? dudis.find((d) => d.id === item.idDudi) : undefined) ||
-          dudis.find((d) => normalizeRelationText(d.namaDudi) === targetDudiNorm);
-        const todayWib = getTodayWibIsoDate();
-        setActionModal({
-          isOpen: true,
-          type: 'promote_to_pkl',
-          row: item,
-          reason: '',
-          newDudi: '',
-          guruPendamping: matchedDudi?.guruPendamping || '',
-          tanggalBerangkat: todayWib,
-          tanggalRencanaTarik: getOffsetWibIsoDate(120, todayWib),
-          submitting: false,
-        });
         return;
       }
 
@@ -282,7 +239,6 @@ export function useModuleWorkflows<T extends { id: string }>({
     const toastTitleMap = {
       reject_kakomli: 'Menyimpan Penolakan Pengajuan...',
       schedule_hubin: 'Menjadwalkan Pemberangkatan...',
-      promote_to_pkl: 'Menerbitkan ke Data Siswa PKL...',
       transfer_dudi: 'Memproses Pindah DUDI Siswa...',
     };
     const toastId = ToastManager.getInstance().show(
@@ -319,23 +275,6 @@ export function useModuleWorkflows<T extends { id: string }>({
           'Pemberangkatan Dijadwalkan',
           'success',
           `${actionModal.row.namaSiswa} dijadwalkan dengan ${actionModal.guruPendamping}.`
-        );
-      } else if (actionModal.type === 'promote_to_pkl') {
-        if (!actionModal.guruPendamping.trim() || !actionModal.tanggalBerangkat) {
-          throw new Error('Guru Pendamping dan Tanggal Berangkat wajib diisi.');
-        }
-        await PerizinanService.getInstance().promoteToPenempatan(
-          actionModal.row.id,
-          actionModal.guruPendamping.trim(),
-          actionModal.tanggalBerangkat,
-          actionModal.tanggalRencanaTarik,
-          { silentToast: true }
-        );
-        ToastManager.getInstance().update(
-          toastId,
-          'Resmi Diterbitkan ke Data Siswa PKL',
-          'success',
-          `${actionModal.row.namaSiswa} kini tercatat aktif di Data Siswa PKL.`
         );
       } else if (actionModal.type === 'transfer_dudi') {
         if (
@@ -402,7 +341,7 @@ export function useModuleWorkflows<T extends { id: string }>({
                 toastId,
                 `${updatedCount} Pengajuan Disetujui (ACC)`,
                 'success',
-                'Seluruh pengajuan terpilih telah diperbarui secara massal & masuk antrean Perizinan.'
+                'Seluruh pengajuan terpilih telah diperbarui secara massal.'
               );
             } catch (err: any) {
               ToastManager.getInstance().update(

@@ -464,6 +464,15 @@ export async function writeLiveSheetViaGas(
       invalidateSheetCacheEntry(config.spreadsheetId, 'Master_Siswa_XI');
       invalidateSheetCacheEntry(config.spreadsheetId, 'Master_Siswa');
     }
+    if (
+      sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat'
+    ) {
+      invalidateSheetCacheEntry(config.spreadsheetId, 'data_plotting');
+      invalidateSheetCacheEntry(config.spreadsheetId, 'Plotting_Pemberangkatan');
+      invalidateSheetCacheEntry(config.spreadsheetId, 'Nilai_Dan_Sertifikat');
+    }
     for (const dep of getDependentSheets(sheetName)) {
       invalidateSheetCacheEntry(config.spreadsheetId, dep);
     }
@@ -557,6 +566,15 @@ export async function writeLiveSheetViaGas(
     siswaIndexCache.delete(config.spreadsheetId);
     invalidateSheetCacheEntry(config.spreadsheetId, 'Master_Siswa_XI');
     invalidateSheetCacheEntry(config.spreadsheetId, 'Master_Siswa');
+  }
+  if (
+    sheetName === 'data_plotting' ||
+    sheetName === 'Plotting_Pemberangkatan' ||
+    sheetName === 'Nilai_Dan_Sertifikat'
+  ) {
+    invalidateSheetCacheEntry(config.spreadsheetId, 'data_plotting');
+    invalidateSheetCacheEntry(config.spreadsheetId, 'Plotting_Pemberangkatan');
+    invalidateSheetCacheEntry(config.spreadsheetId, 'Nilai_Dan_Sertifikat');
   }
   for (const dep of getDependentSheets(sheetName)) {
     invalidateSheetCacheEntry(config.spreadsheetId, dep);

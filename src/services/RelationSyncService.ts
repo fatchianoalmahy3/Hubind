@@ -99,8 +99,8 @@ export class RelationSyncService {
       client.invalidateClientSheetCache('Master_Guru_Pendamping');
     } else if (moduleId === 'pengajuan') {
       client.invalidateClientSheetCache('Data_Pengajuan_PKL');
-    } else if (moduleId === 'siswa_pkl') {
-      client.invalidateClientSheetCache('Plotting_Pemberangkatan');
+    } else if (moduleId === 'siswa_pkl' || moduleId === 'sertifikat') {
+      client.invalidateClientSheetCache('data_plotting');
     } else if (moduleId === 'monitoring') {
       client.invalidateClientSheetCache('Monitoring_5_Tahap');
     }
@@ -146,12 +146,11 @@ export class RelationSyncService {
       return serverRes.summary;
     }
 
-    const [{ PengajuanService }, { PerizinanService }, { MonitoringService }, { SertifikatService }] =
+    const [{ PengajuanService }, { PerizinanService }, { MonitoringService }] =
       await Promise.all([
         import('./PengajuanService'),
         import('./PerizinanService'),
         import('./MonitoringService'),
-        import('./SertifikatService'),
       ]);
 
     const siswaService = SiswaService.getInstance();
@@ -163,7 +162,6 @@ export class RelationSyncService {
     const perizinanService = PerizinanService.getInstance();
     const siswaPklService = SiswaPklService.getInstance();
     const monitoringService = MonitoringService.getInstance();
-    const sertifikatService = SertifikatService.getInstance();
 
     const [
       siswaList,
@@ -175,7 +173,6 @@ export class RelationSyncService {
       perizinanList,
       placements,
       monitorings,
-      sertifikats,
     ] = await Promise.all([
       siswaService.getAll().catch(() => [] as Siswa[]),
       jurusanService.getAll().catch(() => [] as Jurusan[]),
@@ -186,7 +183,6 @@ export class RelationSyncService {
       perizinanService.getAll().catch(() => []),
       siswaPklService.getAll().catch(() => [] as PenempatanPKL[]),
       monitoringService.getAll().catch(() => []),
-      sertifikatService.getAll().catch(() => []),
     ]);
 
     const jurusanByKey = new Map<string, Jurusan>();
@@ -275,7 +271,6 @@ export class RelationSyncService {
     const perizinanPatches: Array<{ id: string; updates: Record<string, any> }> = [];
     const placementPatches: Array<{ id: string; updates: Partial<PenempatanPKL> }> = [];
     const monitoringPatches: Array<{ id: string; updates: Record<string, any> }> = [];
-    const sertifikatPatches: Array<{ id: string; updates: Record<string, any> }> = [];
 
     if (_options.backfillIds) {
       for (const j of jurusanList) {
@@ -400,30 +395,6 @@ export class RelationSyncService {
         }
         if (Object.keys(patch).length > 0) monitoringPatches.push({ id: m.id, updates: patch });
       }
-
-      for (const sert of sertifikats) {
-        const patch: Record<string, any> = {};
-        const nisDigits = getCanonicalNisDigits(sert.nis);
-        const linkedPlt = nisDigits ? placementByNis.get(nisDigits) : undefined;
-        const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
-        if (
-          linkedPlt?.idPenempatan &&
-          (!sert.idPenempatan || String(sert.idPenempatan).startsWith('PLT-2')) &&
-          sert.idPenempatan !== linkedPlt.idPenempatan
-        ) {
-          patch.idPenempatan = linkedPlt.idPenempatan;
-        }
-        const matchedDudi =
-          (sert.idDudi && dudiById.get(sert.idDudi)) ||
-          (linkedPlt?.idDudi && dudiById.get(linkedPlt.idDudi)) ||
-          (sert.dudiTujuan && dudiByName.get(normalize(sert.dudiTujuan))) ||
-          (reqRef?.idDudi ? dudiById.get(reqRef.idDudi) : undefined) ||
-          (reqRef?.dudiTujuan ? dudiByName.get(normalize(reqRef.dudiTujuan)) : undefined);
-        if (matchedDudi && sert.idDudi !== matchedDudi.id) {
-          patch.idDudi = matchedDudi.id;
-        }
-        if (Object.keys(patch).length > 0) sertifikatPatches.push({ id: sert.id, updates: patch });
-      }
     }
 
     const [
@@ -451,9 +422,6 @@ export class RelationSyncService {
         : 0,
       monitoringPatches.length
         ? monitoringService.bulkUpdateMany(monitoringPatches, silent).catch(() => 0)
-        : 0,
-      sertifikatPatches.length
-        ? sertifikatService.bulkUpdateMany(sertifikatPatches, silent).catch(() => 0)
         : 0,
     ]);
 

@@ -113,33 +113,62 @@ const REQUIRED_SHEET_HEADERS = ${requiredHeadersLiteral};
 const FORMULA_MANAGED_HEADERS = ${formulaManagedLiteral};
 
 const HEADER_SYNONYMS_BY_SHEET = {
+  Master_Jurusan: {
+    kode: ['kode', 'kodejurusan', 'idjurusan'],
+    namajurusan: ['namajurusan', 'nama'],
+    kuotasiswa: ['kuotasiswa', 'targetkuota'],
+    totalterdaftar: ['totalterdaftar', 'siswaterdaftar']
+  },
+  Master_Kelas_Walas: {
+    namakelas: ['namakelas', 'kelas'],
+    idjurusan: ['idjurusan']
+  },
   Master_DUDI: {
     notelpdudi: ['notelpdudi', 'kontakpic', 'telepondudi'],
-    namapemimpin: ['namapemimpin', 'pimpinan']
+    namapemimpin: ['namapemimpin', 'pimpinan'],
+    linkmaps: ['linkmaps', 'mapsurl', 'googlemaps']
   },
   Master_Siswa_XI: {
     namalengkap: ['namalengkap', 'namasiswa', 'nama'],
-    nohpsiswa: ['nohpsiswa', 'nohp', 'telepon']
+    nohpsiswa: ['nohpsiswa', 'nohp', 'telepon'],
+    idjurusan: ['idjurusan', 'jurusan']
   },
   Master_Guru_Pendamping: {
-    namalengkap: ['namalengkap', 'namaguru', 'nama']
+    namalengkap: ['namalengkap', 'namaguru', 'nama'],
+    peranutama: ['peranutama', 'peran']
   },
   Data_Pengajuan_PKL: {
-    alamatdudi: ['alamatdudi', 'alamat'],
-    tglberangkat: ['tglberangkat', 'tanggalberangkat'],
-    notelpdudi: ['notelpdudi', 'kontakpic', 'telepondudi']
+    nopengajuan: ['nopengajuan', 'id'],
+    duditujuan: ['duditujuan', 'namadudi'],
+    tglkirimsurat: ['tglkirimsurat', 'tanggalkirimsurat'],
+    tglbalasan: ['tglbalasan', 'tanggalbalasan'],
+    linksuratpdf: ['linksuratpdf', 'linkpdf'],
+    tglberangkat: ['tglberangkat', 'tanggalberangkat']
   },
   Data_Perizinan_PKL: {
-    idperizinan: ['idperizinan', 'noperizinan'],
+    idperizinan: ['idperizinan', 'noperizinan', 'id'],
+    duditujuan: ['duditujuan', 'namadudi'],
     izin: ['izin', 'statusizinortu'],
     tglmulaiizin: ['tglmulaiizin', 'tanggalmulaiizin'],
     tglselesaiizin: ['tglselesaiizin', 'tanggalselesaiizin'],
-    tglkirimsurat: ['tglkirimsurat', 'tanggalkirimsurat'],
-    tglbalasan: ['tglbalasan', 'tanggalbalasan'],
-    linksuratpdf: ['linksuratpdf', 'linkpdf']
+    linkbuktibalasan: ['linkbuktibalasan', 'linksuratpdf', 'linkpdf']
+  },
+  data_plotting: {
+    idpenempatan: ['idpenempatan', 'id'],
+    namadudi: ['namadudi', 'duditujuan'],
+    tanggalberangkat: ['tanggalberangkat', 'tglberangkat'],
+    tanggalrencanatarik: ['tanggalrencanatarik', 'tglrencanatarik'],
+    nilaisoftskills: ['nilaisoftskills', 'nilaisoftskill'],
+    nilaihardskills: ['nilaihardskills', 'nilaikompetensiteknis'],
+    nilaialurbisnisduniakerja: ['nilaialurbisnisduniakerja', 'nilaialurbisnis'],
+    nilairatarata: ['nilairatarata', 'nilaidudi', 'nilaiakhir'],
+    tglterbit: ['tglterbit', 'tanggalterbit']
   },
   Monitoring_5_Tahap: {
+    idmonitoring: ['idmonitoring', 'id'],
+    duditujuan: ['duditujuan', 'namadudi'],
     tahap: ['tahap', 'tahapmonitoring'],
+    tanggalkunjungan: ['tanggalkunjungan', 'tglkunjungan'],
     nilaisoftskills: ['nilaisoftskills', 'nilaisoftskill'],
     nilaihardskills: ['nilaihardskills', 'nilaikompetensiteknis'],
     nilaialurbisnisduniakerja: ['nilaialurbisnisduniakerja', 'nilaialurbisnis'],
@@ -147,16 +176,11 @@ const HEADER_SYNONYMS_BY_SHEET = {
     fotobuktidrive: ['fotobuktidrive', 'fotobuktiurl'],
     kompetensididapat: ['kompetensididapat', 'kompetensisiswa']
   },
-  Nilai_Dan_Sertifikat: {
-    nilaisoftskills: ['nilaisoftskills', 'nilaisoftskill'],
-    nilaihardskills: ['nilaihardskills', 'nilaikompetensiteknis'],
-    nilaialurbisnisduniakerja: ['nilaialurbisnisduniakerja', 'nilaialurbisnis'],
-    nilairatarata: ['nilairatarata', 'nilaidudi', 'nilaiakhir'],
-    tglterbit: ['tglterbit', 'tanggalterbit']
-  },
   Log_Penerbitan_Surat: {
+    idterbit: ['idterbit', 'id'],
     linkpdf: ['linkpdf', 'linksuratpdf'],
-    tglterbit: ['tglterbit', 'tanggalterbit']
+    tglterbit: ['tglterbit', 'tanggalterbit'],
+    tanggalterbit: ['tanggalterbit', 'tglterbit']
   }
 };
 
@@ -198,6 +222,34 @@ function getHeaderSynonymNorms(canonicalSheetName, headerNorm) {
   return [headerNorm];
 }
 
+function extractHeaderLabelFromFormula(formulaStr) {
+  const f = String(formulaStr || '').trim();
+  if (!f || f.charAt(0) !== '=') return '';
+  const m = f.match(/^=\\s*\\{\\s*"([^"]+)"\\s*[;,]/);
+  return m && m[1] ? String(m[1]).trim() : '';
+}
+
+function resolveEffectiveHeaderLabels(sheet, lastColOpt) {
+  if (!sheet) return { labels: [], values: [], formulas: [] };
+  const lastCol = lastColOpt || sheet.getLastColumn();
+  if (lastCol <= 0) return { labels: [], values: [], formulas: [] };
+  const range = sheet.getRange(1, 1, 1, lastCol);
+  const values = range.getValues()[0];
+  const formulas = range.getFormulas()[0];
+  const labels = [];
+  for (let c = 0; c < lastCol; c++) {
+    const rawVal = String(values[c] === null || values[c] === undefined ? '' : values[c]).trim();
+    const rawFormula = String(formulas[c] || '').trim();
+    let label = rawVal;
+    if ((!rawVal || rawVal.charAt(0) === '#') && rawFormula.charAt(0) === '=') {
+      const fromFormula = extractHeaderLabelFromFormula(rawFormula);
+      if (fromFormula) label = fromFormula;
+    }
+    labels.push(label);
+  }
+  return { labels: labels, values: values, formulas: formulas };
+}
+
 function getGasSheetCacheVersion(ssId) {
   try {
     return CacheService.getScriptCache().get('ver_' + ssId) || '0';
@@ -216,6 +268,9 @@ function bumpGasSheetCacheVersion(ssId) {
 
 function canonicalizeSheetName(sheetName) {
   if (sheetName === 'Master_Siswa') return 'Master_Siswa_XI';
+  if (sheetName === 'Plotting_Pemberangkatan' || sheetName === 'Nilai_Dan_Sertifikat') {
+    return 'data_plotting';
+  }
   if (
     sheetName === 'Monitoring_6_Tahap' ||
     sheetName === 'Monitoring_8_Tahap' ||
@@ -230,6 +285,13 @@ function resolveSheetAlias(ss, sheetName) {
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet && (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa')) {
     sheet = ss.getSheetByName('Master_Siswa_XI') || ss.getSheetByName('Master_Siswa');
+  } else if (!sheet && (sheetName === 'data_plotting' || sheetName === 'Plotting_Pemberangkatan')) {
+    sheet = ss.getSheetByName('data_plotting') || ss.getSheetByName('Plotting_Pemberangkatan');
+  } else if (!sheet && sheetName === 'Nilai_Dan_Sertifikat') {
+    sheet =
+      ss.getSheetByName('Nilai_Dan_Sertifikat') ||
+      ss.getSheetByName('data_plotting') ||
+      ss.getSheetByName('Plotting_Pemberangkatan');
   } else if (
     !sheet &&
     (sheetName === 'Monitoring_5_Tahap' ||
@@ -314,12 +376,13 @@ function ensureMissingHeaders(sheet, rawSheetName) {
   const expected = REQUIRED_SHEET_HEADERS[canonicalSheetName];
   const lastCol = sheet.getLastColumn();
   if (!expected || lastCol === 0) {
-    return lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+    return lastCol > 0 ? resolveEffectiveHeaderLabels(sheet, lastCol).labels : [];
   }
-  const currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const currentHeaders = resolveEffectiveHeaderLabels(sheet, lastCol).labels;
   const existingNorms = {};
   for (let i = 0; i < currentHeaders.length; i++) {
-    existingNorms[normalizeKey(currentHeaders[i])] = true;
+    const norm = normalizeKey(currentHeaders[i]);
+    if (norm) existingNorms[norm] = true;
   }
   const missing = [];
   for (let j = 0; j < expected.length; j++) {
@@ -376,14 +439,39 @@ function findColumnIndex(headers, candidatesNorm) {
 function detectFormulaColFlags(sheet, headersLength) {
   const flags = [];
   if (!sheet || headersLength <= 0) return flags;
-  const f1 = sheet.getRange(1, 1, 1, headersLength).getFormulas()[0];
-  const f2 = sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, 1, headersLength).getFormulas()[0] : [];
+  const rowsToCheck = sheet.getLastRow() >= 2 ? 2 : 1;
+  const formulas = sheet.getRange(1, 1, rowsToCheck, headersLength).getFormulas();
+  const f1 = formulas[0] || [];
+  const f2 = formulas[1] || [];
   for (let c = 0; c < headersLength; c++) {
     const hasF1 = Boolean(f1[c] && String(f1[c]).charAt(0) === '=');
     const hasF2 = Boolean(f2[c] && String(f2[c]).charAt(0) === '=');
     flags.push(hasF1 || hasF2);
   }
   return flags;
+}
+
+function getCachedSheetSchemaForWrite(ssId, sheet, rawSheetName) {
+  const lastCol = sheet.getLastColumn();
+  const cacheKey = 'sch_' + ssId + '_' + sheet.getSheetId() + '_' + lastCol;
+  try {
+    const rawCached = CacheService.getScriptCache().get(cacheKey);
+    if (rawCached) {
+      const parsed = JSON.parse(rawCached);
+      if (parsed && Array.isArray(parsed.headers) && Array.isArray(parsed.isFormulaCol)) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
+
+  const headers = ensureMissingHeaders(sheet, rawSheetName);
+  const isFormulaCol = detectFormulaColFlags(sheet, headers.length);
+  const schema = { headers: headers, isFormulaCol: isFormulaCol };
+  try {
+    const finalKey = 'sch_' + ssId + '_' + sheet.getSheetId() + '_' + headers.length;
+    CacheService.getScriptCache().put(finalKey, JSON.stringify(schema), 300);
+  } catch (e) {}
+  return schema;
 }
 
 function formatNisAndTextColumns(sheet, headers, startRow, numRows) {
@@ -406,6 +494,31 @@ function writeNonFormulaRowSpans(sheet, rowNum, rowValues, isFormulaCol) {
     const span = [];
     while (c < len && !isFormulaCol[c]) {
       span.push(rowValues[c]);
+      c++;
+    }
+    sheet.getRange(rowNum, startIdx + 1, 1, span.length).setValues([span]);
+  }
+}
+
+function writePartialRowUpdateSpansGas(sheet, rowNum, headers, isFormulaCol, rowObj) {
+  const len = headers.length;
+  let c = 0;
+  while (c < len) {
+    if (isFormulaCol[c]) {
+      c++;
+      continue;
+    }
+    const firstVal = getNormalizedValue(rowObj, headers[c]);
+    if (firstVal === undefined) {
+      c++;
+      continue;
+    }
+    const startIdx = c;
+    const span = [];
+    while (c < len && !isFormulaCol[c]) {
+      const v = getNormalizedValue(rowObj, headers[c]);
+      if (v === undefined) break;
+      span.push(v);
       c++;
     }
     sheet.getRange(rowNum, startIdx + 1, 1, span.length).setValues([span]);
@@ -546,7 +659,7 @@ function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicit
   }
 
   const nisWanted = String((rowObj && (rowObj.NIS || rowObj.nis)) || '').trim() ||
-    ((sheetName === 'Nilai_Dan_Sertifikat' || sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') ? cleanId : '');
+    ((sheetName === 'data_plotting' || sheetName === 'Plotting_Pemberangkatan' || sheetName === 'Nilai_Dan_Sertifikat' || sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') ? cleanId : '');
   const nisWantedDigits = stripNis(nisWanted);
   if (nisWanted && nisColIdx !== -1) {
     for (let r2 = 1; r2 < values.length; r2++) {

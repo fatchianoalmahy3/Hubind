@@ -130,8 +130,9 @@ function doPost(e) {
       throw new Error('Sheet tidak ditemukan: ' + sheetName);
     }
 
-    const headers = ensureMissingHeaders(sheet, sheetName);
-    const isFormulaCol = detectFormulaColFlags(sheet, headers.length);
+    const schema = getCachedSheetSchemaForWrite(ss.getId(), sheet, sheetName);
+    const headers = schema.headers;
+    const isFormulaCol = schema.isFormulaCol;
     let savedId = '';
     let savedRowNumber = 0;
 
@@ -164,22 +165,33 @@ function doPost(e) {
       const rowObj = body.data || {};
       const targetId = String(body.id || extractRecordId(rowObj)).trim();
       savedId = targetId;
-      const explicitRowNum = Number(body.sheetRowNumber || rowObj._sheetRowNumber || 0);
-      const values = sheet.getDataRange().getValues();
-      const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum);
-      if (rowIdx === -1) {
-        return ContentService.createTextOutput(JSON.stringify({
-          error: 'Baris data dengan ID "' + targetId + '" tidak ditemukan di sheet "' + sheetName + '". Segarkan tabel terlebih dahulu lalu coba simpan ulang.'
-        })).setMimeType(ContentService.MimeType.JSON);
+      const parsedHint = parseRowHintFromId(targetId);
+      const explicitRowNum = Number(body.sheetRowNumber || rowObj._sheetRowNumber || parsedHint.rowNum || 0);
+
+      let targetSheetRow = -1;
+      if (explicitRowNum >= 2 && explicitRowNum <= sheet.getLastRow()) {
+        const singleRow = sheet.getRange(explicitRowNum, 1, 1, headers.length).getValues()[0];
+        if (findRowIndexById([headers, singleRow], headers, targetId, rowObj, sheetName, 2) === 1) {
+          targetSheetRow = explicitRowNum;
+        }
       }
-      const updatedRow = headers.map(function(h, colIdx) {
-        if (isFormulaCol[colIdx]) return '';
-        const val = getNormalizedValue(rowObj, h);
-        return val !== undefined ? val : values[rowIdx][colIdx];
-      });
-      formatNisAndTextColumns(sheet, headers, rowIdx + 1, 1);
-      writeNonFormulaRowSpans(sheet, rowIdx + 1, updatedRow, isFormulaCol);
-      savedRowNumber = rowIdx + 1;
+
+      if (targetSheetRow === -1) {
+        const values = sheet.getDataRange().getValues();
+        const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum);
+        if (rowIdx === -1) {
+          return ContentService.createTextOutput(JSON.stringify({
+            error: 'Baris data dengan ID "' + targetId + '" tidak ditemukan di sheet "' + sheetName + '". Segarkan tabel terlebih dahulu lalu coba simpan ulang.'
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+        targetSheetRow = rowIdx + 1;
+      }
+
+      if (rowObj.NIS !== undefined || rowObj.nis !== undefined) {
+        formatNisAndTextColumns(sheet, headers, targetSheetRow, 1);
+      }
+      writePartialRowUpdateSpansGas(sheet, targetSheetRow, headers, isFormulaCol, rowObj);
+      savedRowNumber = targetSheetRow;
     } else if (action === 'BULK_UPDATE') {
       const updatedRows = (body.data && Array.isArray(body.data.updatedRows)) ? body.data.updatedRows : [];
       const values = sheet.getDataRange().getValues();
@@ -220,15 +232,28 @@ function doPost(e) {
       const payload = body.data || {};
       const deletedRowObj = payload.deletedRow || payload;
       const targetId = String(body.id || extractRecordId(payload) || extractRecordId(deletedRowObj)).trim();
-      const explicitRowNum = Number(body.sheetRowNumber || deletedRowObj._sheetRowNumber || 0);
-      const values = sheet.getDataRange().getValues();
-      const rowIdx = findRowIndexById(values, headers, targetId, deletedRowObj, sheetName, explicitRowNum);
-      if (rowIdx === -1) {
-        return ContentService.createTextOutput(JSON.stringify({
-          error: 'Baris data yang akan dihapus (ID: "' + targetId + '") tidak ditemukan di sheet "' + sheetName + '".'
-        })).setMimeType(ContentService.MimeType.JSON);
+      const parsedHint = parseRowHintFromId(targetId);
+      const explicitRowNum = Number(body.sheetRowNumber || deletedRowObj._sheetRowNumber || parsedHint.rowNum || 0);
+
+      let deleteSheetRow = -1;
+      if (explicitRowNum >= 2 && explicitRowNum <= sheet.getLastRow()) {
+        const singleRow = sheet.getRange(explicitRowNum, 1, 1, headers.length).getValues()[0];
+        if (findRowIndexById([headers, singleRow], headers, targetId, deletedRowObj, sheetName, 2) === 1) {
+          deleteSheetRow = explicitRowNum;
+        }
       }
-      sheet.deleteRow(rowIdx + 1);
+
+      if (deleteSheetRow === -1) {
+        const values = sheet.getDataRange().getValues();
+        const rowIdx = findRowIndexById(values, headers, targetId, deletedRowObj, sheetName, explicitRowNum);
+        if (rowIdx === -1) {
+          return ContentService.createTextOutput(JSON.stringify({
+            error: 'Baris data yang akan dihapus (ID: "' + targetId + '") tidak ditemukan di sheet "' + sheetName + '".'
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+        deleteSheetRow = rowIdx + 1;
+      }
+      sheet.deleteRow(deleteSheetRow);
     } else if (action === 'BULK_DELETE') {
       const ids = (body.data && Array.isArray(body.data.ids)) ? body.data.ids : [];
       const deletedRows = (body.data && Array.isArray(body.data.deletedRows)) ? body.data.deletedRows : [];
@@ -265,7 +290,9 @@ function doPost(e) {
       }
     }
 
-    SpreadsheetApp.flush();
+    if (action === 'IMPORT' || action === 'BULK_UPDATE' || action === 'BULK_DELETE' || action === 'SYNC_ALL') {
+      SpreadsheetApp.flush();
+    }
     bumpGasSheetCacheVersion(ss.getId());
     return ContentService.createTextOutput(JSON.stringify({
       success: true,

@@ -134,6 +134,11 @@ export interface Pengajuan {
   alamatDomisili?: string;
   namaOrtuWali?: string;
   noOrtuWali?: string;
+  noSuratPermohonan?: string;
+  tanggalKirimSurat?: string;
+  statusBalasanDudi?: 'Belum Dikirim' | 'Menunggu Balasan' | 'Diterima DUDI' | 'Ditolak DUDI';
+  tanggalBalasan?: string;
+  linkSuratPdf?: string;
   statusKakomli: 'Pending' | 'Disetujui' | 'Ditolak';
   catatanKakomli?: string;
   statusHubin: 'Menunggu ACC Kakomli' | 'Siap Diberangkatkan' | 'Terjadwal' | 'Batal';
@@ -151,7 +156,7 @@ export type PerizinanIzinOption =
 export interface PerizinanPKL {
   id: string;
   noPerizinan: string;
-  noPengajuan: string;
+  noPengajuan?: string;
   nis: string;
   namaSiswa: string;
   jurusan: string;
@@ -162,11 +167,11 @@ export interface PerizinanPKL {
   tanggalMulaiIzin?: string;
   tanggalSelesaiIzin?: string;
   rentangTanggal?: string;
-  noSuratPermohonan: string;
+  noSuratPermohonan?: string;
   idDudi?: string;
   dudiTujuan: string;
-  alamatDudi: string;
-  tanggalKirimSurat: string;
+  alamatDudi?: string;
+  tanggalKirimSurat?: string;
   statusBalasanDudi?: 'Belum Dikirim' | 'Menunggu Balasan' | 'Diterima DUDI' | 'Ditolak DUDI';
   tanggalBalasan?: string;
   catatanPerizinan?: string;
@@ -187,6 +192,16 @@ export interface PenempatanPKL {
   tanggalRencanaTarik: string;
   statusPenempatan: 'Terjadwal' | 'Sedang Berjalan' | 'Selesai PKL' | 'Pindah DUDI' | 'Dibatalkan';
   catatanPenempatan?: string;
+  nilaiK3lh?: number;
+  nilaiSoftskill?: number;
+  nilaiKompetensiTeknis?: number;
+  nilaiAlurBisnis?: number;
+  nilaiRataRata?: number;
+  predikat?: 'Sangat Baik (A)' | 'Baik (B)' | 'Cukup (C)' | 'Kurang (D)';
+  noSeriBlangko?: string;
+  statusBlangko?: 'Tersedia' | 'Dialokasikan' | 'Tervalidasi DUDI' | 'Tercetak & Terbit' | 'Rusak / Batal';
+  statusRaport?: 'Belum Diproses' | 'Siap Cetak' | 'Sudah Diterbitkan';
+  tanggalTerbit?: string;
 }
 
 export type BukuLaporanStatus = 'BLM' | 'SDH' | 'TDK';

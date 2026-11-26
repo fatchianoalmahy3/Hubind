@@ -12,7 +12,7 @@ import { ToastManager } from '../../core/ToastManager';
 import { getTodayIsoDate, normalizeWhatsAppNumber } from '../../core/utils/autoIdHelpers';
 import { formatIndonesianDate, formatPerizinanDateRange } from '../../core/utils/dateHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
-import { PerizinanService } from '../../services/PerizinanService';
+import { PengajuanService } from '../../services/PengajuanService';
 import { CrudLoadingOverlay, TopProgressBar } from '../CrudProgressFeedback';
 
 export interface PerizinanWaModalState {
@@ -41,19 +41,24 @@ export function composePerizinanWaMessage(params: {
 }): string {
   const { row, recipientType, dudiName, kakomliName, alamat, pdfUrl } = params;
   const tglSurat = formatIndonesianDate(row?.tanggalKirimSurat || getTodayIsoDate());
-  const rentangIzin = formatPerizinanDateRange(
-    row?.tanggalMulaiIzin,
-    row?.tanggalSelesaiIzin,
-    row?.rentangTanggal || '-'
-  );
+  const rentangIzin =
+    row?.tanggalMulaiIzin || row?.tanggalSelesaiIzin
+      ? formatPerizinanDateRange(
+          row?.tanggalMulaiIzin,
+          row?.tanggalSelesaiIzin,
+          row?.rentangTanggal || '-'
+        )
+      : '';
   const baseDetails = [
-    `• No. Perizinan: ${row?.noPerizinan || row?.id || '-'}`,
+    row?.noPengajuan
+      ? `• No. Pengajuan: ${row.noPengajuan}`
+      : `• ID Data: ${row?.noPerizinan || row?.id || '-'}`,
     `• No. Surat: ${row?.noSuratPermohonan || '-'}`,
     `• Tanggal Surat: ${tglSurat}`,
     `• Nama Siswa: ${row?.namaSiswa || '-'} (NIS: ${formatNisVisual(row?.nis)})`,
     `• Kelas / Jurusan: ${row?.kelas || '-'} / ${row?.jurusan || '-'}`,
-    `• Nama Ortu / Wali: ${row?.namaOrtuWali || '-'}`,
-    `• Izin: ${row?.statusIzinOrtu || '-'}`,
+    row?.namaOrtuWali && row.namaOrtuWali !== '-' ? `• Nama Ortu / Wali: ${row.namaOrtuWali}` : '',
+    row?.statusIzinOrtu && row.statusIzinOrtu !== '-' ? `• Izin: ${row.statusIzinOrtu}` : '',
     rentangIzin && rentangIzin !== '-' ? `• Rentang Tanggal: ${rentangIzin}` : '',
     `• Lokasi DUDI: ${dudiName || '-'}`,
     `• Alamat DUDI: ${alamat || '-'}`,
@@ -61,7 +66,7 @@ export function composePerizinanWaMessage(params: {
     row?.linkBuktiBalasan && row.linkBuktiBalasan !== '-'
       ? `• Tautan Bukti Balasan: ${row.linkBuktiBalasan}`
       : '',
-  ];
+  ].filter(Boolean);
 
   if (recipientType === 'kakomli') {
     return [
@@ -239,8 +244,12 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
                   if (!state.row) return;
                   setState((p) => ({ ...p, generatingPdf: true }));
                   try {
+                    const isPengajuan = Boolean(state.row.noPengajuan || !state.row.noPerizinan);
                     const res = await PublicPortalClient.generatePerizinanPdf({
-                      perizinanId: state.row.id || state.row.noPerizinan,
+                      sourceSheet: isPengajuan ? 'Data_Pengajuan_PKL' : 'Data_Perizinan_PKL',
+                      pengajuanId: isPengajuan ? state.row.id || state.row.noPengajuan : undefined,
+                      perizinanId: !isPengajuan ? state.row.id || state.row.noPerizinan : undefined,
+                      noPengajuan: state.row.noPengajuan,
                       noPerizinan: state.row.noPerizinan,
                       noSuratPermohonan: state.row.noSuratPermohonan,
                       namaSiswa: state.row.namaSiswa,
@@ -394,9 +403,11 @@ export const PerizinanWaModal: React.FC<PerizinanWaModalProps> = ({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => {
-                  if (state.recipientType === 'dudi') {
-                    PerizinanService.getInstance()
-                      .markSuratSentToday(state.row.id, { silentToast: true })
+                  if (state.recipientType === 'dudi' && state.row?.id) {
+                    PengajuanService.getInstance()
+                      .markSuratSentToday(state.row.id, state.row.noSuratPermohonan, {
+                        silentToast: true,
+                      })
                       .then(() => onRefresh())
                       .catch(() => {});
                   }

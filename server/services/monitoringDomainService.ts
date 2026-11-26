@@ -119,47 +119,6 @@ export async function syncDudiContactToMasterAndPengajuan(
     synced = true;
   }
 
-  // Backfill matching active Data_Pengajuan_PKL rows whose DUDI contact is blank
-  const reqRes = await fetchLiveSheetViaGas('Data_Pengajuan_PKL', false).catch(() => ({ rows: [] as any[] }));
-  const matchingReqs = reqRes.rows.filter((r: any) => {
-    const rDudiId = pickField(r, 'ID_DUDI', 'idDudi');
-    const rDudiNama = normalizeStr(pickField(r, 'DUDI_Tujuan', 'dudiTujuan'));
-    const isTarget =
-      (targetDudiId && rDudiId === targetDudiId) ||
-      (targetDudiNameNorm && rDudiNama === targetDudiNameNorm);
-    const hasBlankContact =
-      !pickField(r, 'Nama_Pemimpin', 'namaPemimpin') ||
-      !pickField(r, 'Nama_PIC', 'namaPic') ||
-      !pickField(r, 'No_Telp_DUDI', 'noTelpDudi') ||
-      (inputHariKerja && !pickField(r, 'Hari_Kerja', 'hariKerja')) ||
-      (inputJamKerja && !pickField(r, 'Jam_Kerja', 'jamKerja'));
-    return isTarget && hasBlankContact;
-  });
-
-  const pengajuanUpdates: any[] = [];
-  for (const mr of matchingReqs.slice(0, 10)) {
-    const mrId = pickField(mr, 'No_Pengajuan', 'noPengajuan', 'id');
-    if (!mrId) continue;
-    pengajuanUpdates.push({
-      ...mr,
-      id: mrId,
-      No_Pengajuan: mrId,
-      Nama_Pemimpin: pickField(mr, 'Nama_Pemimpin', 'namaPemimpin') || inputPemimpin,
-      Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || inputPic,
-      No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || inputTelpDudi,
-      Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || inputTelpDudi,
-      Hari_Kerja: pickField(mr, 'Hari_Kerja', 'hariKerja') || inputHariKerja,
-      Jam_Kerja: pickField(mr, 'Jam_Kerja', 'jamKerja') || inputJamKerja,
-    });
-  }
-
-  if (pengajuanUpdates.length > 0) {
-    await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'BULK_UPDATE', {
-      ids: pengajuanUpdates.map((r) => r.id),
-      updatedRows: pengajuanUpdates,
-    }).catch(() => {});
-  }
-
   return synced;
 }
 
@@ -181,12 +140,12 @@ export interface UpsertNilaiSertifikatInput {
 
 /**
  * Grade SSOT: Monitoring_5_Tahap owns the 4 PKL score components.
- * Nilai_Dan_Sertifikat persists only FK + administrative/certificate metadata
+ * data_plotting persists FK + placement & administrative/certificate metadata
  * (ID_Penempatan, NIS, ID_DUDI, No_Seri_Blangko, Status_Blangko, Status_Raport, Tgl_Terbit);
- * student/DUDI display & grade columns are populated via Row-1 ARRAYFORMULA.
+ * student/DUDI display & grade rollup columns are populated via Row-1 ARRAYFORMULA.
  */
 export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput): Promise<void> {
-  const nilaiRes = await fetchLiveSheetViaGas('Nilai_Dan_Sertifikat', true).catch(() => ({ rows: [] as any[] }));
+  const plottingRes = await fetchLiveSheetViaGas('data_plotting', true).catch(() => ({ rows: [] as any[] }));
   const cleanNis = stripNisSymbols(input.nis) || String(input.nis || '').trim();
   const idPenempatan = String(input.idPenempatan || `PLT-${cleanNis}`).trim();
 
@@ -202,38 +161,38 @@ export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput
     }
   }
 
-  const existingNilai = nilaiRes.rows.find((n: any) => {
+  const existingRow = plottingRes.rows.find((n: any) => {
     const rowNis = pickField(n, 'NIS', 'nis');
     const rowNisDigits = stripNisSymbols(rowNis);
     const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
     return (cleanNis && (rowNisDigits === cleanNis || rowNis === cleanNis)) || (idPenempatan && rowPlt === idPenempatan);
   });
 
-  if (existingNilai) {
-    const existingId = pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
-    const existingDudiId = pickField(existingNilai, 'ID_DUDI', 'idDudi') || resolvedDudiId;
-    await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'UPDATE', {
+  if (existingRow) {
+    const existingId = pickField(existingRow, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
+    const existingDudiId = pickField(existingRow, 'ID_DUDI', 'idDudi') || resolvedDudiId;
+    await writeLiveSheetViaGas('data_plotting', 'UPDATE', {
       id: existingId,
       ID_Penempatan: existingId,
       idPenempatan: existingId,
-      _sheetRowNumber: existingNilai._sheetRowNumber,
-      NIS: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
-      nis: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
+      _sheetRowNumber: existingRow._sheetRowNumber,
+      NIS: cleanNis || pickField(existingRow, 'NIS', 'nis'),
+      nis: cleanNis || pickField(existingRow, 'NIS', 'nis'),
       ID_DUDI: existingDudiId,
       idDudi: existingDudiId,
-      No_Seri_Blangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
-      noSeriBlangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
-      Status_Blangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
-      statusBlangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
+      No_Seri_Blangko: pickField(existingRow, 'No_Seri_Blangko', 'noSeriBlangko'),
+      noSeriBlangko: pickField(existingRow, 'No_Seri_Blangko', 'noSeriBlangko'),
+      Status_Blangko: pickField(existingRow, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
+      statusBlangko: pickField(existingRow, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
       Status_Raport: 'Siap Cetak',
       statusRaport: 'Siap Cetak',
-      Tgl_Terbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || input.tglTerbit,
-      tanggalTerbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || input.tglTerbit,
+      Tgl_Terbit: pickField(existingRow, 'Tgl_Terbit', 'tanggalTerbit') || input.tglTerbit,
+      tanggalTerbit: pickField(existingRow, 'Tgl_Terbit', 'tanggalTerbit') || input.tglTerbit,
     });
     return;
   }
 
-  await writeLiveSheetViaGas('Nilai_Dan_Sertifikat', 'CREATE', {
+  await writeLiveSheetViaGas('data_plotting', 'CREATE', {
     id: idPenempatan,
     ID_Penempatan: idPenempatan,
     idPenempatan,
@@ -241,6 +200,10 @@ export async function upsertNilaiDanSertifikat(input: UpsertNilaiSertifikatInput
     nis: cleanNis,
     ID_DUDI: resolvedDudiId,
     idDudi: resolvedDudiId,
+    Nama_DUDI: input.namaDudi || '',
+    namaDudi: input.namaDudi || '',
+    Status_Penempatan: 'Sedang PKL',
+    statusPenempatan: 'Sedang PKL',
     No_Seri_Blangko: '',
     noSeriBlangko: '',
     Status_Blangko: 'Tersedia',

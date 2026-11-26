@@ -9,6 +9,7 @@ import { registerAdminRoutes } from './server/routes/adminRoutes';
 import { registerRestApiRoutes } from './server/routes/restApiRoutes';
 import { registerPublicPortalRoutes } from './server/routes/publicPortalRoutes';
 import { registerDocumentRoutes } from './server/routes/documentRoutes';
+import { getSheetsApiDiagnostics } from './server/services/sheetsApiV4Client';
 import { sanitizeServerErrorMessage } from './server/utils/httpHelpers';
 
 export type { WorkspaceConfig } from './server/types';
@@ -71,6 +72,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     status: 'ok',
     runtime: isServerlessRuntime ? 'vercel-serverless' : 'node-server',
     firestoreConfigured: Boolean(firebaseCfg.projectId),
+    ...getSheetsApiDiagnostics(),
     timestamp: new Date().toISOString(),
   });
 });

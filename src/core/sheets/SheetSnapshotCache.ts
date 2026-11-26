@@ -162,6 +162,15 @@ export class SheetSnapshotCache {
       this.sheetLocalMutationAt.set('Master_Siswa_XI', now);
       this.sheetLocalMutationAt.set('Master_Siswa', now);
     }
+    if (
+      sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat'
+    ) {
+      this.sheetLocalMutationAt.set('data_plotting', now);
+      this.sheetLocalMutationAt.set('Plotting_Pemberangkatan', now);
+      this.sheetLocalMutationAt.set('Nilai_Dan_Sertifikat', now);
+    }
     const deps = getDependentSheets(sheetName);
     for (const dep of deps) {
       this.sheetLocalMutationAt.set(dep, now);
@@ -204,6 +213,15 @@ export class SheetSnapshotCache {
       if (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa') {
         toClear.add('Master_Siswa_XI');
         toClear.add('Master_Siswa');
+      }
+      if (
+        sheetName === 'data_plotting' ||
+        sheetName === 'Plotting_Pemberangkatan' ||
+        sheetName === 'Nilai_Dan_Sertifikat'
+      ) {
+        toClear.add('data_plotting');
+        toClear.add('Plotting_Pemberangkatan');
+        toClear.add('Nilai_Dan_Sertifikat');
       }
       this.bootstrapEtag = null;
       toClear.forEach((target) => {

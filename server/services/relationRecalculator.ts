@@ -30,7 +30,7 @@ function getTablesForRelationScope(scope: string): string[] {
       'Master_Jurusan',
       'Master_DUDI',
       'Data_Pengajuan_PKL',
-      'Plotting_Pemberangkatan',
+      'data_plotting',
       'Monitoring_5_Tahap',
       'Log_Penerbitan_Surat',
     ];
@@ -41,7 +41,7 @@ function getTablesForRelationScope(scope: string): string[] {
       'Master_Guru_Pendamping',
       'Master_Kelas_Walas',
       'Master_Siswa_XI',
-      'Plotting_Pemberangkatan',
+      'data_plotting',
     ];
   }
   if (scope === 'dudi') {
@@ -50,9 +50,8 @@ function getTablesForRelationScope(scope: string): string[] {
       'Master_Guru_Pendamping',
       'Data_Pengajuan_PKL',
       'Data_Perizinan_PKL',
-      'Plotting_Pemberangkatan',
+      'data_plotting',
       'Monitoring_5_Tahap',
-      'Nilai_Dan_Sertifikat',
       'Log_Penerbitan_Surat',
     ];
   }
@@ -64,9 +63,8 @@ function getTablesForRelationScope(scope: string): string[] {
     'Master_Kelas_Walas',
     'Data_Pengajuan_PKL',
     'Data_Perizinan_PKL',
-    'Plotting_Pemberangkatan',
+    'data_plotting',
     'Monitoring_5_Tahap',
-    'Nilai_Dan_Sertifikat',
     'Log_Penerbitan_Surat',
   ];
 }
@@ -90,9 +88,8 @@ export async function recalculateAllRelations(
     new Set([
       'Data_Pengajuan_PKL',
       'Data_Perizinan_PKL',
-      'Plotting_Pemberangkatan',
+      'data_plotting',
       'Monitoring_5_Tahap',
-      'Nilai_Dan_Sertifikat',
     ]),
     forceRefresh
   );
@@ -104,9 +101,8 @@ export async function recalculateAllRelations(
   const kelasList = sheets['Master_Kelas_Walas'] || [];
   const pengajuanList = sheets['Data_Pengajuan_PKL'] || [];
   const perizinanList = sheets['Data_Perizinan_PKL'] || [];
-  const placements = sheets['Plotting_Pemberangkatan'] || [];
+  const placements = sheets['data_plotting'] || [];
   const monitoringList = sheets['Monitoring_5_Tahap'] || [];
-  const sertifikatList = sheets['Nilai_Dan_Sertifikat'] || [];
   const logSuratList = sheets['Log_Penerbitan_Surat'] || [];
 
   const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -263,7 +259,6 @@ export async function recalculateAllRelations(
   const perizinanUpdates: any[] = [];
   const placementUpdates: any[] = [];
   const monitoringUpdates: any[] = [];
-  const sertifikatUpdates: any[] = [];
   const logSuratUpdates: any[] = [];
 
   // 1. Reconcile ID_Guru_Pendamping & static Guru_Pendamping on Master_DUDI + ID_Kakomli on Master_Jurusan
@@ -396,7 +391,6 @@ export async function recalculateAllRelations(
       const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
-      const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, 'Alamat', 'alamat') : '';
 
       const currGuruId = pickField(pq, 'ID_Guru_Pendamping', 'idGuruPendamping');
       const currGuruName = pickField(pq, 'Guru_Pendamping', 'guruPendamping');
@@ -425,7 +419,6 @@ export async function recalculateAllRelations(
           _sheetRowNumber: pq._sheetRowNumber,
           ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
           ...(nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}),
-          ...(nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {}),
           ...(nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}),
           ...(nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}),
         });
@@ -435,19 +428,25 @@ export async function recalculateAllRelations(
     for (const iz of perizinanList) {
       const izId = pickField(iz, 'ID_Perizinan', 'noPerizinan', 'id');
       if (!izId) continue;
+      const nisDigits = stripNisSymbols(pickField(iz, 'NIS', 'nis'));
+      const plt = nisDigits ? placementByNis.get(nisDigits) : undefined;
       const currDudiId = pickField(iz, 'ID_DUDI', 'idDudi');
       const currDudiName = pickField(iz, 'DUDI_Tujuan', 'dudiTujuan');
-      const currAlamat = pickField(iz, 'Alamat_DUDI', 'alamatDudi');
-      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
+      const matchedDudi =
+        resolveDudiRecord(currDudiId, currDudiName) ||
+        (plt
+          ? resolveDudiRecord(
+              pickField(plt, 'ID_DUDI', 'idDudi'),
+              pickField(plt, 'Nama_DUDI', 'namaDudi', 'DUDI_Tujuan')
+            )
+          : undefined);
       if (!matchedDudi) continue;
 
       const nextDudiId = pickField(matchedDudi, 'ID', 'id');
       const nextDudiName = pickField(matchedDudi, 'Nama_DUDI', 'namaDudi');
-      const nextAlamat = pickField(matchedDudi, 'Alamat', 'alamat');
       if (
         (nextDudiId && nextDudiId !== currDudiId) ||
-        (nextDudiName && nextDudiName !== currDudiName) ||
-        (nextAlamat && nextAlamat !== currAlamat)
+        (nextDudiName && nextDudiName !== currDudiName)
       ) {
         perizinanUpdates.push({
           id: izId,
@@ -455,7 +454,6 @@ export async function recalculateAllRelations(
           _sheetRowNumber: iz._sheetRowNumber,
           ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
           ...(nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}),
-          ...(nextAlamat ? { Alamat_DUDI: nextAlamat, alamatDudi: nextAlamat } : {}),
         });
       }
     }
@@ -510,7 +508,7 @@ export async function recalculateAllRelations(
     }
   }
 
-  // 4. Reconcile Monitoring_5_Tahap & Nilai_Dan_Sertifikat FKs + static display names
+  // 4. Reconcile Monitoring_5_Tahap FKs + static display names
   if (scope === 'all' || scope === 'guru' || scope === 'dudi' || scope === 'monitoring' || scope === 'sertifikat') {
     for (const m of monitoringList) {
       const mId = pickField(m, 'ID_Monitoring', 'idMonitoring', 'id');
@@ -527,7 +525,6 @@ export async function recalculateAllRelations(
 
       const currDudiId = pickField(m, 'ID_DUDI', 'idDudi');
       const currDudiName = pickField(m, 'DUDI_Tujuan', 'dudiTujuan');
-      const currDudiAlamat = pickField(m, 'Alamat_DUDI', 'alamatDudi');
       const matchedDudi =
         resolveDudiRecord(currDudiId, currDudiName) ||
         (plt
@@ -539,7 +536,6 @@ export async function recalculateAllRelations(
         (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : undefined);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
-      const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, 'Alamat', 'alamat') : '';
 
       const currGuruId = pickField(m, 'ID_Guru_Pendamping', 'idGuruPendamping');
       const currGuruName = pickField(m, 'Guru_Pendamping', 'guruPendamping');
@@ -565,8 +561,7 @@ export async function recalculateAllRelations(
       const needsNisUpdate = Boolean(nextNis && !currNisRaw);
       const needsDudiUpdate =
         Boolean(nextDudiId && nextDudiId !== currDudiId) ||
-        Boolean(nextDudiName && nextDudiName !== currDudiName) ||
-        Boolean(nextDudiAlamat && nextDudiAlamat !== currDudiAlamat);
+        Boolean(nextDudiName && nextDudiName !== currDudiName);
       const needsGuruUpdate =
         Boolean(nextGuruId && nextGuruId !== currGuruId) ||
         Boolean(nextGuruName && nextGuruName !== currGuruName);
@@ -580,48 +575,8 @@ export async function recalculateAllRelations(
           ...(needsNisUpdate ? { NIS: nextNis, nis: nextNis } : {}),
           ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
           ...(nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}),
-          ...(nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {}),
           ...(nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}),
           ...(nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}),
-        });
-      }
-    }
-
-    for (const sr of sertifikatList) {
-      const srId = pickField(sr, 'ID_Penempatan', 'idPenempatan', 'id');
-      const nisDigits = stripNisSymbols(pickField(sr, 'NIS', 'nis'));
-      if (!srId && !nisDigits) continue;
-      const plt = nisDigits ? placementByNis.get(nisDigits) : undefined;
-      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
-      const pltCanonicalId = plt ? pickField(plt, 'ID_Penempatan', 'idPenempatan', 'id') : '';
-      const nextPltId =
-        pltCanonicalId && (!srId || srId.startsWith('PLT-2')) ? pltCanonicalId : srId;
-      const currDudiId = pickField(sr, 'ID_DUDI', 'idDudi');
-      const currDudiName = pickField(sr, 'DUDI_Tujuan', 'dudiTujuan');
-      const matchedDudi =
-        resolveDudiRecord(currDudiId, currDudiName) ||
-        (plt
-          ? resolveDudiRecord(
-              pickField(plt, 'ID_DUDI', 'idDudi'),
-              pickField(plt, 'Nama_DUDI', 'namaDudi', 'DUDI_Tujuan')
-            )
-          : undefined) ||
-        (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : undefined);
-      const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
-      const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
-
-      if (
-        (nextPltId && nextPltId !== srId) ||
-        (nextDudiId && nextDudiId !== currDudiId) ||
-        (nextDudiName && nextDudiName !== currDudiName)
-      ) {
-        sertifikatUpdates.push({
-          id: srId || nisDigits,
-          NIS: nisDigits || undefined,
-          _sheetRowNumber: sr._sheetRowNumber,
-          ...(nextPltId ? { ID_Penempatan: nextPltId, idPenempatan: nextPltId } : {}),
-          ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
-          ...(nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}),
         });
       }
     }
@@ -684,7 +639,6 @@ export async function recalculateAllRelations(
     ,
     flushedPlacements,
     flushedMonitoring,
-    ,
     flushedLogSurat,
   ] = await Promise.all([
     flushBulkUpdates('Master_Jurusan', jurusanUpdates),
@@ -693,9 +647,8 @@ export async function recalculateAllRelations(
     flushBulkUpdates('Master_Siswa_XI', siswaUpdates),
     flushBulkUpdates('Data_Pengajuan_PKL', pengajuanUpdates),
     flushBulkUpdates('Data_Perizinan_PKL', perizinanUpdates),
-    flushBulkUpdates('Plotting_Pemberangkatan', placementUpdates),
+    flushBulkUpdates('data_plotting', placementUpdates),
     flushBulkUpdates('Monitoring_5_Tahap', monitoringUpdates),
-    flushBulkUpdates('Nilai_Dan_Sertifikat', sertifikatUpdates),
     flushBulkUpdates('Log_Penerbitan_Surat', logSuratUpdates),
   ]);
 

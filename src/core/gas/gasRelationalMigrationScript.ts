@@ -5,27 +5,49 @@ export function buildGasRelationalMigrationCode(): string {
  * Bagian dari Google Apps Script SI-HUBIN SMK PGRI 2 Ponorogo (4 File Modular)
  *
  * Fitur utama:
- * - Otomatis mendeteksi locale Spreadsheet (id_ID menggunakan ';' & HSTACK,
- *   en_US menggunakan ',' & HSTACK) sehingga bebas #ERROR! & bebas #REF!.
- * - Backfill Foreign Key otomatis lintas sheet via ID/Nama/NIS:
- *   Data_Pengajuan_PKL -> Plotting_Pemberangkatan -> Monitoring_5_Tahap -> Nilai_Dan_Sertifikat.
- * - Jalankan setupRelationalFormulasAndMigrate() 1x dari toolbar Apps Script.
+ * - cleanupDoubleColumnsAndRestoreLayout(): membersihkan kolom ganda akibat error
+ *   header sebelumnya & mengembalikan urutan kolom sesuai blueprint TANPA menimpa
+ *   rumus ARRAYFORMULA manual yang sudah berjalan benar.
+ * - setupRelationalFormulasAndMigrate(): backfill Foreign Key lintas sheet via
+ *   ID/Nama/NIS, membersihkan kolom ganda/redundan, merapikan urutan kolom, dan
+ *   menanamkan seluruh ARRAYFORMULA Baris-1 dengan verifikasi otomatis (';' / ',').
  * ============================================================================
  */
+
+function cleanupDoubleColumnsAndRestoreLayout() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Spreadsheet aktif tidak ditemukan.');
+  const summary = applyRelationalFormulasToSpreadsheet(ss, {
+    preserveWorkingFormulas: true,
+    pruneOptionA: false,
+    skipBackfillAndGradeMigration: true
+  });
+  Logger.log('HASIL PERAPIAN KOLOM & RUMUS: ' + JSON.stringify(summary));
+  return summary;
+}
 
 function setupRelationalFormulasAndMigrate() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Spreadsheet aktif tidak ditemukan.');
-  const summary = applyRelationalFormulasToSpreadsheet(ss);
+  const summary = applyRelationalFormulasToSpreadsheet(ss, {
+    preserveWorkingFormulas: false,
+    pruneOptionA: true,
+    skipBackfillAndGradeMigration: false
+  });
   Logger.log('HASIL MIGRASI RELASIONAL: ' + JSON.stringify(summary));
   return summary;
 }
 
-function applyRelationalFormulasToSpreadsheet(ss) {
+function applyRelationalFormulasToSpreadsheet(ss, opts) {
   const targetSs = ss || SpreadsheetApp.getActiveSpreadsheet();
+  const options = opts || {};
+  const preserveWorkingFormulas = Boolean(options.preserveWorkingFormulas);
+  const pruneOptionA = options.pruneOptionA !== undefined ? Boolean(options.pruneOptionA) : true;
+  const skipBackfillAndGradeMigration = Boolean(options.skipBackfillAndGradeMigration);
+
   const ssLocale = String(targetSs.getSpreadsheetLocale() || 'id_ID');
   const isEnLocale = /^en_/i.test(ssLocale);
-  // Pemisah argumen formula sesuai locale Spreadsheet (';' untuk Indonesia/id_ID, ',' untuk English/en_*)
+  // Pemisah argumen formula sesuai locale Spreadsheet ('; ' untuk Indonesia/id_ID, ', ' untuk English/en_*)
   const S = isEnLocale ? ', ' : '; ';
 
   const normText = function(v) {
@@ -58,7 +80,7 @@ function applyRelationalFormulasToSpreadsheet(ss) {
 
   const insertFkBeforeIfMissing = function(sheet, fkHeader, beforeHeaderCandidates) {
     if (!sheet || sheet.getLastColumn() === 0) return;
-    const hdrs = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const hdrs = resolveEffectiveHeaderLabels(sheet).labels;
     if (findColumnIndex(hdrs, [normalizeKey(fkHeader)]) !== -1) return;
     const beforeIdx = findColumnIndex(hdrs, beforeHeaderCandidates);
     if (beforeIdx !== -1) {
@@ -73,7 +95,7 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     }
   };
 
-  // 1. Pastikan seluruh sheet memiliki kolom relasional terbaru & header lengkap
+  // 1. Resolusi sheet & rename Plotting_Pemberangkatan -> data_plotting saat migrasi penuh
   const shSiswa = resolveSheetAlias(targetSs, 'Master_Siswa_XI');
   const shJurusan = resolveSheetAlias(targetSs, 'Master_Jurusan');
   const shKelas = resolveSheetAlias(targetSs, 'Master_Kelas_Walas');
@@ -81,10 +103,231 @@ function applyRelationalFormulasToSpreadsheet(ss) {
   const shGuru = resolveSheetAlias(targetSs, 'Master_Guru_Pendamping');
   const shPengajuan = resolveSheetAlias(targetSs, 'Data_Pengajuan_PKL');
   const shPerizinan = resolveSheetAlias(targetSs, 'Data_Perizinan_PKL');
-  const shPlotting = resolveSheetAlias(targetSs, 'Plotting_Pemberangkatan');
+  const shPlotting = resolveSheetAlias(targetSs, 'data_plotting');
+  if (
+    shPlotting &&
+    shPlotting.getName() === 'Plotting_Pemberangkatan' &&
+    !targetSs.getSheetByName('data_plotting') &&
+    !skipBackfillAndGradeMigration
+  ) {
+    try {
+      shPlotting.setName('data_plotting');
+    } catch (renameErr) {}
+  }
   const shMonitoring = resolveSheetAlias(targetSs, 'Monitoring_5_Tahap');
-  const shSertifikat = resolveSheetAlias(targetSs, 'Nilai_Dan_Sertifikat');
+  const shSertifikatRaw = targetSs.getSheetByName('Nilai_Dan_Sertifikat');
+  const shSertifikat = (shSertifikatRaw && (!shPlotting || shSertifikatRaw.getSheetId() !== shPlotting.getSheetId()))
+    ? shSertifikatRaw
+    : null;
   const shLogSurat = resolveSheetAlias(targetSs, 'Log_Penerbitan_Surat');
+
+  const allSheetItems = [
+    { sheet: shSiswa, name: 'Master_Siswa_XI' },
+    { sheet: shJurusan, name: 'Master_Jurusan' },
+    { sheet: shKelas, name: 'Master_Kelas_Walas' },
+    { sheet: shDudi, name: 'Master_DUDI' },
+    { sheet: shGuru, name: 'Master_Guru_Pendamping' },
+    { sheet: shPengajuan, name: 'Data_Pengajuan_PKL' },
+    { sheet: shPerizinan, name: 'Data_Perizinan_PKL' },
+    { sheet: shPlotting, name: 'data_plotting' },
+    { sheet: shMonitoring, name: 'Monitoring_5_Tahap' },
+    { sheet: shLogSurat, name: 'Log_Penerbitan_Surat' }
+  ];
+
+  const OPTION_A_PRUNED_COLS = {
+    Data_Pengajuan_PKL: [
+      'jurusan',
+      'kelas',
+      'namaortuwali',
+      'noortuwali',
+      'alamatdudi',
+      'bidangpekerjaan',
+      'namapemimpin',
+      'namapic',
+      'notelpdudi',
+      'kontakpic',
+      'harikerja',
+      'jamkerja',
+      'linkmaps',
+      'nowa',
+      'alamatdomisili'
+    ],
+    Data_Perizinan_PKL: [
+      'jurusan',
+      'kelas',
+      'namaortuwali',
+      'noortuwali',
+      'alamatdudi',
+      'nopengajuan',
+      'nosuratpermohonan',
+      'tglkirimsurat',
+      'statusbalasandudi',
+      'tglbalasan',
+      'linksuratpdf'
+    ],
+    Monitoring_5_Tahap: ['alamatdudi', 'jurusan']
+  };
+
+  let cleanedDuplicateCols = 0;
+  let cleanedPrunedCols = 0;
+  let reorderedCols = 0;
+
+  const consolidateSheetColumns = function(sheet, canonicalSheetName, allowPrune) {
+    if (!sheet || sheet.getLastColumn() === 0) return;
+    const expected = REQUIRED_SHEET_HEADERS[canonicalSheetName] || [];
+    const lastCol = sheet.getLastColumn();
+    const lastRow = sheet.getLastRow();
+    const resolvedHdr = resolveEffectiveHeaderLabels(sheet, lastCol);
+    const headers = resolvedHdr.labels;
+    const headerVals = resolvedHdr.values;
+    const headerFormulas = resolvedHdr.formulas;
+    const formulaFlags = detectFormulaColFlags(sheet, lastCol);
+    const values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
+    const colsToDelete = {};
+
+    const hasWorkingHeaderFormula = function(colIdx) {
+      const f = String(headerFormulas[colIdx] || '').trim();
+      const v = String(headerVals[colIdx] === null || headerVals[colIdx] === undefined ? '' : headerVals[colIdx]).trim();
+      return f.charAt(0) === '=' && v !== '' && v.charAt(0) !== '#';
+    };
+
+    for (let eIdx = 0; eIdx < expected.length; eIdx++) {
+      const canonicalHeader = expected[eIdx];
+      const canonicalNorm = normalizeKey(canonicalHeader);
+      const synonyms = getHeaderSynonymNorms(canonicalSheetName, canonicalNorm);
+      const matchedCols = [];
+      for (let c = 0; c < headers.length; c++) {
+        if (colsToDelete[c]) continue;
+        const hNorm = normalizeKey(headers[c]);
+        if (hNorm && synonyms.indexOf(hNorm) !== -1) {
+          matchedCols.push(c);
+        }
+      }
+      if (matchedCols.length === 0) continue;
+
+      let keepCol = matchedCols[0];
+      let bestScore = -1;
+      for (let m = 0; m < matchedCols.length; m++) {
+        const cIdx = matchedCols[m];
+        const isExact = normalizeKey(headers[cIdx]) === canonicalNorm ? 1 : 0;
+        const isWorking = hasWorkingHeaderFormula(cIdx) ? 10 : 0;
+        const hasAnyFormula = String(headerFormulas[cIdx] || '').trim().charAt(0) === '=' ? 2 : 0;
+        const score = isWorking + hasAnyFormula + isExact;
+        if (score > bestScore) {
+          bestScore = score;
+          keepCol = cIdx;
+        }
+      }
+
+      const keepHasFormula = String(headerFormulas[keepCol] || '').trim().charAt(0) === '=';
+      if (!keepHasFormula && String(headers[keepCol] || '').trim() !== canonicalHeader) {
+        sheet.getRange(1, keepCol + 1).setValue(canonicalHeader);
+      }
+
+      if (matchedCols.length > 1) {
+        let keepModified = false;
+        for (let m = 0; m < matchedCols.length; m++) {
+          const dupCol = matchedCols[m];
+          if (dupCol === keepCol) continue;
+          if (!formulaFlags[keepCol] && !keepHasFormula) {
+            for (let r = 0; r < values.length; r++) {
+              const currVal = String(values[r][keepCol] === null || values[r][keepCol] === undefined ? '' : values[r][keepCol]).trim();
+              const dupVal = values[r][dupCol];
+              const dupStr = String(dupVal === null || dupVal === undefined ? '' : dupVal).trim();
+              if (!currVal && dupStr !== '') {
+                values[r][keepCol] = dupVal;
+                keepModified = true;
+              }
+            }
+          }
+          colsToDelete[dupCol] = 'duplicate';
+        }
+        if (keepModified && values.length > 0) {
+          sheet.getRange(2, keepCol + 1, values.length, 1).setValues(
+            values.map(function(row) { return [row[keepCol]]; })
+          );
+        }
+      }
+    }
+
+    if (allowPrune) {
+      const prunedList = OPTION_A_PRUNED_COLS[canonicalSheetName] || [];
+      if (prunedList.length > 0) {
+        const nisCol = findColumnIndex(headers, ['nis']);
+        const dudiIdCol = findColumnIndex(headers, ['iddudi']);
+        let hasPopulatedFk = false;
+        for (let r = 0; r < values.length; r++) {
+          const hasNis = nisCol !== -1 && String(values[r][nisCol] || '').trim() !== '';
+          const hasDudi = dudiIdCol !== -1 && String(values[r][dudiIdCol] || '').trim() !== '';
+          if (hasNis || hasDudi) {
+            hasPopulatedFk = true;
+            break;
+          }
+        }
+
+        for (let c = 0; c < headers.length; c++) {
+          if (colsToDelete[c]) continue;
+          const hNorm = normalizeKey(headers[c]);
+          if (prunedList.indexOf(hNorm) === -1) continue;
+          let allBlank = true;
+          for (let r = 0; r < values.length; r++) {
+            if (String(values[r][c] === null || values[r][c] === undefined ? '' : values[r][c]).trim() !== '') {
+              allBlank = false;
+              break;
+            }
+          }
+          if (formulaFlags[c] || hasPopulatedFk || allBlank || values.length === 0) {
+            colsToDelete[c] = 'pruned';
+          }
+        }
+      }
+    }
+
+    const deleteIndicesDesc = Object.keys(colsToDelete)
+      .map(function(idxStr) { return Number(idxStr); })
+      .sort(function(a, b) { return b - a; });
+
+    for (let i = 0; i < deleteIndicesDesc.length; i++) {
+      const colIdx = deleteIndicesDesc[i];
+      if (colsToDelete[colIdx] === 'duplicate') cleanedDuplicateCols++;
+      if (colsToDelete[colIdx] === 'pruned') cleanedPrunedCols++;
+      sheet.deleteColumn(colIdx + 1);
+    }
+  };
+
+  const reorderSheetColumnsToBlueprint = function(sheet, canonicalSheetName) {
+    if (!sheet || sheet.getLastColumn() === 0) return;
+    const expected = REQUIRED_SHEET_HEADERS[canonicalSheetName] || [];
+    if (expected.length === 0) return;
+    const labels = resolveEffectiveHeaderLabels(sheet).labels.slice();
+    let targetIdx0 = 0;
+
+    for (let eIdx = 0; eIdx < expected.length; eIdx++) {
+      const canonicalNorm = normalizeKey(expected[eIdx]);
+      const synonyms = getHeaderSynonymNorms(canonicalSheetName, canonicalNorm);
+      let foundIdx = -1;
+      for (let c = targetIdx0; c < labels.length; c++) {
+        const hNorm = normalizeKey(labels[c]);
+        if (hNorm && synonyms.indexOf(hNorm) !== -1) {
+          foundIdx = c;
+          break;
+        }
+      }
+      if (foundIdx === -1) continue;
+      if (foundIdx !== targetIdx0) {
+        sheet.moveColumns(sheet.getRange(1, foundIdx + 1, 1, 1), targetIdx0 + 1);
+        const movedLabel = labels.splice(foundIdx, 1)[0];
+        labels.splice(targetIdx0, 0, movedLabel);
+        reorderedCols++;
+      }
+      targetIdx0++;
+    }
+  };
+
+  // Bersihkan kolom ganda yang mungkin sudah ada sebelum menambah header yang benar-benar kurang
+  allSheetItems.forEach(function(item) {
+    if (item.sheet) consolidateSheetColumns(item.sheet, item.name, false);
+  });
 
   if (shJurusan) insertFkBeforeIfMissing(shJurusan, 'ID_Kakomli', ['namakakomli']);
   if (shKelas) insertFkBeforeIfMissing(shKelas, 'ID_Jurusan', ['jurusan']);
@@ -93,7 +336,6 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     insertFkBeforeIfMissing(shMonitoring, 'ID_DUDI', ['duditujuan']);
     insertFkBeforeIfMissing(shMonitoring, 'ID_Guru_Pendamping', ['gurupendamping']);
   }
-  if (shSertifikat) insertFkBeforeIfMissing(shSertifikat, 'ID_DUDI', ['duditujuan']);
   if (shLogSurat) insertFkBeforeIfMissing(shLogSurat, 'ID_Guru_Pendamping', ['gurupendamping']);
 
   Object.keys(REQUIRED_SHEET_HEADERS).forEach(function(name) {
@@ -567,9 +809,9 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     }
   }
 
-  // 3. Migrasi Nilai Lama dari Nilai_Dan_Sertifikat ke Monitoring_5_Tahap (SSOT Nilai) + backfill ID_Penempatan & ID_DUDI
+  // 3. Migrasi Nilai & Blangko Lama dari tab legacy Nilai_Dan_Sertifikat (jika masih ada) -> Monitoring_5_Tahap & data_plotting
   let migratedGradesCount = 0;
-  if (shSertifikat && shSertifikat.getLastRow() >= 2) {
+  if (!skipBackfillAndGradeMigration && shSertifikat && shSertifikat.getLastRow() >= 2) {
     const cd = shSertifikat.getDataRange().getValues();
     const ch = cd[0];
     const cIdPlt = findColumnIndex(ch, ['idpenempatan']);
@@ -580,34 +822,59 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     const cSs = findColumnIndex(ch, ['nilaisoftskills', 'nilaisoftskill']);
     const cHs = findColumnIndex(ch, ['nilaihardskills', 'nilaikompetensiteknis']);
     const cAb = findColumnIndex(ch, ['nilaialurbisnisduniakerja', 'nilaialurbisnis']);
-    let cpChanged = false;
-    let cdChanged = false;
+    const cNoSeri = findColumnIndex(ch, ['noseriblangko']);
+    const cStBlangko = findColumnIndex(ch, ['statusblangko']);
+    const cStRaport = findColumnIndex(ch, ['statusraport']);
+    const cTglTerbit = findColumnIndex(ch, ['tglterbit', 'tanggalterbit']);
 
     const monHeaders = shMonitoring ? shMonitoring.getRange(1, 1, 1, shMonitoring.getLastColumn()).getValues()[0] : [];
     const monRowsToAppend = [];
+
+    const pltData = (shPlotting && shPlotting.getLastRow() >= 2) ? shPlotting.getDataRange().getValues() : [];
+    const pltHdr = pltData.length > 0 ? pltData[0] : [];
+    const pCIdPlt = findColumnIndex(pltHdr, ['idpenempatan', 'id']);
+    const pCNis = findColumnIndex(pltHdr, ['nis']);
+    const pCNoSeri = findColumnIndex(pltHdr, ['noseriblangko']);
+    const pCStBlangko = findColumnIndex(pltHdr, ['statusblangko']);
+    const pCStRaport = findColumnIndex(pltHdr, ['statusraport']);
+    const pCTglTerbit = findColumnIndex(pltHdr, ['tglterbit', 'tanggalterbit']);
+    let pltBlangkoChanged = false;
 
     for (let r = 1; r < cd.length; r++) {
       let idPlt = cIdPlt !== -1 ? String(cd[r][cIdPlt] || '').trim() : '';
       const nis = cNis !== -1 ? normDigits(cd[r][cNis]) : '';
       let pltRef = (idPlt && pltById[idPlt]) || (nis && pltActiveByNis[nis]) || null;
 
-      if (cIdPlt !== -1 && (!idPlt || idPlt.indexOf('PLT-2') === 0) && nis && pltActiveByNis[nis] && pltActiveByNis[nis].idPlt) {
+      if ((!idPlt || idPlt.indexOf('PLT-2') === 0) && nis && pltActiveByNis[nis] && pltActiveByNis[nis].idPlt) {
         idPlt = pltActiveByNis[nis].idPlt;
-        cd[r][cIdPlt] = idPlt;
         pltRef = pltById[idPlt] || pltActiveByNis[nis];
-        cpChanged = true;
-        backfilledRows++;
       }
 
-      const reqRef = nis ? pengajuanActiveByNis[nis] : null;
-      if (cIdDudi !== -1 && !String(cd[r][cIdDudi] || '').trim()) {
-        const dNm = cNmDudi !== -1 ? String(cd[r][cNmDudi] || '').trim() : '';
-        const foundD =
-          (dNm && dudiByName[normText(dNm)]) ||
-          (pltRef && pltRef.idDudi) ||
-          (reqRef && reqRef.idDudi) ||
-          '';
-        if (foundD) { cd[r][cIdDudi] = foundD; cdChanged = true; backfilledRows++; }
+      // Copy blangko/raport metadata from legacy Nilai_Dan_Sertifikat into data_plotting
+      if (pltData.length > 1) {
+        for (let pr = 1; pr < pltData.length; pr++) {
+          const prId = pCIdPlt !== -1 ? String(pltData[pr][pCIdPlt] || '').trim() : '';
+          const prNis = pCNis !== -1 ? normDigits(pltData[pr][pCNis]) : '';
+          if ((idPlt && prId === idPlt) || (nis && prNis === nis)) {
+            if (pCNoSeri !== -1 && cNoSeri !== -1 && !String(pltData[pr][pCNoSeri] || '').trim() && String(cd[r][cNoSeri] || '').trim()) {
+              pltData[pr][pCNoSeri] = cd[r][cNoSeri];
+              pltBlangkoChanged = true;
+            }
+            if (pCStBlangko !== -1 && cStBlangko !== -1 && String(cd[r][cStBlangko] || '').trim()) {
+              pltData[pr][pCStBlangko] = cd[r][cStBlangko];
+              pltBlangkoChanged = true;
+            }
+            if (pCStRaport !== -1 && cStRaport !== -1 && String(cd[r][cStRaport] || '').trim()) {
+              pltData[pr][pCStRaport] = cd[r][cStRaport];
+              pltBlangkoChanged = true;
+            }
+            if (pCTglTerbit !== -1 && cTglTerbit !== -1 && !String(pltData[pr][pCTglTerbit] || '').trim() && String(cd[r][cTglTerbit] || '').trim()) {
+              pltData[pr][pCTglTerbit] = cd[r][cTglTerbit];
+              pltBlangkoChanged = true;
+            }
+            break;
+          }
+        }
       }
 
       const k3 = cK3 !== -1 ? Number(cd[r][cK3] || 0) : 0;
@@ -618,11 +885,12 @@ function applyRelationalFormulasToSpreadsheet(ss) {
       const alreadyInMon = (idPlt && monGradedKeys['plt:' + idPlt]) || (nis && monGradedKeys['nis:' + nis]);
 
       if (shMonitoring && hasLegacyGrades && !alreadyInMon) {
+        const dNm = cNmDudi !== -1 ? String(cd[r][cNmDudi] || '').trim() : '';
         const monObj = {
           ID_Monitoring: 'MON-MIG-' + (idPlt || nis || r),
           ID_Penempatan: idPlt || (pltRef ? pltRef.idPlt : ''),
           NIS: nis,
-          ID_DUDI: (cIdDudi !== -1 ? String(cd[r][cIdDudi] || '').trim() : '') || (pltRef ? pltRef.idDudi : ''),
+          ID_DUDI: (cIdDudi !== -1 ? String(cd[r][cIdDudi] || '').trim() : '') || (dNm && dudiByName[normText(dNm)]) || (pltRef ? pltRef.idDudi : ''),
           ID_Guru_Pendamping: pltRef ? pltRef.idGuru : '',
           Tahap: '5. Monitoring 4',
           Tanggal_Kunjungan: Utilities.formatDate(new Date(), targetSs.getSpreadsheetTimeZone() || 'Asia/Jakarta', 'yyyy-MM-dd'),
@@ -643,13 +911,13 @@ function applyRelationalFormulasToSpreadsheet(ss) {
       }
     }
 
-    if (cpChanged && cIdPlt !== -1) {
-      shSertifikat.getRange(2, cIdPlt + 1, cd.length - 1, 1)
-        .setValues(cd.slice(1).map(function(row) { return [row[cIdPlt]]; }));
-    }
-    if (cdChanged && cIdDudi !== -1) {
-      shSertifikat.getRange(2, cIdDudi + 1, cd.length - 1, 1)
-        .setValues(cd.slice(1).map(function(row) { return [row[cIdDudi]]; }));
+    if (pltBlangkoChanged && shPlotting && pltData.length > 1) {
+      [pCNoSeri, pCStBlangko, pCStRaport, pCTglTerbit].forEach(function(colIdx) {
+        if (colIdx !== -1) {
+          shPlotting.getRange(2, colIdx + 1, pltData.length - 1, 1)
+            .setValues(pltData.slice(1).map(function(row) { return [row[colIdx]]; }));
+        }
+      });
     }
 
     if (shMonitoring && monRowsToAppend.length > 0) {
@@ -703,136 +971,12 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     }
   }
 
-  // 3.5. Pembersihan kolom duplikat/alias (seperti Kontak_PIC -> No_Telp_DUDI) & kolom redundan Opsi A
-  const OPTION_A_PRUNED_COLS = {
-    Data_Pengajuan_PKL: ['jurusan', 'kelas', 'namaortuwali', 'noortuwali'],
-    Data_Perizinan_PKL: ['jurusan', 'kelas', 'namaortuwali', 'noortuwali', 'alamatdudi'],
-    Monitoring_5_Tahap: ['alamatdudi', 'jurusan'],
-    Nilai_Dan_Sertifikat: ['jurusan', 'kelas']
-  };
-
-  let cleanedDuplicateCols = 0;
-  let cleanedPrunedCols = 0;
-
-  const consolidateSheetColumns = function(sheet, canonicalSheetName) {
-    if (!sheet || sheet.getLastColumn() === 0) return;
-    const expected = REQUIRED_SHEET_HEADERS[canonicalSheetName] || [];
-    const lastCol = sheet.getLastColumn();
-    const lastRow = sheet.getLastRow();
-    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    const formulaFlags = detectFormulaColFlags(sheet, lastCol);
-    const values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
-    const colsToDelete = {};
-
-    for (let eIdx = 0; eIdx < expected.length; eIdx++) {
-      const canonicalHeader = expected[eIdx];
-      const canonicalNorm = normalizeKey(canonicalHeader);
-      const synonyms = getHeaderSynonymNorms(canonicalSheetName, canonicalNorm);
-      const matchedCols = [];
-      for (let c = 0; c < headers.length; c++) {
-        if (colsToDelete[c]) continue;
-        const hNorm = normalizeKey(headers[c]);
-        if (synonyms.indexOf(hNorm) !== -1) {
-          matchedCols.push(c);
-        }
-      }
-      if (matchedCols.length === 0) continue;
-
-      let keepCol = matchedCols[0];
-      for (let m = 0; m < matchedCols.length; m++) {
-        if (normalizeKey(headers[matchedCols[m]]) === canonicalNorm) {
-          keepCol = matchedCols[m];
-          break;
-        }
-      }
-
-      if (String(headers[keepCol] || '').trim() !== canonicalHeader) {
-        sheet.getRange(1, keepCol + 1).setValue(canonicalHeader);
-      }
-
-      if (matchedCols.length > 1) {
-        let keepModified = false;
-        for (let m = 0; m < matchedCols.length; m++) {
-          const dupCol = matchedCols[m];
-          if (dupCol === keepCol) continue;
-          if (!formulaFlags[keepCol]) {
-            for (let r = 0; r < values.length; r++) {
-              const currVal = String(values[r][keepCol] === null || values[r][keepCol] === undefined ? '' : values[r][keepCol]).trim();
-              const dupVal = values[r][dupCol];
-              const dupStr = String(dupVal === null || dupVal === undefined ? '' : dupVal).trim();
-              if (!currVal && dupStr !== '') {
-                values[r][keepCol] = dupVal;
-                keepModified = true;
-              }
-            }
-          }
-          colsToDelete[dupCol] = 'duplicate';
-        }
-        if (keepModified && values.length > 0) {
-          sheet.getRange(2, keepCol + 1, values.length, 1).setValues(
-            values.map(function(row) { return [row[keepCol]]; })
-          );
-        }
-      }
+  // 3.5. Pembersihan kolom duplikat/alias, kolom redundan, & urutan kolom blueprint
+  allSheetItems.forEach(function(item) {
+    if (item.sheet) {
+      consolidateSheetColumns(item.sheet, item.name, pruneOptionA);
+      reorderSheetColumnsToBlueprint(item.sheet, item.name);
     }
-
-    const prunedList = OPTION_A_PRUNED_COLS[canonicalSheetName] || [];
-    if (prunedList.length > 0) {
-      const nisCol = findColumnIndex(headers, ['nis']);
-      const dudiIdCol = findColumnIndex(headers, ['iddudi']);
-      let hasPopulatedFk = false;
-      for (let r = 0; r < values.length; r++) {
-        const hasNis = nisCol !== -1 && String(values[r][nisCol] || '').trim() !== '';
-        const hasDudi = dudiIdCol !== -1 && String(values[r][dudiIdCol] || '').trim() !== '';
-        if (hasNis || hasDudi) {
-          hasPopulatedFk = true;
-          break;
-        }
-      }
-
-      for (let c = 0; c < headers.length; c++) {
-        if (colsToDelete[c]) continue;
-        const hNorm = normalizeKey(headers[c]);
-        if (prunedList.indexOf(hNorm) === -1) continue;
-        let allBlank = true;
-        for (let r = 0; r < values.length; r++) {
-          if (String(values[r][c] === null || values[r][c] === undefined ? '' : values[r][c]).trim() !== '') {
-            allBlank = false;
-            break;
-          }
-        }
-        if (formulaFlags[c] || hasPopulatedFk || allBlank || values.length === 0) {
-          colsToDelete[c] = 'pruned';
-        }
-      }
-    }
-
-    const deleteIndicesDesc = Object.keys(colsToDelete)
-      .map(function(idxStr) { return Number(idxStr); })
-      .sort(function(a, b) { return b - a; });
-
-    for (let i = 0; i < deleteIndicesDesc.length; i++) {
-      const colIdx = deleteIndicesDesc[i];
-      if (colsToDelete[colIdx] === 'duplicate') cleanedDuplicateCols++;
-      if (colsToDelete[colIdx] === 'pruned') cleanedPrunedCols++;
-      sheet.deleteColumn(colIdx + 1);
-    }
-  };
-
-  [
-    { sheet: shSiswa, name: 'Master_Siswa_XI' },
-    { sheet: shJurusan, name: 'Master_Jurusan' },
-    { sheet: shKelas, name: 'Master_Kelas_Walas' },
-    { sheet: shDudi, name: 'Master_DUDI' },
-    { sheet: shGuru, name: 'Master_Guru_Pendamping' },
-    { sheet: shPengajuan, name: 'Data_Pengajuan_PKL' },
-    { sheet: shPerizinan, name: 'Data_Perizinan_PKL' },
-    { sheet: shPlotting, name: 'Plotting_Pemberangkatan' },
-    { sheet: shMonitoring, name: 'Monitoring_5_Tahap' },
-    { sheet: shSertifikat, name: 'Nilai_Dan_Sertifikat' },
-    { sheet: shLogSurat, name: 'Log_Penerbitan_Surat' }
-  ].forEach(function(item) {
-    if (item.sheet) consolidateSheetColumns(item.sheet, item.name);
   });
 
   // 4. Resolusi Huruf Kolom Aktual & Pembangun Formula Locale-Safe (HSTACK + S)
@@ -996,7 +1140,6 @@ function applyRelationalFormulasToSpreadsheet(ss) {
   // --- F. Data_Perizinan_PKL: Nama_Siswa, Rentang_Tanggal, DUDI_Tujuan ---
   if (shPerizinan) {
     const zId = getColLetter(shPerizinan, ['idperizinan', 'noperizinan', 'id']);
-    const zNoReq = getColLetter(shPerizinan, ['nopengajuan']);
     const zNis = getColLetter(shPerizinan, ['nis']);
     const zMulai = getColLetter(shPerizinan, ['tglmulaiizin', 'tanggalmulaiizin']);
     const zSelesai = getColLetter(shPerizinan, ['tglselesaiizin', 'tanggalselesaiizin']);
@@ -1018,20 +1161,38 @@ function applyRelationalFormulasToSpreadsheet(ss) {
     }
     if (zIdDudi && shDudi && dId && dNama) {
       const keyGuard = zId || zNis;
-      const reqFallbackNm = (zNoReq && shPengajuan && qNo && qDudi)
-        ? vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(zNoReq) + '))', 'TRIM(TO_TEXT(' + ref(shPengajuan, qNo) + '))', ref(shPengajuan, qDudi))
+      const pltDudiIdByNis = (zNis && shPlotting && pNis && pIdDudi)
+        ? vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(zNis) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pNis) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pIdDudi) + '))')
         : '""';
+      const zEffDudiId = (zNis && shPlotting && pNis && pIdDudi)
+        ? 'IF(TRIM(TO_TEXT(' + sameRef(zIdDudi) + '))<>""' + S + 'TRIM(TO_TEXT(' + sameRef(zIdDudi) + '))' + S + pltDudiIdByNis + ')'
+        : 'TRIM(TO_TEXT(' + sameRef(zIdDudi) + '))';
       const zDudiExpr = 'IF(TRIM(TO_TEXT(' + sameRef(keyGuard) + '))=""' + S + '""' + S +
-        'IF(TRIM(TO_TEXT(' + sameRef(zIdDudi) + '))<>""' + S +
-        vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(zIdDudi) + '))', 'TRIM(TO_TEXT(' + ref(shDudi, dId) + '))', ref(shDudi, dNama), reqFallbackNm) + S +
-        reqFallbackNm + '))';
+        vlookupTextExpr(zEffDudiId, 'TRIM(TO_TEXT(' + ref(shDudi, dId) + '))', ref(shDudi, dNama)) + ')';
       if (plantFormula(shPerizinan, ['duditujuan'], 'DUDI_Tujuan', zDudiExpr)) plantedCount++;
     }
   }
 
-  // --- G. Plotting_Pemberangkatan: Nama_Siswa, Nama_DUDI, Guru_Pendamping ---
+  // Kolom Monitoring_5_Tahap (dibutuhkan baik oleh G. data_plotting maupun H. Monitoring_5_Tahap)
+  const mId = getColLetter(shMonitoring, ['idmonitoring', 'id']);
+  const mIdPlt = getColLetter(shMonitoring, ['idpenempatan']);
+  const mNis = getColLetter(shMonitoring, ['nis']);
+  const mIdDudi = getColLetter(shMonitoring, ['iddudi']);
+  const mIdGuru = getColLetter(shMonitoring, ['idgurupendamping', 'idguru']);
+  const mK3 = getColLetter(shMonitoring, ['nilaik3lh']);
+  const mSs = getColLetter(shMonitoring, ['nilaisoftskills', 'nilaisoftskill']);
+  const mHs = getColLetter(shMonitoring, ['nilaihardskills', 'nilaikompetensiteknis']);
+  const mAb = getColLetter(shMonitoring, ['nilaialurbisnisduniakerja', 'nilaialurbisnis']);
+
+  // --- G. data_plotting: Penempatan + Rekap Nilai DUDI & Predikat ---
   if (shPlotting) {
     const pGuard = pId || pNis;
+    const pK3 = getColLetter(shPlotting, ['nilaik3lh']);
+    const pSs = getColLetter(shPlotting, ['nilaisoftskills', 'nilaisoftskill']);
+    const pHs = getColLetter(shPlotting, ['nilaihardskills', 'nilaikompetensiteknis']);
+    const pAb = getColLetter(shPlotting, ['nilaialurbisnisduniakerja', 'nilaialurbisnis']);
+    const pAvg = getColLetter(shPlotting, ['nilairatarata', 'nilaidudi', 'nilaiakhir']);
+
     if (pNis && shSiswa && sNis && sNama) {
       const pNamaExpr = 'IF(TRIM(TO_TEXT(' + sameRef(pNis) + '))=""' + S + '""' + S +
         vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(pNis) + '))', 'TRIM(TO_TEXT(' + ref(shSiswa, sNis) + '))', ref(shSiswa, sNama)) + ')';
@@ -1045,7 +1206,7 @@ function applyRelationalFormulasToSpreadsheet(ss) {
         'IF(TRIM(TO_TEXT(' + sameRef(pIdDudi) + '))<>""' + S +
         vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(pIdDudi) + '))', 'TRIM(TO_TEXT(' + ref(shDudi, dId) + '))', ref(shDudi, dNama), reqDudiNameByNis) + S +
         reqDudiNameByNis + '))';
-      if (plantFormula(shPlotting, ['namadudi'], 'Nama_DUDI', pDudiExpr)) plantedCount++;
+      if (plantFormula(shPlotting, ['namadudi', 'duditujuan'], 'Nama_DUDI', pDudiExpr)) plantedCount++;
     }
     if (pIdGuru && shGuru && gId && gNama) {
       const dudiGuruById = (pIdDudi && shDudi && dId && dGuru)
@@ -1057,19 +1218,47 @@ function applyRelationalFormulasToSpreadsheet(ss) {
         dudiGuruById + '))';
       if (plantFormula(shPlotting, ['gurupendamping'], 'Guru_Pendamping', pGuruExpr)) plantedCount++;
     }
+
+    if (shMonitoring && mK3 && mSs && mHs && mAb) {
+      const mHasGrade = '(N(' + ref(shMonitoring, mK3) + ')+N(' + ref(shMonitoring, mSs) + ')+N(' + ref(shMonitoring, mHs) + ')+N(' + ref(shMonitoring, mAb) + '))>0';
+      const mWeight = '((' + mHasGrade + ')*1000000+ROW(' + ref(shMonitoring, mK3) + '))';
+
+      const buildPlotScoreExpr = function(mScoreCol) {
+        const valCol = 'IF(' + mHasGrade + S + 'N(' + ref(shMonitoring, mScoreCol) + ')' + S + '"")';
+        const byPlt = (pId && mIdPlt)
+          ? 'IFERROR(VLOOKUP(TRIM(TO_TEXT(' + sameRef(pId) + '))' + S +
+            'SORT(' + hstackExpr(['TRIM(TO_TEXT(' + ref(shMonitoring, mIdPlt) + '))', mWeight, valCol]) + S + '2' + S + 'FALSE)' + S + '3' + S + 'FALSE)' + S + '"")'
+          : '""';
+        const byNis = (pNis && mNis)
+          ? 'IFERROR(VLOOKUP(TRIM(TO_TEXT(' + sameRef(pNis) + '))' + S +
+            'SORT(' + hstackExpr(['TRIM(TO_TEXT(' + ref(shMonitoring, mNis) + '))', mWeight, valCol]) + S + '2' + S + 'FALSE)' + S + '3' + S + 'FALSE)' + S + '"")'
+          : '""';
+        return 'IF(TRIM(TO_TEXT(' + sameRef(pGuard) + '))=""' + S + '""' + S + 'IF(' + byPlt + '<>""' + S + byPlt + S + byNis + '))';
+      };
+
+      if (pK3 && plantFormula(shPlotting, ['nilaik3lh'], 'Nilai_K3LH', buildPlotScoreExpr(mK3))) plantedCount++;
+      if (pSs && plantFormula(shPlotting, ['nilaisoftskills', 'nilaisoftskill'], 'Nilai_Softskills', buildPlotScoreExpr(mSs))) plantedCount++;
+      if (pHs && plantFormula(shPlotting, ['nilaihardskills', 'nilaikompetensiteknis'], 'Nilai_Hardskills', buildPlotScoreExpr(mHs))) plantedCount++;
+      if (pAb && plantFormula(shPlotting, ['nilaialurbisnisduniakerja', 'nilaialurbisnis'], 'Nilai_Alur_Bisnis_Dunia_Kerja', buildPlotScoreExpr(mAb))) plantedCount++;
+    }
+
+    if (pK3 && pSs && pHs && pAb) {
+      const pSum = '(N(' + sameRef(pK3) + ')+N(' + sameRef(pSs) + ')+N(' + sameRef(pHs) + ')+N(' + sameRef(pAb) + '))';
+      const pAvgExpr = 'IF(TRIM(TO_TEXT(' + sameRef(pGuard) + '))=""' + S + '""' + S +
+        'IF(' + pSum + '>0' + S + 'ROUND(' + pSum + '/4' + S + '1)' + S + '""))';
+      if (plantFormula(shPlotting, ['nilairatarata', 'nilaidudi', 'nilaiakhir'], 'Nilai_rata_rata', pAvgExpr)) plantedCount++;
+    }
+    if (pAvg) {
+      const pPredExpr = 'IF(TRIM(TO_TEXT(' + sameRef(pGuard) + '))=""' + S + '""' + S +
+        'IF(N(' + sameRef(pAvg) + ')=0' + S + '""' + S +
+        'IF(N(' + sameRef(pAvg) + ')>=88' + S + '"Sangat Baik (A)"' + S +
+        'IF(N(' + sameRef(pAvg) + ')>=78' + S + '"Baik (B)"' + S +
+        'IF(N(' + sameRef(pAvg) + ')>=68' + S + '"Cukup (C)"' + S + '"Kurang (D)")))))';
+      if (plantFormula(shPlotting, ['predikat'], 'Predikat', pPredExpr)) plantedCount++;
+    }
   }
 
   // --- H. Monitoring_5_Tahap (Lean Opsi A + Single SSOT Nilai PKL) ---
-  const mId = getColLetter(shMonitoring, ['idmonitoring', 'id']);
-  const mIdPlt = getColLetter(shMonitoring, ['idpenempatan']);
-  const mNis = getColLetter(shMonitoring, ['nis']);
-  const mIdDudi = getColLetter(shMonitoring, ['iddudi']);
-  const mIdGuru = getColLetter(shMonitoring, ['idgurupendamping', 'idguru']);
-  const mK3 = getColLetter(shMonitoring, ['nilaik3lh']);
-  const mSs = getColLetter(shMonitoring, ['nilaisoftskills', 'nilaisoftskill']);
-  const mHs = getColLetter(shMonitoring, ['nilaihardskills', 'nilaikompetensiteknis']);
-  const mAb = getColLetter(shMonitoring, ['nilaialurbisnisduniakerja', 'nilaialurbisnis']);
-
   if (shMonitoring) {
     const mGuard = mId || mIdPlt || mNis;
     const mEffNis = (mNis && mIdPlt && shPlotting && pId && pNis)
@@ -1116,85 +1305,6 @@ function applyRelationalFormulasToSpreadsheet(ss) {
       const mAvgExpr = 'IF(TRIM(TO_TEXT(' + sameRef(mGuard) + '))=""' + S + '""' + S +
         'IF(' + mSum + '>0' + S + 'ROUND(' + mSum + '/4' + S + '1)' + S + '""))';
       if (plantFormula(shMonitoring, ['nilairatarata', 'nilaidudi', 'nilaiakhir'], 'Nilai_rata_rata', mAvgExpr)) plantedCount++;
-    }
-  }
-
-  // --- I. Nilai_Dan_Sertifikat (Read-Only Nilai & Display dari Monitoring_5_Tahap) ---
-  if (shSertifikat) {
-    const cIdPlt = getColLetter(shSertifikat, ['idpenempatan']);
-    const cNis = getColLetter(shSertifikat, ['nis']);
-    const cIdDudi = getColLetter(shSertifikat, ['iddudi']);
-    const cK3 = getColLetter(shSertifikat, ['nilaik3lh']);
-    const cSs = getColLetter(shSertifikat, ['nilaisoftskills', 'nilaisoftskill']);
-    const cHs = getColLetter(shSertifikat, ['nilaihardskills', 'nilaikompetensiteknis']);
-    const cAb = getColLetter(shSertifikat, ['nilaialurbisnisduniakerja', 'nilaialurbisnis']);
-    const cAvg = getColLetter(shSertifikat, ['nilairatarata', 'nilaidudi', 'nilaiakhir']);
-    const cKeyGuard = (cIdPlt && cNis)
-      ? 'TRIM(TO_TEXT(' + sameRef(cIdPlt) + ')&TO_TEXT(' + sameRef(cNis) + '))'
-      : 'TRIM(TO_TEXT(' + sameRef(cNis || cIdPlt) + '))';
-
-    const cEffNis = (cNis && cIdPlt && shPlotting && pId && pNis)
-      ? 'IF(TRIM(TO_TEXT(' + sameRef(cNis) + '))<>""' + S + 'TRIM(TO_TEXT(' + sameRef(cNis) + '))' + S +
-        vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(cIdPlt) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pId) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pNis) + '))') + ')'
-      : (cNis ? 'TRIM(TO_TEXT(' + sameRef(cNis) + '))' : '""');
-
-    if (cNis && shSiswa && sNis && sNama) {
-      const cNamaExpr = 'IF(' + cKeyGuard + '=""' + S + '""' + S +
-        vlookupTextExpr(cEffNis, 'TRIM(TO_TEXT(' + ref(shSiswa, sNis) + '))', ref(shSiswa, sNama)) + ')';
-      if (plantFormula(shSertifikat, ['namasiswa'], 'Nama_Siswa', cNamaExpr)) plantedCount++;
-    }
-    if (cIdDudi && shDudi && dId && dNama) {
-      const cDudiByNisPlt = (cNis && shPlotting && pNis && pIdDudi)
-        ? vlookupTextExpr(cEffNis, 'TRIM(TO_TEXT(' + ref(shPlotting, pNis) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pIdDudi) + '))')
-        : '""';
-      const cEffDudiId = (cIdPlt && shPlotting && pId && pIdDudi)
-        ? 'IF(TRIM(TO_TEXT(' + sameRef(cIdDudi) + '))<>""' + S + 'TRIM(TO_TEXT(' + sameRef(cIdDudi) + '))' + S +
-          vlookupTextExpr('TRIM(TO_TEXT(' + sameRef(cIdPlt) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pId) + '))', 'TRIM(TO_TEXT(' + ref(shPlotting, pIdDudi) + '))', cDudiByNisPlt) + ')'
-        : 'TRIM(TO_TEXT(' + sameRef(cIdDudi) + '))';
-      const cReqDudiName = (cNis && shPengajuan && qNis && qDudi)
-        ? vlookupTextExpr(cEffNis, 'TRIM(TO_TEXT(' + ref(shPengajuan, qNis) + '))', ref(shPengajuan, qDudi))
-        : '""';
-      const cDudiExpr = 'IF(' + cKeyGuard + '=""' + S + '""' + S +
-        vlookupTextExpr(cEffDudiId, 'TRIM(TO_TEXT(' + ref(shDudi, dId) + '))', ref(shDudi, dNama), cReqDudiName) + ')';
-      if (plantFormula(shSertifikat, ['duditujuan'], 'DUDI_Tujuan', cDudiExpr)) plantedCount++;
-    }
-
-    if (shMonitoring && mK3 && mSs && mHs && mAb) {
-      const mHasGrade = '(N(' + ref(shMonitoring, mK3) + ')+N(' + ref(shMonitoring, mSs) + ')+N(' + ref(shMonitoring, mHs) + ')+N(' + ref(shMonitoring, mAb) + '))>0';
-      const mWeight = '((' + mHasGrade + ')*1000000+ROW(' + ref(shMonitoring, mK3) + '))';
-
-      const buildScoreLookupExpr = function(mScoreCol) {
-        const valCol = 'IF(' + mHasGrade + S + 'N(' + ref(shMonitoring, mScoreCol) + ')' + S + '"")';
-        const byPlt = (cIdPlt && mIdPlt)
-          ? 'IFERROR(VLOOKUP(TRIM(TO_TEXT(' + sameRef(cIdPlt) + '))' + S +
-            'SORT(' + hstackExpr(['TRIM(TO_TEXT(' + ref(shMonitoring, mIdPlt) + '))', mWeight, valCol]) + S + '2' + S + 'FALSE)' + S + '3' + S + 'FALSE)' + S + '"")'
-          : '""';
-        const byNis = (cNis && mNis)
-          ? 'IFERROR(VLOOKUP(' + cEffNis + S +
-            'SORT(' + hstackExpr(['TRIM(TO_TEXT(' + ref(shMonitoring, mNis) + '))', mWeight, valCol]) + S + '2' + S + 'FALSE)' + S + '3' + S + 'FALSE)' + S + '"")'
-          : '""';
-        return 'IF(' + cKeyGuard + '=""' + S + '""' + S + 'IF(' + byPlt + '<>""' + S + byPlt + S + byNis + '))';
-      };
-
-      if (cK3 && plantFormula(shSertifikat, ['nilaik3lh'], 'Nilai_K3LH', buildScoreLookupExpr(mK3))) plantedCount++;
-      if (cSs && plantFormula(shSertifikat, ['nilaisoftskills', 'nilaisoftskill'], 'Nilai_Softskills', buildScoreLookupExpr(mSs))) plantedCount++;
-      if (cHs && plantFormula(shSertifikat, ['nilaihardskills', 'nilaikompetensiteknis'], 'Nilai_Hardskills', buildScoreLookupExpr(mHs))) plantedCount++;
-      if (cAb && plantFormula(shSertifikat, ['nilaialurbisnisduniakerja', 'nilaialurbisnis'], 'Nilai_Alur_Bisnis_Dunia_Kerja', buildScoreLookupExpr(mAb))) plantedCount++;
-    }
-
-    if (cK3 && cSs && cHs && cAb) {
-      const cSum = '(N(' + sameRef(cK3) + ')+N(' + sameRef(cSs) + ')+N(' + sameRef(cHs) + ')+N(' + sameRef(cAb) + '))';
-      const cAvgExpr = 'IF(' + cKeyGuard + '=""' + S + '""' + S +
-        'IF(' + cSum + '>0' + S + 'ROUND(' + cSum + '/4' + S + '1)' + S + '""))';
-      if (plantFormula(shSertifikat, ['nilairatarata', 'nilaidudi', 'nilaiakhir'], 'Nilai_rata_rata', cAvgExpr)) plantedCount++;
-    }
-    if (cAvg) {
-      const predExpr = 'IF(' + cKeyGuard + '=""' + S + '""' + S +
-        'IF(N(' + sameRef(cAvg) + ')=0' + S + '""' + S +
-        'IF(N(' + sameRef(cAvg) + ')>=88' + S + '"Sangat Baik (A)"' + S +
-        'IF(N(' + sameRef(cAvg) + ')>=78' + S + '"Baik (B)"' + S +
-        'IF(N(' + sameRef(cAvg) + ')>=68' + S + '"Cukup (C)"' + S + '"Kurang (D)")))))';
-      if (plantFormula(shSertifikat, ['predikat'], 'Predikat', predExpr)) plantedCount++;
     }
   }
 

@@ -204,7 +204,7 @@ export class SheetRestTransport {
 
       const res = await safeFetchJson(`/api/v1/bootstrap?${params.toString()}`, {
         method: 'GET',
-        timeoutMs: 18_000,
+        timeoutMs: 26_000,
         headers,
       });
 
@@ -259,7 +259,7 @@ export class SheetRestTransport {
 
         // Phase-2: Split heavy operational/monitoring tables so every payload stays well below Vercel 4.5MB limit
         await Promise.all([
-          fetchAndHydrateBatch(['Data_Perizinan_PKL', 'Nilai_Dan_Sertifikat']).catch(() => null),
+          fetchAndHydrateBatch(['Data_Perizinan_PKL']).catch(() => null),
           fetchAndHydrateBatch(['Monitoring_5_Tahap']).catch(() => null),
         ]);
 
@@ -379,7 +379,7 @@ export class SheetRestTransport {
             `/api/v1/${encodeURIComponent(restSlug)}${urlSuffix}`,
             {
               method: 'GET',
-              timeoutMs: 16_000,
+              timeoutMs: 26_000,
               headers,
             }
           );

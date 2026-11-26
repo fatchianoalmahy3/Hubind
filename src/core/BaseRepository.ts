@@ -4,8 +4,6 @@ import { GoogleDriveSheetService } from './GoogleDriveSheetService';
 import {
   generateJurusanCode,
   generateNextSequentialId,
-  generateNextSuratPermohonan,
-  getTodayIsoDate,
 } from './utils/autoIdHelpers';
 import { stripNisSymbols } from './utils/nisHelpers';
 import { enrichBatchWithRelations, enrichRecordWithRelations } from './utils/relationJoinHelper';
@@ -31,11 +29,13 @@ export abstract class BaseRepository<T extends { id: string }> {
   private dataUpdateListeners = new Set<(meta?: { revalidatingOnly?: boolean }) => void>();
   private searchIndexCache = new WeakMap<object, { text: string; nisDigits: string }>();
   private static readonly REVALIDATE_TTL_MS = 30_000;
+  private static repoInstances = new Set<BaseRepository<any>>();
 
   constructor(tableName: string, metadata: ModuleMetadata<T>, _initialData: T[] = []) {
     this.tableName = tableName;
     this.metadata = metadata;
     this.memoryData = [];
+    BaseRepository.repoInstances.add(this);
 
     const client = GoogleSheetClient.getInstance();
 
@@ -89,6 +89,7 @@ export abstract class BaseRepository<T extends { id: string }> {
           'Master_Jurusan',
           'Master_DUDI',
           'Master_Guru_Pendamping',
+          'data_plotting',
           'Plotting_Pemberangkatan',
         ].includes(t)
       );
@@ -133,6 +134,28 @@ export abstract class BaseRepository<T extends { id: string }> {
     });
   }
 
+  private syncSiblingRepositories(meta?: { revalidatingOnly?: boolean }): void {
+    for (const sibling of BaseRepository.repoInstances) {
+      if (sibling === this) continue;
+      if (sibling.tableName !== this.tableName) continue;
+      sibling.memoryData = sibling.enrichLoadedRows(this.memoryData as any[]);
+      sibling.loadedSpreadsheetId = this.loadedSpreadsheetId;
+      sibling.lastFetchedAt = this.lastFetchedAt;
+      sibling.lastLocalMutationAt = this.lastLocalMutationAt;
+      sibling.isInitialized = this.isInitialized;
+      sibling.lastError = null;
+      sibling.notifyDataUpdated(meta);
+    }
+  }
+
+  private getPlacementSnapshotData(): Array<Record<string, any>> | undefined {
+    const client = GoogleSheetClient.getInstance();
+    return (
+      client.getCachedSnapshotSync('data_plotting')?.data ||
+      client.getCachedSnapshotSync('Plotting_Pemberangkatan')?.data
+    );
+  }
+
   protected enrichOptimisticRecord(record: T): T {
     const client = GoogleSheetClient.getInstance();
     return enrichRecordWithRelations(this.tableName, record as Record<string, any>, {
@@ -140,7 +163,7 @@ export abstract class BaseRepository<T extends { id: string }> {
       jurusanRows: client.getCachedSnapshotSync('Master_Jurusan')?.data,
       dudiRows: client.getCachedSnapshotSync('Master_DUDI')?.data,
       guruRows: client.getCachedSnapshotSync('Master_Guru_Pendamping')?.data,
-      placementRows: client.getCachedSnapshotSync('Plotting_Pemberangkatan')?.data,
+      placementRows: this.getPlacementSnapshotData(),
     }) as T;
   }
 
@@ -152,7 +175,7 @@ export abstract class BaseRepository<T extends { id: string }> {
       jurusanRows: client.getCachedSnapshotSync('Master_Jurusan')?.data,
       dudiRows: client.getCachedSnapshotSync('Master_DUDI')?.data,
       guruRows: client.getCachedSnapshotSync('Master_Guru_Pendamping')?.data,
-      placementRows: client.getCachedSnapshotSync('Plotting_Pemberangkatan')?.data,
+      placementRows: this.getPlacementSnapshotData(),
     };
     return enrichBatchWithRelations(this.tableName, rows as Record<string, any>[], maps) as T[];
   }
@@ -367,14 +390,11 @@ export abstract class BaseRepository<T extends { id: string }> {
       if (!String(rawData.noPerizinan || '').trim()) {
         rawData.noPerizinan = resolvedId;
       }
-      if (!String(rawData.noSuratPermohonan || '').trim()) {
-        rawData.noSuratPermohonan = generateNextSuratPermohonan(this.memoryData as any);
-      }
-      if (!String(rawData.tanggalKirimSurat || '').trim()) {
-        rawData.tanggalKirimSurat = getTodayIsoDate();
-      }
     }
-    if (this.tableName === 'Plotting_Pemberangkatan' && !String(rawData.idPenempatan || '').trim()) {
+    if (
+      (this.tableName === 'data_plotting' || this.tableName === 'Plotting_Pemberangkatan') &&
+      !String(rawData.idPenempatan || '').trim()
+    ) {
       rawData.idPenempatan = resolvedId;
     }
 
@@ -420,11 +440,13 @@ export abstract class BaseRepository<T extends { id: string }> {
       this.lastFetchedAt = committedAt;
       this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+      this.syncSiblingRepositories();
     } catch (err) {
       // Rollback optimistic change on failure
       this.memoryData = previousMemory;
       await client.saveCachedSnapshot(this.tableName, previousMemory).catch(() => {});
       this.notifyDataUpdated();
+      this.syncSiblingRepositories();
       throw err;
     } finally {
       this.isCommittingSelf = false;
@@ -486,11 +508,13 @@ export abstract class BaseRepository<T extends { id: string }> {
       this.lastFetchedAt = committedAt;
       this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+      this.syncSiblingRepositories();
     } catch (err) {
       // Rollback optimistic change on failure
       this.memoryData = previousMemory;
       await client.saveCachedSnapshot(this.tableName, previousMemory).catch(() => {});
       this.notifyDataUpdated();
+      this.syncSiblingRepositories();
       throw err;
     } finally {
       this.isCommittingSelf = false;
@@ -532,11 +556,13 @@ export abstract class BaseRepository<T extends { id: string }> {
       this.lastFetchedAt = committedAt;
       this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+      this.syncSiblingRepositories();
     } catch (err) {
       // Rollback optimistic change on failure
       this.memoryData = previousMemory;
       await client.saveCachedSnapshot(this.tableName, previousMemory).catch(() => {});
       this.notifyDataUpdated();
+      this.syncSiblingRepositories();
       throw err;
     } finally {
       this.isCommittingSelf = false;
@@ -581,10 +607,12 @@ export abstract class BaseRepository<T extends { id: string }> {
       this.lastFetchedAt = committedAt;
       this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+      this.syncSiblingRepositories();
     } catch (err) {
       this.memoryData = previousMemory;
       await client.saveCachedSnapshot(this.tableName, previousMemory).catch(() => {});
       this.notifyDataUpdated();
+      this.syncSiblingRepositories();
       throw err;
     } finally {
       this.isCommittingSelf = false;
@@ -651,10 +679,12 @@ export abstract class BaseRepository<T extends { id: string }> {
       this.lastFetchedAt = committedAt;
       this.lastLocalMutationAt = committedAt;
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
+      this.syncSiblingRepositories();
     } catch (err) {
       this.memoryData = previousMemory;
       await client.saveCachedSnapshot(this.tableName, previousMemory).catch(() => {});
       this.notifyDataUpdated();
+      this.syncSiblingRepositories();
       throw err;
     } finally {
       this.isCommittingSelf = false;
@@ -697,11 +727,11 @@ export abstract class BaseRepository<T extends { id: string }> {
         if (!String(preparedInput.noPerizinan || '').trim()) {
           preparedInput.noPerizinan = preparedInput.id;
         }
-        if (!String(preparedInput.noSuratPermohonan || '').trim()) {
-          preparedInput.noSuratPermohonan = generateNextSuratPermohonan(accumulatedRefRows);
-        }
       }
-      if (this.tableName === 'Plotting_Pemberangkatan' && !String(preparedInput.idPenempatan || '').trim()) {
+      if (
+        (this.tableName === 'data_plotting' || this.tableName === 'Plotting_Pemberangkatan') &&
+        !String(preparedInput.idPenempatan || '').trim()
+      ) {
         preparedInput.idPenempatan = preparedInput.id;
       }
       if (preparedInput.nis !== undefined && preparedInput.nis !== null && String(preparedInput.nis).trim()) {
@@ -750,6 +780,7 @@ export abstract class BaseRepository<T extends { id: string }> {
       }
       await client.saveCachedSnapshot(this.tableName, this.memoryData).catch(() => {});
       this.notifyDataUpdated();
+      this.syncSiblingRepositories();
     } finally {
       this.isCommittingSelf = false;
     }

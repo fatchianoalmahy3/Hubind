@@ -111,19 +111,28 @@ export function registerDocumentRoutes(app: Express): void {
     }
   });
 
-  // Generate Surat Permohonan/Perizinan PKL PDF in Google Drive via GAS & save link to Data_Perizinan_PKL
+  // Generate Surat Permohonan PKL PDF in Google Drive via GAS & save link to Data_Pengajuan_PKL (or Data_Perizinan_PKL fallback)
   app.post('/api/perizinan/generate-pdf', async (req: Request, res: Response) => {
     try {
       await requireAdminAuth(req);
       const body = req.body || {};
-      const perizinanId = String(body.perizinanId || body.id || '').trim();
+      const pengajuanId = String(body.pengajuanId || '').trim();
+      const perizinanId = String(body.perizinanId || (!pengajuanId ? body.id : '') || '').trim();
+      const targetSheet =
+        body.sourceSheet === 'Data_Pengajuan_PKL' || pengajuanId
+          ? 'Data_Pengajuan_PKL'
+          : 'Data_Perizinan_PKL';
+      const targetId = targetSheet === 'Data_Pengajuan_PKL' ? pengajuanId : perizinanId;
 
       let existingRow: any = null;
-      if (perizinanId) {
-        const izinRes = await fetchLiveSheetViaGas('Data_Perizinan_PKL', false).catch(() => ({ rows: [] as any[] }));
-        existingRow = izinRes.rows.find((r: any) => {
-          const rid = pickField(r, 'ID_Perizinan', 'idPerizinan', 'id');
-          return rid === perizinanId;
+      if (targetId) {
+        const resSheet = await fetchLiveSheetViaGas(targetSheet, false).catch(() => ({ rows: [] as any[] }));
+        existingRow = resSheet.rows.find((r: any) => {
+          const rid =
+            targetSheet === 'Data_Pengajuan_PKL'
+              ? pickField(r, 'No_Pengajuan', 'noPengajuan', 'id')
+              : pickField(r, 'ID_Perizinan', 'idPerizinan', 'id');
+          return rid === targetId;
         });
       }
 
@@ -179,16 +188,15 @@ export function registerDocumentRoutes(app: Express): void {
         }
       }
 
+      const resolvedNoSurat =
+        String(body.noSuratPermohonan || '').trim() ||
+        pickField(existingRow || {}, 'No_Surat_Permohonan', 'noSuratPermohonan') ||
+        `421.5 / ___ / Hubin / SMK.PGRI2 / ${new Date().getFullYear()}`;
+
       const gasPayload = {
-        perizinanId: perizinanId || `IZN-${Date.now()}`,
-        noPerizinan:
-          String(body.noPerizinan || '').trim() ||
-          pickField(existingRow || {}, 'ID_Perizinan', 'idPerizinan', 'id') ||
-          perizinanId,
-        noSuratPermohonan:
-          String(body.noSuratPermohonan || '').trim() ||
-          pickField(existingRow || {}, 'No_Surat_Permohonan', 'noSuratPermohonan') ||
-          `421.5 / ___ / Hubin / SMK.PGRI2 / ${new Date().getFullYear()}`,
+        perizinanId: targetId || `REQ-${Date.now()}`,
+        noPerizinan: targetId,
+        noSuratPermohonan: resolvedNoSurat,
         namaSiswa: namaSiswa || '-',
         nis: nisClean,
         kelas: kelas || '-',
@@ -215,14 +223,28 @@ export function registerDocumentRoutes(app: Express): void {
         );
       }
 
-      if (existingRow && perizinanId) {
-        await writeLiveSheetViaGas('Data_Perizinan_PKL', 'UPDATE', {
-          ...existingRow,
-          id: pickField(existingRow, 'ID_Perizinan', 'idPerizinan', 'id') || perizinanId,
-          ID_Perizinan: pickField(existingRow, 'ID_Perizinan', 'idPerizinan', 'id') || perizinanId,
-          Link_Surat_PDF: pdfUrl,
-          linkSuratPdf: pdfUrl,
-        }).catch(() => {});
+      if (existingRow && targetId) {
+        if (targetSheet === 'Data_Pengajuan_PKL') {
+          const pengId = pickField(existingRow, 'No_Pengajuan', 'noPengajuan', 'id') || targetId;
+          await writeLiveSheetViaGas('Data_Pengajuan_PKL', 'UPDATE', {
+            ...existingRow,
+            id: pengId,
+            No_Pengajuan: pengId,
+            No_Surat_Permohonan: resolvedNoSurat,
+            noSuratPermohonan: resolvedNoSurat,
+            Link_Surat_PDF: pdfUrl,
+            linkSuratPdf: pdfUrl,
+          }).catch(() => {});
+        } else {
+          const izId = pickField(existingRow, 'ID_Perizinan', 'idPerizinan', 'id') || targetId;
+          await writeLiveSheetViaGas('Data_Perizinan_PKL', 'UPDATE', {
+            ...existingRow,
+            id: izId,
+            ID_Perizinan: izId,
+            Link_Bukti_Balasan: pdfUrl,
+            linkBuktiBalasan: pdfUrl,
+          }).catch(() => {});
+        }
       }
 
       return res.json({

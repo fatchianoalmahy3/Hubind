@@ -19,6 +19,7 @@ import {
   Printer,
   Lock,
   Download,
+  UserPlus,
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -41,6 +42,7 @@ interface ToolbarProps {
   onOpenMonitoringRecap?: () => void;
   onOpenMonitoringBundle?: () => void;
   onOpenStageControl?: () => void;
+  onOpenBulkPlotting?: () => void;
   syncingRelations?: boolean;
   canAdd?: boolean;
   readOnly?: boolean;
@@ -68,6 +70,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenMonitoringRecap,
   onOpenMonitoringBundle,
   onOpenStageControl,
+  onOpenBulkPlotting,
   syncingRelations = false,
   canAdd = true,
   readOnly = false,
@@ -97,6 +100,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   const hasLeftWorkflowActions =
     selectedCount > 0 ||
+    Boolean(onOpenBulkPlotting) ||
     Boolean(onOpenMonitoringBundle) ||
     Boolean(onOpenMonitoringRecap) ||
     Boolean(onOpenStageControl);
@@ -195,6 +199,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               >
                 <Layers className="w-3.5 h-3.5 shrink-0" />
                 <span>Aksi Massal ({selectedCount})</span>
+              </button>
+            )}
+
+            {onOpenBulkPlotting && (
+              <button
+                type="button"
+                onClick={onOpenBulkPlotting}
+                className="h-9 px-3.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                title="Plotting Massal 1-Langkah: Pilih 1 DUDI dan beberapa siswa sekaligus"
+              >
+                <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                <span>Plotting Massal</span>
               </button>
             )}
 

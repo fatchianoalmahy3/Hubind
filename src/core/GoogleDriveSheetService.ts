@@ -64,7 +64,7 @@ export class GoogleDriveSheetService {
     Jumlah_Siswa: ['jumlahSiswa', 'jumlah_siswa', 'Jumlah_Siswa'],
 
     // DUDI
-    Nama_DUDI: ['namaDudi', 'nama_dudi', 'Nama_DUDI', 'nama'],
+    Nama_DUDI: ['namaDudi', 'dudiTujuan', 'nama_dudi', 'Nama_DUDI', 'nama'],
     Bidang_Keahlian: ['bidangKeahlian', 'bidang_keahlian', 'Bidang_Keahlian'],
     Alamat: ['alamat', 'Alamat'],
     Wilayah_Kota: ['wilayahKota', 'wilayah_kota', 'Wilayah_Kota'],
@@ -183,6 +183,7 @@ export class GoogleDriveSheetService {
     Master_Guru_Pendamping: 'ID',
     Data_Pengajuan_PKL: 'No_Pengajuan',
     Data_Perizinan_PKL: 'ID_Perizinan',
+    data_plotting: 'ID_Penempatan',
     Plotting_Pemberangkatan: 'ID_Penempatan',
     Monitoring_5_Tahap: 'ID_Monitoring',
     Nilai_Dan_Sertifikat: 'ID_Penempatan',
@@ -622,6 +623,18 @@ export class GoogleDriveSheetService {
       }
       if (!record.kontakPic && record.noTelpDudi) {
         record.kontakPic = record.noTelpDudi;
+      }
+    }
+    if (
+      sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat'
+    ) {
+      if (!record.dudiTujuan && record.namaDudi) {
+        record.dudiTujuan = record.namaDudi;
+      }
+      if (!record.namaDudi && record.dudiTujuan) {
+        record.namaDudi = record.dudiTujuan;
       }
     }
 

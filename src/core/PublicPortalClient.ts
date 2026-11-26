@@ -441,7 +441,7 @@ export const PublicPortalClient = {
       if (res?.success) {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
         if (res.gradeSynced) {
-          GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('data_plotting');
         }
         if (res.dudiContactSynced) {
           GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
@@ -617,7 +617,7 @@ export const PublicPortalClient = {
       if (res?.success) {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
         if (res.nilaiSynced) {
-          GoogleSheetClient.getInstance().invalidateClientSheetCache('Nilai_Dan_Sertifikat');
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('data_plotting');
         }
         invalidatePublicTeacherCaches();
         ToastManager.getInstance().update(
@@ -657,8 +657,11 @@ export const PublicPortalClient = {
   },
 
   async generatePerizinanPdf(payload: {
-    perizinanId: string;
+    perizinanId?: string;
+    pengajuanId?: string;
+    sourceSheet?: 'Data_Pengajuan_PKL' | 'Data_Perizinan_PKL';
     noPerizinan?: string;
+    noPengajuan?: string;
     noSuratPermohonan?: string;
     namaSiswa?: string;
     nis?: string;
@@ -681,6 +684,11 @@ export const PublicPortalClient = {
       `Mengonversi surat permohonan ${payload.namaSiswa || ''} ke PDF`
     );
 
+    const targetSheet =
+      payload.sourceSheet ||
+      (payload.pengajuanId || payload.noPengajuan ? 'Data_Pengajuan_PKL' : 'Data_Perizinan_PKL');
+    const targetRecordId = String(payload.pengajuanId || payload.perizinanId || '').trim();
+
     try {
       const result = await callAuthenticatedProxyWithGasAction<{
         success: boolean;
@@ -694,7 +702,11 @@ export const PublicPortalClient = {
         proxyFailDefaultMsg: 'Gagal membuat PDF surat',
         gasAction: 'GENERATE_SURAT_IZIN_PDF',
         gasTimeoutMs: 32_000,
-        payload,
+        payload: {
+          ...payload,
+          perizinanId: payload.perizinanId || targetRecordId,
+          noPerizinan: payload.noPerizinan || payload.noPengajuan || targetRecordId,
+        },
         mapGasResult: async (json, status, ok) => {
           if (!ok || json?.error || !json?.pdfUrl) {
             throw new Error(
@@ -703,13 +715,28 @@ export const PublicPortalClient = {
             );
           }
           const pdfUrl = String(json.pdfUrl).trim();
-          if (payload.perizinanId) {
-            await writeSheetDirect('Data_Perizinan_PKL', 'UPDATE', {
-              id: payload.perizinanId,
-              ID_Perizinan: payload.perizinanId,
-              Link_Surat_PDF: pdfUrl,
-              linkSuratPdf: pdfUrl,
-            }).catch(() => {});
+          if (targetRecordId) {
+            if (targetSheet === 'Data_Pengajuan_PKL') {
+              await writeSheetDirect('Data_Pengajuan_PKL', 'UPDATE', {
+                id: targetRecordId,
+                No_Pengajuan: targetRecordId,
+                ...(payload.noSuratPermohonan
+                  ? {
+                      No_Surat_Permohonan: payload.noSuratPermohonan,
+                      noSuratPermohonan: payload.noSuratPermohonan,
+                    }
+                  : {}),
+                Link_Surat_PDF: pdfUrl,
+                linkSuratPdf: pdfUrl,
+              }).catch(() => {});
+            } else {
+              await writeSheetDirect('Data_Perizinan_PKL', 'UPDATE', {
+                id: targetRecordId,
+                ID_Perizinan: targetRecordId,
+                Link_Bukti_Balasan: pdfUrl,
+                linkBuktiBalasan: pdfUrl,
+              }).catch(() => {});
+            }
           }
           return {
             success: true,
@@ -721,12 +748,12 @@ export const PublicPortalClient = {
         },
       });
 
-      GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Perizinan_PKL');
+      GoogleSheetClient.getInstance().invalidateClientSheetCache(targetSheet);
       ToastManager.getInstance().update(
         toastId,
         'PDF Surat Siap di Google Drive!',
         'success',
-        'Tautan PDF otomatis ditambahkan ke pesan WhatsApp & database perizinan.'
+        'Tautan PDF otomatis ditambahkan ke pesan WhatsApp & database.'
       );
       return result;
     } catch (err: any) {

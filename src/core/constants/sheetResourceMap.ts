@@ -6,9 +6,9 @@ export const REST_RESOURCE_TO_SHEET: Record<string, string> = {
   teachers: 'Master_Guru_Pendamping',
   submissions: 'Data_Pengajuan_PKL',
   permits: 'Data_Perizinan_PKL',
-  placements: 'Plotting_Pemberangkatan',
+  placements: 'data_plotting',
   monitoring: 'Monitoring_5_Tahap',
-  certificates: 'Nilai_Dan_Sertifikat',
+  certificates: 'data_plotting',
   accounts: 'Master_Akun',
   'issued-letters': 'Log_Penerbitan_Surat',
 };
@@ -22,6 +22,7 @@ export const SHEET_TO_REST_RESOURCE: Record<string, string> = {
   Master_Guru_Pendamping: 'teachers',
   Data_Pengajuan_PKL: 'submissions',
   Data_Perizinan_PKL: 'permits',
+  data_plotting: 'placements',
   Plotting_Pemberangkatan: 'placements',
   Monitoring_5_Tahap: 'monitoring',
   Monitoring_6_Tahap: 'monitoring',
@@ -39,14 +40,13 @@ export const CORE_ADMIN_BOOTSTRAP_TABLES: string[] = [
   'Master_Guru_Pendamping',
   'Master_Siswa_XI',
   'Data_Pengajuan_PKL',
-  'Plotting_Pemberangkatan',
+  'data_plotting',
   'Log_Penerbitan_Surat',
 ];
 
 export const HEAVY_ADMIN_BOOTSTRAP_TABLES: string[] = [
   'Data_Perizinan_PKL',
   'Monitoring_5_Tahap',
-  'Nilai_Dan_Sertifikat',
 ];
 
 export const DEFAULT_ADMIN_BOOTSTRAP_TABLES: string[] = [
@@ -64,9 +64,9 @@ export const MODULE_TO_SHEET: Record<string, string> = {
   guru: 'Master_Guru_Pendamping',
   pengajuan: 'Data_Pengajuan_PKL',
   perizinan: 'Data_Perizinan_PKL',
-  siswa_pkl: 'Plotting_Pemberangkatan',
+  siswa_pkl: 'data_plotting',
   monitoring: 'Monitoring_5_Tahap',
-  sertifikat: 'Nilai_Dan_Sertifikat',
+  sertifikat: 'data_plotting',
 };
 
 export function resolveSheetNameByModuleId(moduleId?: string): string {

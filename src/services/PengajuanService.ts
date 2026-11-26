@@ -6,10 +6,12 @@ import { SiswaService } from './SiswaService';
 import { DudiService } from './DudiService';
 import { GuruService } from './GuruService';
 import { SiswaPklService } from './SiswaPklService';
-import { PerizinanService } from './PerizinanService';
 import { RelationSyncService } from './RelationSyncService';
-import { generateNextSequentialId } from '../core/utils/autoIdHelpers';
-import { getOffsetWibIsoDate } from '../core/utils/dateHelpers';
+import {
+  generateNextSequentialId,
+  generateNextSuratPermohonan,
+} from '../core/utils/autoIdHelpers';
+import { getOffsetWibIsoDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
 import { stripNisSymbols } from '../core/utils/nisHelpers';
 
 import {
@@ -75,12 +77,6 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       });
     }
 
-    if (updated) {
-      await PerizinanService.getInstance()
-        .createFromPengajuan(updated, { silentToast: true })
-        .catch((err) => console.warn('Auto-create PerizinanPKL warning:', err));
-    }
-
     return updated;
   }
 
@@ -93,11 +89,10 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
     if (uniqueIds.length === 0) return 0;
 
     const idSet = new Set(uniqueIds);
-    const [allPengajuan, dudiList, siswaList, existingPerizinan] = await Promise.all([
+    const [allPengajuan, dudiList, siswaList] = await Promise.all([
       this.getAll(),
       DudiService.getInstance().getAll().catch(() => []),
       SiswaService.getInstance().getAll().catch(() => []),
-      PerizinanService.getInstance().getAll().catch(() => []),
     ]);
 
     const siswaByNis = new Map<string, (typeof siswaList)[number]>();
@@ -106,19 +101,8 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       if (digits) siswaByNis.set(digits, s);
     }
 
-    const perizinanNoPengajuan = new Set(
-      existingPerizinan.map((p) => String(p.noPengajuan || '').trim()).filter(Boolean)
-    );
-    const perizinanNisDudi = new Set(
-      existingPerizinan.map(
-        (p) => `${getCanonicalNisDigits(p.nis)}::${normalizeRelationText(p.dudiTujuan)}`
-      )
-    );
-
     const pengajuanPatches: Array<{ id: string; updates: Partial<Pengajuan> }> = [];
     const siswaPatchesMap = new Map<string, Partial<(typeof siswaList)[number]>>();
-    const newPerizinanRows: Array<Record<string, any>> = [];
-    const todayIso = getOffsetWibIsoDate(0);
 
     for (const item of allPengajuan) {
       if (!idSet.has(item.id)) continue;
@@ -152,38 +136,6 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       if (matchedSiswa && matchedSiswa.statusPKL !== 'Sedang PKL' && matchedSiswa.statusPKL !== 'Diterima DUDI') {
         siswaPatchesMap.set(matchedSiswa.id, { statusPKL: 'Diterima DUDI' });
       }
-
-      const effectiveNoPengajuan = String(item.noPengajuan || item.id).trim();
-      const effectiveNis =
-        (matchedSiswa ? stripNisSymbols(matchedSiswa.nis) || matchedSiswa.nis : nisDigits) ||
-        String(item.nis || '').trim();
-      const nisDudiKey = `${getCanonicalNisDigits(effectiveNis)}::${targetDudiNorm}`;
-
-      if (
-        !perizinanNoPengajuan.has(effectiveNoPengajuan) &&
-        !perizinanNisDudi.has(nisDudiKey)
-      ) {
-        perizinanNoPengajuan.add(effectiveNoPengajuan);
-        perizinanNisDudi.add(nisDudiKey);
-        newPerizinanRows.push({
-          noPengajuan: effectiveNoPengajuan,
-          nis: effectiveNis,
-          namaSiswa: matchedSiswa?.nama || item.namaSiswa,
-          jurusan: matchedSiswa?.jurusan || item.jurusan,
-          kelas: matchedSiswa?.kelas || item.kelas,
-          namaOrtuWali: matchedSiswa?.namaOrtuWali || item.namaOrtuWali || '',
-          statusIzinOrtu: '',
-          tanggalMulaiIzin: '',
-          tanggalSelesaiIzin: '',
-          rentangTanggal: '',
-          idDudi: matchedDudi?.id || item.idDudi || '',
-          dudiTujuan: item.dudiTujuan,
-          alamatDudi: item.alamatDudi || matchedDudi?.alamat || '-',
-          tanggalKirimSurat: todayIso,
-          catatanPerizinan: 'Terbuat otomatis dari pengajuan ACC Kakomli.',
-          linkBuktiBalasan: '',
-        });
-      }
     }
 
     const updatedCount = await this.bulkUpdateMany(pengajuanPatches, options);
@@ -198,15 +150,6 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
         .catch(() => 0);
     }
 
-    if (newPerizinanRows.length > 0) {
-      await PerizinanService.getInstance()
-        .importRows(newPerizinanRows, { silentToast: true })
-        .catch((err) => {
-          console.warn('Batch auto-create PerizinanPKL warning:', err);
-          return 0;
-        });
-    }
-
     await RelationSyncService.getInstance()
       .syncAfterMutation('pengajuan', 'update')
       .catch(() => {});
@@ -214,13 +157,25 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
     return updatedCount;
   }
 
-  public async createPerizinanFromPengajuan(
+  public async markSuratSentToday(
     id: string,
+    noSuratPermohonan?: string,
     options?: { silentToast?: boolean }
-  ): Promise<void> {
+  ): Promise<Pengajuan | null> {
     const item = await this.getById(id);
-    if (!item) throw new Error('Data pengajuan tidak ditemukan.');
-    await PerizinanService.getInstance().createFromPengajuan(item, options);
+    if (!item) return null;
+    const allPengajuan = await this.getAll().catch(() => [item]);
+    const resolvedNoSurat =
+      String(noSuratPermohonan || item.noSuratPermohonan || '').trim() ||
+      generateNextSuratPermohonan(allPengajuan as any);
+    const patch: Partial<Pengajuan> = {
+      noSuratPermohonan: resolvedNoSurat,
+      tanggalKirimSurat: item.tanggalKirimSurat?.trim() || getTodayWibIsoDate(),
+    };
+    if (!item.statusBalasanDudi || item.statusBalasanDudi === 'Belum Dikirim') {
+      patch.statusBalasanDudi = 'Menunggu Balasan';
+    }
+    return this.update(id, patch, options);
   }
 
   public async rejectByKakomli(
@@ -347,7 +302,7 @@ export class PengajuanService extends BaseRepository<Pengajuan> {
       );
     } else {
       const idPenempatan = generateNextSequentialId(
-        'Plotting_Pemberangkatan',
+        'data_plotting',
         existingPlottings as any
       );
       await SiswaPklService.getInstance().create(

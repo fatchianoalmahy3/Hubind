@@ -32,6 +32,7 @@ export interface ImportCommitResult {
   updated: number;
   skipped: number;
   createdGuru?: number;
+  createdKelas?: number;
 }
 
 export interface BatchWorkbookSheetPayload {
@@ -141,6 +142,11 @@ const EXCEL_COLUMN_ALIASES: Record<string, string[]> = {
   statusPenempatan: ['statuspenempatan', 'statuspkl', 'status'],
   catatanPenempatan: ['catatanpenempatan', 'catatanriwayatpenempatan', 'catatan'],
   namaSiswa: ['namasiswa', 'namalengkap', 'nama'],
+  statusIzinOrtu: ['statusizinortu', 'kategoriizin', 'jenisizin', 'izin', 'keteranganizin', 'status'],
+  tanggalMulaiIzin: ['tanggalmulaiizin', 'tglmulaiizin', 'mulaiizin', 'tanggalmulai', 'tglmulai'],
+  tanggalSelesaiIzin: ['tanggalselesaiizin', 'tglselesaiizin', 'selesaiizin', 'tanggalselesai', 'tglselesai'],
+  catatanPerizinan: ['catatanperizinan', 'keterangancatatanizin', 'keterangan', 'catatan', 'alasanizin'],
+  linkBuktiBalasan: ['linkbuktibalasan', 'linkbuktisuratfoto', 'linkbukti', 'bukti'],
 };
 
 const BULK_REQUIRED_KEYS_BY_MODULE: Record<string, string[]> = {
@@ -150,6 +156,7 @@ const BULK_REQUIRED_KEYS_BY_MODULE: Record<string, string[]> = {
   jurusan: ['nama'],
   kelas: ['namaKelas'],
   siswa_pkl: ['nis', 'namaDudi'],
+  perizinan: ['nis', 'statusIzinOrtu'],
 };
 
 const TOPOLOGICAL_MODULE_ORDER = ['guru', 'jurusan', 'kelas', 'dudi', 'siswa', 'siswa_pkl'] as const;
@@ -169,10 +176,15 @@ const SHEET_NAME_TO_MODULE_ID: Record<string, string> = {
   mastersiswaxi: 'siswa',
   mastersiswa: 'siswa',
   siswa: 'siswa',
+  dataplotting: 'siswa_pkl',
   plottingpemberangkatan: 'siswa_pkl',
   datasiswapkl: 'siswa_pkl',
   siswapkl: 'siswa_pkl',
   penempatan: 'siswa_pkl',
+  dataperizinanpkl: 'perizinan',
+  perizinanpkl: 'perizinan',
+  perizinan: 'perizinan',
+  nilaidansertifikat: 'sertifikat',
 };
 
 function normalizeCol(str: string): string {

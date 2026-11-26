@@ -240,7 +240,7 @@ export async function requireAdminAuth(req: Request): Promise<AuthenticatedAdmin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken: token }),
       },
-      { timeoutMs: 8_000, retries: 2, baseDelayMs: 250 }
+      { timeoutMs: 10_000, retries: 1, retryOnTimeout: true, baseDelayMs: 250 }
     );
   } catch (err: any) {
     if (err instanceof PortalConfigError) throw err;
@@ -291,7 +291,7 @@ export async function requireAdminAuth(req: Request): Promise<AuthenticatedAdmin
           Accept: 'application/json',
         },
       },
-      { timeoutMs: 8_000, retries: 2, baseDelayMs: 250 }
+      { timeoutMs: 10_000, retries: 1, retryOnTimeout: true, baseDelayMs: 250 }
     );
   } catch (err: any) {
     if (err instanceof PortalConfigError) throw err;

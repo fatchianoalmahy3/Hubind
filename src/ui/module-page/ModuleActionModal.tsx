@@ -7,7 +7,7 @@ import { CrudLoadingOverlay, TopProgressBar } from '../CrudProgressFeedback';
 
 export interface ModuleActionModalState {
   isOpen: boolean;
-  type: 'reject_kakomli' | 'schedule_hubin' | 'promote_to_pkl' | 'transfer_dudi' | null;
+  type: 'reject_kakomli' | 'schedule_hubin' | 'transfer_dudi' | null;
   row: any | null;
   reason: string;
   newDudi: string;
@@ -48,7 +48,6 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
             <h3 className="text-sm font-bold text-slate-900">
               {state.type === 'reject_kakomli' && 'Tolak Pengajuan PKL'}
               {state.type === 'schedule_hubin' && 'Jadwalkan Pemberangkatan PKL'}
-              {state.type === 'promote_to_pkl' && 'Terbitkan ke Data Siswa PKL'}
               {state.type === 'transfer_dudi' && 'Pindah DUDI Siswa PKL'}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5 truncate">
@@ -200,7 +199,7 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
                     className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 tabular-nums"
                   />
                 </div>
-                {(state.type === 'promote_to_pkl' || state.type === 'transfer_dudi') && (
+                {state.type === 'transfer_dudi' && (
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1.5">
                       Rencana Tanggal Tarik
@@ -263,8 +262,6 @@ export const ModuleActionModal: React.FC<ModuleActionModalProps> = ({
                   ? 'Menyimpan...'
                   : state.type === 'reject_kakomli'
                   ? 'Tolak Pengajuan'
-                  : state.type === 'promote_to_pkl'
-                  ? 'Terbitkan ke Data Siswa PKL'
                   : state.type === 'transfer_dudi'
                   ? 'Proses Pindah DUDI'
                   : 'Simpan Jadwal'}

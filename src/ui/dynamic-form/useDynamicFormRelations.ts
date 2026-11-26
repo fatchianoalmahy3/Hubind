@@ -6,6 +6,7 @@ import { GuruService } from '../../services/GuruService';
 import { JurusanService } from '../../services/JurusanService';
 import { KelasService } from '../../services/KelasService';
 import { PengajuanService } from '../../services/PengajuanService';
+import { PerizinanService } from '../../services/PerizinanService';
 import { SiswaPklService } from '../../services/SiswaPklService';
 import { SiswaService } from '../../services/SiswaService';
 import { stripStructuredTagsFromNote } from '../../core/utils/monitoringHelpers';
@@ -15,7 +16,6 @@ import { getCanonicalNisDigits } from '../../core/utils/relationHelpers';
 import {
   generateJurusanCode,
   generateNextSequentialId,
-  generateNextSuratPermohonan,
 } from '../../core/utils/autoIdHelpers';
 import { resolveSheetNameByModuleId } from '../../core/constants/sheetResourceMap';
 
@@ -137,16 +137,10 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
     if (formFieldKeys.has('noPerizinan') && !String(seed.noPerizinan || '').trim()) {
       seed.noPerizinan = generateNextSequentialId('Data_Perizinan_PKL', existingList as any);
     }
-    if (formFieldKeys.has('noSuratPermohonan') && !String(seed.noSuratPermohonan || '').trim()) {
-      seed.noSuratPermohonan = generateNextSuratPermohonan(existingList as any);
-    }
-    if (formFieldKeys.has('tanggalKirimSurat') && !String(seed.tanggalKirimSurat || '').trim()) {
-      seed.tanggalKirimSurat = getTodayWibIsoDate();
-    }
     if (formFieldKeys.has('idPenempatan') && !String(seed.idPenempatan || '').trim()) {
       seed.idPenempatan =
         (formFieldKeys.has('statusRaport') && String(seed.id || '').trim()) ||
-        generateNextSequentialId('Plotting_Pemberangkatan', existingList as any);
+        generateNextSequentialId('data_plotting', existingList as any);
     }
     if (formFieldKeys.has('tanggalTerbit') && !String(seed.tanggalTerbit || '').trim()) {
       seed.tanggalTerbit = getTodayWibIsoDate();
@@ -375,11 +369,18 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
     matched?: StudentDirectoryEntry
   ): { dudiTujuan: string; alamatDudi: string } => {
     if (!matched) return { dudiTujuan: '', alamatDudi: '' };
-    const candidates = [
-      { name: cleanPlaceholderDash(matched.pengajuan?.dudiTujuan), addr: matched.pengajuan?.alamatDudi },
-      { name: cleanPlaceholderDash(matched.penempatan?.namaDudi), addr: '' },
-      { name: cleanPlaceholderDash(matched.existingPerizinan?.dudiTujuan), addr: matched.existingPerizinan?.alamatDudi },
-    ];
+    const candidates =
+      moduleId === 'perizinan' || formFieldKeys.has('noPerizinan')
+        ? [
+            { name: cleanPlaceholderDash(matched.penempatan?.namaDudi), addr: '' },
+            { name: cleanPlaceholderDash(matched.pengajuan?.dudiTujuan), addr: matched.pengajuan?.alamatDudi },
+            { name: cleanPlaceholderDash(matched.existingPerizinan?.dudiTujuan), addr: matched.existingPerizinan?.alamatDudi },
+          ]
+        : [
+            { name: cleanPlaceholderDash(matched.pengajuan?.dudiTujuan), addr: matched.pengajuan?.alamatDudi },
+            { name: cleanPlaceholderDash(matched.penempatan?.namaDudi), addr: '' },
+            { name: cleanPlaceholderDash(matched.existingPerizinan?.dudiTujuan), addr: matched.existingPerizinan?.alamatDudi },
+          ];
     for (const c of candidates) {
       if (c.name) {
         return { dudiTujuan: c.name, alamatDudi: resolveDudiAddress(c.name, c.addr) };
@@ -594,8 +595,29 @@ export function useDynamicFormRelations<T extends Record<string, any>>({
       patch.idPenempatan = matched.penempatan.idPenempatan;
     }
 
-    if (formFieldKeys.has('tanggalKirimSurat') && !String(values.tanggalKirimSurat || '').trim()) {
-      patch.tanggalKirimSurat = getTodayWibIsoDate();
+    if (
+      (moduleId === 'perizinan' || formFieldKeys.has('noPerizinan')) &&
+      matched.nis &&
+      !patch.dudiTujuan &&
+      !cleanPlaceholderDash(values.dudiTujuan)
+    ) {
+      void PerizinanService.getInstance()
+        .resolvePlacementDudiForNis(matched.nis)
+        .then((res) => {
+          if (!res) return;
+          const asyncPatch: Record<string, any> = {};
+          if (res.dudiTujuan) {
+            asyncPatch.dudiTujuan = res.dudiTujuan;
+            autoFilledDudiRef.current = res.dudiTujuan;
+          }
+          if (res.idDudi && formFieldKeys.has('idDudi')) {
+            asyncPatch.idDudi = res.idDudi;
+          }
+          if (Object.keys(asyncPatch).length > 0) {
+            setMultipleValues(asyncPatch);
+          }
+        })
+        .catch(() => {});
     }
 
     setMultipleValues(patch);

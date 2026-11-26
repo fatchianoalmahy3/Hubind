@@ -38,6 +38,7 @@ const PREFIX_BY_SHEET: Record<string, { prefix: string; withYear: boolean }> = {
   Master_Guru_Pendamping: { prefix: 'GRU', withYear: true },
   Data_Pengajuan_PKL: { prefix: 'REQ', withYear: true },
   Data_Perizinan_PKL: { prefix: 'IZN', withYear: true },
+  data_plotting: { prefix: 'PLT', withYear: true },
   Plotting_Pemberangkatan: { prefix: 'PLT', withYear: true },
   Monitoring_5_Tahap: { prefix: 'MON', withYear: true },
   Nilai_Dan_Sertifikat: { prefix: 'SRT', withYear: true },

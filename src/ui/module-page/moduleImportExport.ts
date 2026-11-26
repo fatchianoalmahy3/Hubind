@@ -1,5 +1,5 @@
 import { FieldConfig } from '../../core/types/metadata';
-import { Dudi, Guru, Jurusan, Kelas } from '../../core/types/schema';
+import { Dudi, Guru, Jurusan, Kelas, PenempatanPKL } from '../../core/types/schema';
 import { ToastManager } from '../../core/ToastManager';
 import { isFormulaManagedColumn } from '../../core/types/sheetBlueprint';
 import {
@@ -166,6 +166,21 @@ function normalizePeranGuru(raw: unknown): Guru['peranUtama'] {
   return 'Guru Pendamping';
 }
 
+function normalizePerizinanCategory(raw: unknown): string {
+  const s = normalizeRelationText(raw);
+  if (!s) return 'Izin (I)';
+  if (s === 'so' || (s.includes('sakit') && !s.includes('dokter'))) {
+    return 'Sakit di izinkan Orangtua (SO)';
+  }
+  if (s === 'sd' || s.includes('dokter')) {
+    return 'Surat Dokter (SD)';
+  }
+  if (s === 'id' || s.includes('dispensasi')) {
+    return 'Izin dispensasi (ID)';
+  }
+  return 'Izin (I)';
+}
+
 export function resolveImportRowRelations(params: {
   moduleId: string;
   rows: Array<Record<string, any>>;
@@ -173,6 +188,7 @@ export function resolveImportRowRelations(params: {
   guruList?: Guru[];
   dudiList?: Dudi[];
   kelasList?: Kelas[];
+  penempatanList?: PenempatanPKL[];
 }): {
   resolvedRows: Array<Record<string, any>>;
   missingGuruNames: string[];
@@ -183,6 +199,7 @@ export function resolveImportRowRelations(params: {
     jurusanList = [],
     guruList = [],
     dudiList = [],
+    penempatanList = [],
   } = params;
 
   const missingGuruMap = new Map<string, string>();
@@ -286,6 +303,29 @@ export function resolveImportRowRelations(params: {
             row.idGuruPendamping = fallbackGuru.id;
             row.guruPendamping = fallbackGuru.nama;
           }
+        }
+      }
+    } else if (moduleId === 'perizinan') {
+      const nisDigits = getCanonicalNisDigits(row.nis);
+      if (nisDigits) row.nis = nisDigits;
+
+      row.statusIzinOrtu = normalizePerizinanCategory(row.statusIzinOrtu);
+
+      const dudiRef = row.idDudi || row.dudiTujuan || row.namaDudi;
+      const matchedDudi = findMatchingDudi(dudiRef, dudiList);
+      if (matchedDudi) {
+        row.idDudi = matchedDudi.id;
+        row.dudiTujuan = matchedDudi.namaDudi;
+      } else if (!String(row.dudiTujuan || '').trim() && nisDigits && penempatanList.length > 0) {
+        const plt =
+          penempatanList.find(
+            (p) =>
+              getCanonicalNisDigits(p.nis) === nisDigits &&
+              isActivePlacementStatus(p.statusPenempatan)
+          ) || penempatanList.find((p) => getCanonicalNisDigits(p.nis) === nisDigits);
+        if (plt) {
+          row.idDudi = plt.idDudi || '';
+          row.dudiTujuan = plt.namaDudi || '';
         }
       }
     }

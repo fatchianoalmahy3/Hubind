@@ -3,7 +3,7 @@ import { normalizeToIsoDate } from '../../src/core/utils/dateHelpers';
 import { fetchWithRetry } from '../utils/httpHelpers';
 import { registerMetadataCacheClearHook } from './serverSheetCache';
 
-export const SHEETS_API_TIMEOUT_MS = 8_000;
+export const SHEETS_API_TIMEOUT_MS = 10_000;
 const SHEETS_METADATA_TTL_MS = 300_000;
 
 let sheetsAccessTokenCache: { token: string; expiresAt: number; cacheKey: string } | null = null;
@@ -20,6 +20,19 @@ const inFlightMetadataFetches = new Map<
 registerMetadataCacheClearHook(() => {
   sheetMetadataCache.clear();
 });
+
+let lastSheetsFallbackReason: string | null = null;
+
+export function recordSheetsApiFallbackReason(reason: string): void {
+  const clean = String(reason || '').trim();
+  if (clean) {
+    lastSheetsFallbackReason = clean.slice(0, 180);
+  }
+}
+
+export function clearSheetsApiFallbackReason(): void {
+  lastSheetsFallbackReason = null;
+}
 
 export function invalidateSheetsAccessTokenCache(): void {
   sheetsAccessTokenCache = null;
@@ -60,25 +73,73 @@ interface ParsedServiceAccountCreds {
   privateKey: string;
 }
 
+function stripSurroundingQuotes(raw: string): string {
+  const s = raw.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"') && !s.startsWith('{"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    return s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+function parseServiceAccountObject(jsonText: string): ParsedServiceAccountCreds | null {
+  const normalized = stripSurroundingQuotes(jsonText).replace(/\\"/g, '"');
+  if (!normalized.startsWith('{')) return null;
+  const parsed = JSON.parse(normalized);
+  const clientEmail = String(parsed?.client_email || '').trim();
+  const privateKey = String(parsed?.private_key || '')
+    .replace(/\\\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .trim();
+  if (clientEmail && privateKey) {
+    return { clientEmail, privateKey };
+  }
+  return null;
+}
+
+function tryDecodeBase64ToText(rawB64: string): string {
+  const clean = stripSurroundingQuotes(rawB64).replace(/\s+/g, '');
+  if (!clean || clean.startsWith('{')) return clean;
+  try {
+    return Buffer.from(clean, 'base64').toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
 function getGoogleServiceAccountCreds(): ParsedServiceAccountCreds | null {
   try {
     const rawJson = String(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim();
-    const rawB64 = String(process.env.GOOGLE_SERVICE_ACCOUNT_B64 || '').trim();
-    const jsonText = rawJson || (rawB64 ? Buffer.from(rawB64, 'base64').toString('utf8') : '');
-    if (jsonText) {
-      const parsed = JSON.parse(jsonText);
-      const clientEmail = String(parsed?.client_email || '').trim();
-      const privateKey = String(parsed?.private_key || '').replace(/\\n/g, '\n').trim();
-      if (clientEmail && privateKey) {
-        return { clientEmail, privateKey };
+    if (rawJson) {
+      const fromJson = parseServiceAccountObject(rawJson);
+      if (fromJson) return fromJson;
+      const decodedIfB64 = tryDecodeBase64ToText(rawJson);
+      if (decodedIfB64.startsWith('{')) {
+        const fromB64 = parseServiceAccountObject(decodedIfB64);
+        if (fromB64) return fromB64;
       }
+      recordSheetsApiFallbackReason('GOOGLE_SERVICE_ACCOUNT_JSON tidak valid atau terpotong.');
+    }
+
+    const rawB64 = String(process.env.GOOGLE_SERVICE_ACCOUNT_B64 || '').trim();
+    if (rawB64) {
+      const text = rawB64.startsWith('{') ? rawB64 : tryDecodeBase64ToText(rawB64);
+      const fromB64 = parseServiceAccountObject(text);
+      if (fromB64) return fromB64;
+      recordSheetsApiFallbackReason('GOOGLE_SERVICE_ACCOUNT_B64 gagal di-decode sebagai JSON Service Account.');
     }
   } catch (err: any) {
+    recordSheetsApiFallbackReason(`Parse Service Account gagal: ${err?.message || 'invalid JSON'}`);
     console.warn('[Sheets API v4] Invalid GOOGLE_SERVICE_ACCOUNT_JSON/B64:', err?.message);
   }
 
-  const email = String(process.env.GOOGLE_CLIENT_EMAIL || '').trim();
-  const key = String(process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
+  const email = stripSurroundingQuotes(String(process.env.GOOGLE_CLIENT_EMAIL || ''));
+  const key = stripSurroundingQuotes(String(process.env.GOOGLE_PRIVATE_KEY || ''))
+    .replace(/\\\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .trim();
   if (email && key) {
     return { clientEmail: email, privateKey: key };
   }
@@ -86,12 +147,34 @@ function getGoogleServiceAccountCreds(): ParsedServiceAccountCreds | null {
 }
 
 function getGoogleSheetsApiKey(): string {
-  return String(
-    process.env.GOOGLE_SHEETS_API_KEY ||
-      process.env.GOOGLE_CONSOLE_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      ''
-  ).trim();
+  return stripSurroundingQuotes(
+    String(
+      process.env.GOOGLE_SHEETS_API_KEY ||
+        process.env.GOOGLE_CONSOLE_API_KEY ||
+        process.env.GOOGLE_API_KEY ||
+        ''
+    )
+  );
+}
+
+export function getSheetsApiDiagnostics(): {
+  sheetsApiMode: 'service_account' | 'api_key_read_only' | 'gas_only';
+  hasServiceAccount: boolean;
+  hasApiKey: boolean;
+  lastFallbackReason: string | null;
+} {
+  const hasServiceAccount = Boolean(getGoogleServiceAccountCreds());
+  const hasApiKey = Boolean(getGoogleSheetsApiKey());
+  return {
+    sheetsApiMode: hasServiceAccount
+      ? 'service_account'
+      : hasApiKey
+      ? 'api_key_read_only'
+      : 'gas_only',
+    hasServiceAccount,
+    hasApiKey,
+    lastFallbackReason: lastSheetsFallbackReason,
+  };
 }
 
 export type SheetsAuthResult =
@@ -218,6 +301,17 @@ export function resolveActualTabName(requestedSheet: string, existingTabs: strin
 
   if (requestedSheet === 'Master_Siswa_XI' || requestedSheet === 'Master_Siswa') {
     return lowerMap.get('master_siswa_xi') || lowerMap.get('master_siswa') || null;
+  }
+  if (requestedSheet === 'data_plotting' || requestedSheet === 'Plotting_Pemberangkatan') {
+    return lowerMap.get('data_plotting') || lowerMap.get('plotting_pemberangkatan') || null;
+  }
+  if (requestedSheet === 'Nilai_Dan_Sertifikat') {
+    return (
+      lowerMap.get('nilai_dan_sertifikat') ||
+      lowerMap.get('data_plotting') ||
+      lowerMap.get('plotting_pemberangkatan') ||
+      null
+    );
   }
   if (
     requestedSheet === 'Monitoring_5_Tahap' ||

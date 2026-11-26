@@ -57,7 +57,7 @@ const MODULE_DOC_CONTEXT: Record<
 > = {
   pengajuan: {
     defaultType: 'pengajuan',
-    allowed: ['pengajuan'],
+    allowed: ['pengajuan', 'perizinan'],
     label: 'Pengajuan PKL',
   },
   perizinan: {

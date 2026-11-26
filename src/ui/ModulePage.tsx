@@ -19,10 +19,14 @@ import { stripNisSymbols } from '../core/utils/nisHelpers';
 import { DudiService } from '../services/DudiService';
 import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
+import { KelasService } from '../services/KelasService';
 import { SertifikatService } from '../services/SertifikatService';
 import { RelationSyncService } from '../services/RelationSyncService';
+import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
 import { ToastManager } from '../core/ToastManager';
+import { generateJurusanCode, resolveJurusanDisplayName } from '../core/utils/autoIdHelpers';
+import { normalizeRelationText } from '../core/utils/relationHelpers';
 import { StatCards } from './StatCards';
 import { Toolbar } from './Toolbar';
 import { DynamicDataGrid } from './DynamicDataGrid';
@@ -39,6 +43,7 @@ import { ImageCropperModal } from './ImageCropperModal';
 import { AppleConfirmModal } from './AppleConfirmModal';
 import { MonitoringRecapModal } from './MonitoringRecapModal';
 import { MonitoringStageControlModal } from './MonitoringStageControlModal';
+import { BulkPlottingModal } from './module-page/BulkPlottingModal';
 import { ModuleActionModal } from './module-page/ModuleActionModal';
 import { PerizinanWaModal } from './module-page/PerizinanWaModal';
 import {
@@ -260,9 +265,13 @@ export function ModulePage<T extends { id: string }>({
   const [allExistingRows, setAllExistingRows] = useState<T[]>([]);
   const [isMonitoringRecapOpen, setIsMonitoringRecapOpen] = useState(false);
   const [isStageControlOpen, setIsStageControlOpen] = useState(false);
+  const [isBulkPlottingOpen, setIsBulkPlottingOpen] = useState(false);
 
   const isSuperAdmin = userRole === 'SuperAdmin';
   const isReadOnlyModule = isModuleReadOnlyForRole(metadata.id, userRole);
+  const supportsBulkPlotting =
+    metadata.id === 'siswa_pkl' &&
+    (userRole === 'SuperAdmin' || userRole === 'Hubin' || userRole === 'Pokja');
 
   const {
     guruList,
@@ -289,58 +298,63 @@ export function ModulePage<T extends { id: string }>({
     onOpenDocsForStudent,
   });
 
-  const handleOpenAddModal = async () => {
-    try {
-      const fullList = await repository.getAll();
-      setAllExistingRows(fullList);
-    } catch {
-      setAllExistingRows(data);
+  const hydrateExistingRowsInstant = () => {
+    repository.tryHydrateSync();
+    const syncRows =
+      repository.querySync({}, { column: null, direction: 'asc' }, 1, 5000, '').filteredData || [];
+    setAllExistingRows(syncRows.length > 0 ? syncRows : data);
+    if (syncRows.length === 0) {
+      void repository
+        .getAll()
+        .then((fullList) => {
+          setAllExistingRows(fullList);
+        })
+        .catch(() => {});
     }
+  };
+
+  const handleOpenAddModal = () => {
+    hydrateExistingRowsInstant();
     setIsAddModalOpen(true);
   };
 
-  const handleOpenEditModal = async (row: T) => {
-    try {
-      const fullList = await repository.getAll();
-      setAllExistingRows(fullList);
-    } catch {
-      setAllExistingRows(data);
-    }
+  const handleOpenEditModal = (row: T) => {
+    hydrateExistingRowsInstant();
     setEditingRow(row);
   };
 
-  const handleCreateSubmit = (values: T) => {
+  const handleCreateSubmit = async (values: T) => {
     const { nextValues, shouldSyncSertifikatGrades } = applyModulePreSubmitTransforms(
       metadata.id,
       values
     );
-    setConfirmModal({
-      isOpen: true,
-      title: 'Simpan Data Baru ke Cloud Server?',
-      description: 'Data baru akan divalidasi dan tersimpan secara permanen di Database Cloud Server.',
-      variant: 'primary',
-      confirmText: 'Simpan ke Server',
-      onConfirm: async () => {
-        if (shouldSyncSertifikatGrades) {
-          await SertifikatService.getInstance().syncGradesViaMonitoring(
-            nextValues,
-            extractGradeSyncScores(nextValues),
-            { silentToast: true }
-          );
-        }
-        const created = await repository.create(nextValues);
-        setPage(1);
-        void RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id, 'create', {
-            mutatedId: created?.id,
-            nextName: String((created as any)?.nama || (created as any)?.namaDudi || '').trim() || undefined,
-          })
-          .catch(() => {});
-      },
-    });
+    if (shouldSyncSertifikatGrades) {
+      try {
+        await SertifikatService.getInstance().syncGradesViaMonitoring(
+          nextValues,
+          extractGradeSyncScores(nextValues),
+          { silentToast: true }
+        );
+      } catch (err: any) {
+        ToastManager.getInstance().show(
+          'Gagal Menyinkronkan Nilai ke Cloud Server',
+          'error',
+          err?.message || 'Terjadi kendala saat menyimpan komponen nilai.'
+        );
+        throw err;
+      }
+    }
+    const created = await repository.create(nextValues);
+    setPage(1);
+    void RelationSyncService.getInstance()
+      .syncAfterMutation(metadata.id, 'create', {
+        mutatedId: created?.id,
+        nextName: String((created as any)?.nama || (created as any)?.namaDudi || '').trim() || undefined,
+      })
+      .catch(() => {});
   };
 
-  const handleEditSubmit = (values: T) => {
+  const handleEditSubmit = async (values: T) => {
     if (!editingRow) return;
     const prevRow = editingRow as any;
     const targetId = editingRow.id;
@@ -351,38 +365,38 @@ export function ModulePage<T extends { id: string }>({
       prevRow
     );
 
-    setConfirmModal({
-      isOpen: true,
-      title: 'Perbarui Data di Cloud Server?',
-      description: `Perubahan data baris ID ${targetId} akan disinkronkan ke Database Cloud Server.`,
-      variant: 'primary',
-      confirmText: 'Perbarui di Server',
-      onConfirm: async () => {
-        if (shouldSyncSertifikatGrades) {
-          await SertifikatService.getInstance().syncGradesViaMonitoring(
-            { ...prevRow, ...nextValues },
-            extractGradeSyncScores(nextValues),
-            { silentToast: true }
-          );
-        }
-        const updated = await repository.update(targetId, nextValues);
-        setEditingRow(null);
-        const nextName = String(
-          (updated as any)?.nama ||
-            (updated as any)?.namaDudi ||
-            (nextValues as any)?.nama ||
-            (nextValues as any)?.namaDudi ||
-            ''
-        ).trim();
-        void RelationSyncService.getInstance()
-          .syncAfterMutation(metadata.id, 'update', {
-            mutatedId: targetId,
-            previousName: previousName || undefined,
-            nextName: nextName || undefined,
-          })
-          .catch(() => {});
-      },
-    });
+    if (shouldSyncSertifikatGrades) {
+      try {
+        await SertifikatService.getInstance().syncGradesViaMonitoring(
+          { ...prevRow, ...nextValues },
+          extractGradeSyncScores(nextValues),
+          { silentToast: true }
+        );
+      } catch (err: any) {
+        ToastManager.getInstance().show(
+          'Gagal Menyinkronkan Nilai ke Cloud Server',
+          'error',
+          err?.message || 'Terjadi kendala saat memperbarui komponen nilai.'
+        );
+        throw err;
+      }
+    }
+    const updated = await repository.update(targetId, nextValues);
+    setEditingRow(null);
+    const nextName = String(
+      (updated as any)?.nama ||
+        (updated as any)?.namaDudi ||
+        (nextValues as any)?.nama ||
+        (nextValues as any)?.namaDudi ||
+        ''
+    ).trim();
+    void RelationSyncService.getInstance()
+      .syncAfterMutation(metadata.id, 'update', {
+        mutatedId: targetId,
+        previousName: previousName || undefined,
+        nextName: nextName || undefined,
+      })
+      .catch(() => {});
   };
 
   const handleDeleteRow = (row: T) => {
@@ -436,12 +450,16 @@ export function ModulePage<T extends { id: string }>({
     const jurSvc = JurusanService.getInstance();
     const dudiSvc = DudiService.getInstance();
 
-    let [jurList, currentGuruList, currentDudiList, existingTargetRows] = await Promise.all([
-      jurSvc.getAll().catch(() => []),
-      guruSvc.getAll().catch(() => []),
-      dudiSvc.getAll().catch(() => []),
-      targetRepo.getAll().catch(() => []),
-    ]);
+    let [jurList, currentGuruList, currentDudiList, existingTargetRows, penempatanList] =
+      await Promise.all([
+        jurSvc.getAll().catch(() => []),
+        guruSvc.getAll().catch(() => []),
+        dudiSvc.getAll().catch(() => []),
+        targetRepo.getAll().catch(() => []),
+        targetModuleId === 'perizinan'
+          ? SiswaPklService.getInstance().getAll().catch(() => [])
+          : Promise.resolve([]),
+      ]);
 
     let rel = resolveImportRowRelations({
       moduleId: targetModuleId,
@@ -449,6 +467,7 @@ export function ModulePage<T extends { id: string }>({
       jurusanList: jurList,
       guruList: currentGuruList,
       dudiList: currentDudiList,
+      penempatanList,
     });
 
     let createdGuru = 0;
@@ -465,6 +484,7 @@ export function ModulePage<T extends { id: string }>({
         jurusanList: jurList,
         guruList: currentGuruList,
         dudiList: currentDudiList,
+        penempatanList,
       });
     }
 
@@ -497,7 +517,53 @@ export function ModulePage<T extends { id: string }>({
       onProgress?.(doneCount, totalWork || patchesToUpdate.length);
     }
 
-    return { created, updated, skipped, createdGuru };
+    let createdKelas = 0;
+    if (targetModuleId === 'siswa' && (created > 0 || updated > 0)) {
+      try {
+        const kelasSvc = KelasService.getInstance();
+        const existingKelasList = await kelasSvc.getAll().catch(() => []);
+        const existingKelasNames = new Set(
+          existingKelasList.map((k) => normalizeRelationText(k.namaKelas)).filter(Boolean)
+        );
+        const missingKelasMap = new Map<
+          string,
+          { namaKelas: string; tingkat: string; idJurusan: string; jurusan: string; jumlahSiswa: number }
+        >();
+
+        for (const r of rel.resolvedRows) {
+          const rawKelas = String(r.kelas || '').trim();
+          if (!rawKelas || rawKelas === '-') continue;
+          const normKelas = normalizeRelationText(rawKelas);
+          if (!normKelas || existingKelasNames.has(normKelas) || missingKelasMap.has(normKelas)) {
+            continue;
+          }
+          const tingkatMatch = rawKelas.match(/^(XII|XI|X)\b/i);
+          const tingkat = tingkatMatch ? tingkatMatch[1].toUpperCase() : 'XI';
+          const code =
+            String(r.idJurusan || '').trim() ||
+            generateJurusanCode(String(r.jurusan || rawKelas));
+          const jurusanName =
+            String(r.jurusan || '').trim() || resolveJurusanDisplayName(code || rawKelas);
+
+          missingKelasMap.set(normKelas, {
+            namaKelas: rawKelas,
+            tingkat,
+            idJurusan: code,
+            jurusan: jurusanName,
+            jumlahSiswa: 0,
+          });
+        }
+
+        const missingPayloads = Array.from(missingKelasMap.values());
+        if (missingPayloads.length > 0) {
+          createdKelas = await kelasSvc.importRows(missingPayloads, { silentToast: true });
+        }
+      } catch {
+        // Ignore auto-sync Master_Kelas_Walas non-fatal warning
+      }
+    }
+
+    return { created, updated, skipped, createdGuru, createdKelas };
   };
 
   const activeFilterCount = Object.keys(filter).length;
@@ -618,6 +684,9 @@ export function ModulePage<T extends { id: string }>({
           metadata.id === 'monitoring' && isSuperAdmin
             ? () => setIsStageControlOpen(true)
             : undefined
+        }
+        onOpenBulkPlotting={
+          supportsBulkPlotting ? () => setIsBulkPlottingOpen(true) : undefined
         }
         syncingRelations={syncingRelations}
         canAdd={!isReadOnlyModule}
@@ -798,6 +867,9 @@ export function ModulePage<T extends { id: string }>({
             if (res.createdGuru && res.createdGuru > 0) {
               parts.push(`${res.createdGuru} guru baru didaftarkan`);
             }
+            if (res.createdKelas && res.createdKelas > 0) {
+              parts.push(`${res.createdKelas} kelas baru disinkronkan ke Master Kelas`);
+            }
             if (res.skipped > 0) parts.push(`${res.skipped} dilewati`);
             ToastManager.getInstance().show(
               `Import ${metadata.title} Berhasil`,
@@ -903,6 +975,17 @@ export function ModulePage<T extends { id: string }>({
         <MonitoringStageControlModal
           isOpen={isStageControlOpen}
           onClose={() => setIsStageControlOpen(false)}
+        />
+      )}
+
+      {supportsBulkPlotting && (
+        <BulkPlottingModal
+          isOpen={isBulkPlottingOpen}
+          onClose={() => setIsBulkPlottingOpen(false)}
+          onSuccess={async () => {
+            setPage(1);
+            await refresh();
+          }}
         />
       )}
     </div>

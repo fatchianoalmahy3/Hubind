@@ -63,8 +63,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       if (!isServerlessRuntime) {
         void fetchBatchSheetsViaGas(
-          ['Plotting_Pemberangkatan', 'Master_DUDI'],
-          new Set(['Plotting_Pemberangkatan', 'Master_DUDI'])
+          ['data_plotting', 'Master_DUDI'],
+          new Set(['data_plotting', 'Master_DUDI'])
         ).catch(() => {});
       }
 
@@ -177,13 +177,13 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       }
 
       const { sheets } = await fetchBatchSheetsViaGas(
-        ['Plotting_Pemberangkatan', 'Master_DUDI', 'Data_Pengajuan_PKL'],
-        new Set(['Plotting_Pemberangkatan', 'Data_Pengajuan_PKL'])
+        ['data_plotting', 'Master_DUDI', 'Data_Pengajuan_PKL'],
+        new Set(['data_plotting', 'Data_Pengajuan_PKL'])
       );
       const result = aggregatePetugasDudiGroups({
         petugasNama,
         petugasId,
-        plottingRows: sheets['Plotting_Pemberangkatan'] || [],
+        plottingRows: sheets['data_plotting'] || [],
         dudiRows: sheets['Master_DUDI'] || [],
         pengajuanRows: sheets['Data_Pengajuan_PKL'] || [],
       });
@@ -217,19 +217,17 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         [
           'Master_DUDI',
           'Master_Jurusan',
-          'Plotting_Pemberangkatan',
+          'data_plotting',
           'Data_Pengajuan_PKL',
           'Master_Siswa_XI',
           'Monitoring_5_Tahap',
-          'Nilai_Dan_Sertifikat',
           'Log_Penerbitan_Surat',
         ],
         new Set([
-          'Plotting_Pemberangkatan',
+          'data_plotting',
           'Data_Pengajuan_PKL',
           'Master_Siswa_XI',
           'Monitoring_5_Tahap',
-          'Nilai_Dan_Sertifikat',
           'Log_Penerbitan_Surat',
         ])
       );
@@ -248,17 +246,18 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         dudiNama
       );
 
+      const plottingRows = sheets['data_plotting'] || [];
       const result = buildDudiStudentsWithSummary({
         dudiNama,
         dudiId,
         petugasNama,
         petugasId,
         dudiRows: sheets['Master_DUDI'] || [],
-        plottingRows: sheets['Plotting_Pemberangkatan'] || [],
+        plottingRows,
         pengajuanRows: sheets['Data_Pengajuan_PKL'] || [],
         siswaRows,
         monitoringRows: sheets['Monitoring_5_Tahap'] || [],
-        nilaiRows: sheets['Nilai_Dan_Sertifikat'] || [],
+        nilaiRows: plottingRows,
         jurusanRows: sheets['Master_Jurusan'] || [],
         stageControl,
         issuedStages,
@@ -705,7 +704,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
               gradeSynced = true;
             })
             .catch((gradeErr) => {
-              console.warn('[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:', gradeErr);
+              console.warn('[submit-monitoring] Sync to data_plotting warning:', gradeErr);
             })
         );
       }
@@ -1207,7 +1206,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         });
         nilaiSynced = true;
       } catch (syncErr) {
-        console.warn('[update-grades] Sync to Nilai_Dan_Sertifikat warning:', syncErr);
+        console.warn('[update-grades] Sync to data_plotting warning:', syncErr);
       }
 
       res.json({

@@ -123,37 +123,6 @@ async function syncDudiContactFallback(params: {
     });
   }
 
-  const reqRows = await readSheetDirect('Data_Pengajuan_PKL', true);
-  const matchingReqs = reqRows.filter((r: any) => {
-    const rDudiId = pickField(r, 'ID_DUDI', 'idDudi');
-    const rDudiNama = normalizeStr(pickField(r, 'DUDI_Tujuan', 'dudiTujuan'));
-    const isTarget =
-      (targetDudiId && rDudiId === targetDudiId) || (targetDudiName && rDudiNama === targetDudiName);
-    const hasBlankContact =
-      !pickField(r, 'Nama_Pemimpin', 'namaPemimpin') ||
-      !pickField(r, 'Nama_PIC', 'namaPic') ||
-      !pickField(r, 'No_Telp_DUDI', 'noTelpDudi') ||
-      (inputHariKerja && !pickField(r, 'Hari_Kerja', 'hariKerja')) ||
-      (inputJamKerja && !pickField(r, 'Jam_Kerja', 'jamKerja'));
-    return isTarget && hasBlankContact;
-  });
-
-  for (const mr of matchingReqs.slice(0, 10)) {
-    const mrId = pickField(mr, 'No_Pengajuan', 'noPengajuan', 'id');
-    if (!mrId) continue;
-    await writeSheetDirect('Data_Pengajuan_PKL', 'UPDATE', {
-      ...mr,
-      id: mrId,
-      No_Pengajuan: mrId,
-      Nama_Pemimpin: pickField(mr, 'Nama_Pemimpin', 'namaPemimpin') || pemimpin,
-      Nama_PIC: pickField(mr, 'Nama_PIC', 'namaPic') || pic,
-      No_Telp_DUDI: pickField(mr, 'No_Telp_DUDI', 'noTelpDudi') || telp,
-      Kontak_PIC: pickField(mr, 'Kontak_PIC', 'kontakPic') || telp,
-      Hari_Kerja: pickField(mr, 'Hari_Kerja', 'hariKerja') || inputHariKerja,
-      Jam_Kerja: pickField(mr, 'Jam_Kerja', 'jamKerja') || inputJamKerja,
-    }).catch(() => {});
-  }
-
   return true;
 }
 
@@ -192,8 +161,14 @@ async function upsertNilaiDanSertifikatFallback(params: {
     }
   }
 
-  const nilaiRows = await readSheetDirect('Nilai_Dan_Sertifikat', true, true);
-  const existingNilai = nilaiRows.find((n: any) => {
+  const plottingRows = await readSheetDirect('data_plotting', true, true).catch(() => [] as any[]);
+  const activeRows =
+    plottingRows.length > 0
+      ? plottingRows
+      : await readSheetDirect('Plotting_Pemberangkatan', true, true).catch(() => [] as any[]);
+  const targetSheet = plottingRows.length > 0 ? 'data_plotting' : 'Plotting_Pemberangkatan';
+
+  const existingRow = activeRows.find((n: any) => {
     const rowNis = pickField(n, 'NIS', 'nis');
     const rowNisDigits = stripNisSymbols(rowNis);
     const rowPlt = pickField(n, 'ID_Penempatan', 'idPenempatan');
@@ -203,30 +178,31 @@ async function upsertNilaiDanSertifikatFallback(params: {
     );
   });
 
-  if (existingNilai) {
+  if (existingRow) {
     const existingId =
-      pickField(existingNilai, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
-    const existingDudiId = pickField(existingNilai, 'ID_DUDI', 'idDudi') || resolvedDudiId;
-    await writeSheetDirect('Nilai_Dan_Sertifikat', 'UPDATE', {
+      pickField(existingRow, 'ID_Penempatan', 'idPenempatan', 'id') || idPenempatan;
+    const existingDudiId = pickField(existingRow, 'ID_DUDI', 'idDudi') || resolvedDudiId;
+    await writeSheetDirect(targetSheet, 'UPDATE', {
+      ...existingRow,
       id: existingId,
       ID_Penempatan: existingId,
       idPenempatan: existingId,
-      _sheetRowNumber: existingNilai._sheetRowNumber,
-      NIS: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
-      nis: cleanNis || pickField(existingNilai, 'NIS', 'nis'),
+      _sheetRowNumber: existingRow._sheetRowNumber,
+      NIS: cleanNis || pickField(existingRow, 'NIS', 'nis'),
+      nis: cleanNis || pickField(existingRow, 'NIS', 'nis'),
       ID_DUDI: existingDudiId,
       idDudi: existingDudiId,
-      No_Seri_Blangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
-      noSeriBlangko: pickField(existingNilai, 'No_Seri_Blangko', 'noSeriBlangko'),
-      Status_Blangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
-      statusBlangko: pickField(existingNilai, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
+      No_Seri_Blangko: pickField(existingRow, 'No_Seri_Blangko', 'noSeriBlangko'),
+      noSeriBlangko: pickField(existingRow, 'No_Seri_Blangko', 'noSeriBlangko'),
+      Status_Blangko: pickField(existingRow, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
+      statusBlangko: pickField(existingRow, 'Status_Blangko', 'statusBlangko') || 'Tersedia',
       Status_Raport: 'Siap Cetak',
       statusRaport: 'Siap Cetak',
-      Tgl_Terbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || tglVal,
-      tanggalTerbit: pickField(existingNilai, 'Tgl_Terbit', 'tanggalTerbit') || tglVal,
+      Tgl_Terbit: pickField(existingRow, 'Tgl_Terbit', 'tanggalTerbit') || tglVal,
+      tanggalTerbit: pickField(existingRow, 'Tgl_Terbit', 'tanggalTerbit') || tglVal,
     });
   } else {
-    await writeSheetDirect('Nilai_Dan_Sertifikat', 'CREATE', {
+    await writeSheetDirect('data_plotting', 'CREATE', {
       id: idPenempatan,
       ID_Penempatan: idPenempatan,
       idPenempatan,
@@ -234,6 +210,10 @@ async function upsertNilaiDanSertifikatFallback(params: {
       nis: cleanNis,
       ID_DUDI: resolvedDudiId,
       idDudi: resolvedDudiId,
+      Nama_DUDI: namaDudi || '',
+      namaDudi: namaDudi || '',
+      Status_Penempatan: 'Terjadwal',
+      statusPenempatan: 'Terjadwal',
       No_Seri_Blangko: '',
       noSeriBlangko: '',
       Status_Blangko: 'Tersedia',
@@ -338,7 +318,7 @@ export async function directSubmitApplication(payload: any) {
   let autoGuruPendamping = '';
   let matchedDudiRow: any = null;
 
-  if (!payload.is_dudi_unregistered && (resolvedDudiId || resolvedDudiNama)) {
+  if (resolvedDudiId || resolvedDudiNama) {
     try {
       const dudiRows = await readSheetDirect('Master_DUDI', false);
       matchedDudiRow =
@@ -357,9 +337,27 @@ export async function directSubmitApplication(payload: any) {
           pickField(matchedDudiRow, 'Nama_DUDI', 'namaDudi') || resolvedDudiNama;
         autoIdGuruPendamping = pickField(matchedDudiRow, 'ID_Guru_Pendamping', 'idGuruPendamping');
         autoGuruPendamping = pickField(matchedDudiRow, 'Guru_Pendamping', 'guruPendamping');
+      } else if (resolvedDudiNama) {
+        // Auto-create Mitra Baru in Master_DUDI so DUDI address/schedule remain intact relationally
+        const newDudiId = `DUD-${Date.now().toString(36).toUpperCase()}`;
+        const createdDudiPayload = {
+          id: newDudiId,
+          ID: newDudiId,
+          Nama_DUDI: resolvedDudiNama,
+          Bidang_Keahlian: String(payload.bidang_dudi || '-').trim() || '-',
+          Alamat: String(payload.alamat_dudi || '-').trim() || '-',
+          Wilayah_Kota: 'Ponorogo',
+          Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || '').trim(),
+          Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || '').trim(),
+          Link_Maps: mapsCheck.normalizedUrl,
+          Kuota_Maksimal: 4,
+          Status_Kerjasama: 'Mitra Baru',
+        };
+        await writeSheetDirect('Master_DUDI', 'CREATE', createdDudiPayload).catch(() => {});
+        resolvedDudiId = newDudiId;
       }
     } catch {
-      // non-blocking DUDI lookup
+      // non-blocking DUDI lookup / create
     }
   }
 
@@ -686,11 +684,15 @@ export async function directVerifyPetugasPin(params: {
 }
 
 export async function directFetchPetugasDudi(petugasNama: string, petugasId: string) {
-  const [plottingRows, dudiRows, pengajuanRows] = await Promise.all([
-    readSheetDirect('Plotting_Pemberangkatan', true),
+  const [plottingPrimary, dudiRows, pengajuanRows] = await Promise.all([
+    readSheetDirect('data_plotting', true).catch(() => [] as any[]),
     readSheetDirect('Master_DUDI'),
     readSheetDirect('Data_Pengajuan_PKL', true),
   ]);
+  const plottingRows =
+    plottingPrimary.length > 0
+      ? plottingPrimary
+      : await readSheetDirect('Plotting_Pemberangkatan', true).catch(() => [] as any[]);
 
   const result = aggregatePetugasDudiGroups({
     petugasNama,
@@ -716,17 +718,21 @@ export async function directFetchDudiStudents(
   issuedStageDetails: Record<number, IssuedStageDetail>;
   data: any[];
 }> {
-  const [dudiRows, jurusanRows, plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows, logSuratRows] =
+  const [dudiRows, jurusanRows, plottingPrimary, pengajuanRows, siswaRows, monitoringRows, logSuratRows] =
     await Promise.all([
       readSheetDirect('Master_DUDI').catch(() => [] as any[]),
       readSheetDirect('Master_Jurusan').catch(() => [] as any[]),
-      readSheetDirect('Plotting_Pemberangkatan', true),
+      readSheetDirect('data_plotting', true).catch(() => [] as any[]),
       readSheetDirect('Data_Pengajuan_PKL', true),
       readMasterSiswaDirect().catch(() => [] as any[]),
       readSheetDirect('Monitoring_5_Tahap', true),
-      readSheetDirect('Nilai_Dan_Sertifikat', true),
       readSheetDirect('Log_Penerbitan_Surat', true).catch(() => [] as any[]),
     ]);
+  const plottingRows =
+    plottingPrimary.length > 0
+      ? plottingPrimary
+      : await readSheetDirect('Plotting_Pemberangkatan', true).catch(() => [] as any[]);
+  const nilaiRows = plottingRows;
 
   await GoogleSheetClient.getInstance().initFromFirestore().catch(() => {});
   const stageControl = GoogleSheetClient.getInstance().getMonitoringStageControl();

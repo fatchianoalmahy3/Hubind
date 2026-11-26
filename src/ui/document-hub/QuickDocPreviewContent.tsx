@@ -86,11 +86,17 @@ export const QuickDocPreviewContent: React.FC<{
     student.DUDI_Tujuan ||
     student.Nama_DUDI ||
     '-';
+  const matchedDudiObj = dudiList.find(
+    (d) =>
+      (student.idDudi && d.id === student.idDudi) ||
+      (dudiName && dudiName !== '-' && d.namaDudi.trim().toLowerCase() === dudiName.trim().toLowerCase())
+  );
   const dudiAddress =
-    student.alamatDudi ||
-    student.alamat ||
-    student.alamat_dudi ||
-    student.Alamat_DUDI ||
+    (student.alamatDudi && student.alamatDudi !== '-' ? student.alamatDudi : '') ||
+    (student.alamat && student.alamat !== '-' ? student.alamat : '') ||
+    (student.alamat_dudi && student.alamat_dudi !== '-' ? student.alamat_dudi : '') ||
+    (student.Alamat_DUDI && student.Alamat_DUDI !== '-' ? student.Alamat_DUDI : '') ||
+    (matchedDudiObj?.alamat ? `${matchedDudiObj.alamat}${matchedDudiObj.wilayahKota ? `, ${matchedDudiObj.wilayahKota}` : ''}` : '') ||
     '-';
 
   const mapsUrl = resolveMapsLink(

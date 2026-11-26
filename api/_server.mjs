@@ -50,9 +50,9 @@ var REST_RESOURCE_TO_SHEET = {
   teachers: "Master_Guru_Pendamping",
   submissions: "Data_Pengajuan_PKL",
   permits: "Data_Perizinan_PKL",
-  placements: "Plotting_Pemberangkatan",
+  placements: "data_plotting",
   monitoring: "Monitoring_5_Tahap",
-  certificates: "Nilai_Dan_Sertifikat",
+  certificates: "data_plotting",
   accounts: "Master_Akun",
   "issued-letters": "Log_Penerbitan_Surat"
 };
@@ -65,6 +65,7 @@ var SHEET_TO_REST_RESOURCE = {
   Master_Guru_Pendamping: "teachers",
   Data_Pengajuan_PKL: "submissions",
   Data_Perizinan_PKL: "permits",
+  data_plotting: "placements",
   Plotting_Pemberangkatan: "placements",
   Monitoring_5_Tahap: "monitoring",
   Monitoring_6_Tahap: "monitoring",
@@ -81,13 +82,12 @@ var CORE_ADMIN_BOOTSTRAP_TABLES = [
   "Master_Guru_Pendamping",
   "Master_Siswa_XI",
   "Data_Pengajuan_PKL",
-  "Plotting_Pemberangkatan",
+  "data_plotting",
   "Log_Penerbitan_Surat"
 ];
 var HEAVY_ADMIN_BOOTSTRAP_TABLES = [
   "Data_Perizinan_PKL",
-  "Monitoring_5_Tahap",
-  "Nilai_Dan_Sertifikat"
+  "Monitoring_5_Tahap"
 ];
 var DEFAULT_ADMIN_BOOTSTRAP_TABLES = [
   ...CORE_ADMIN_BOOTSTRAP_TABLES,
@@ -557,8 +557,8 @@ var HUBIN_SHEETS_BLUEPRINT = [
   },
   {
     sheetName: "Data_Pengajuan_PKL",
-    displayName: "6. Data Pengajuan PKL",
-    description: "Respon pendaftaran masuk dari portal siswa beserta hasil keputusan verifikasi Kakomli.",
+    displayName: "6. Data Pengajuan & Surat DUDI",
+    description: "Respon pendaftaran masuk dari portal siswa, tracking surat permohonan DUDI, balasan DUDI, & verifikasi Kakomli.",
     category: "operasional",
     icon: "FileText",
     color: "purple",
@@ -569,16 +569,11 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Nama_Siswa",
       "ID_DUDI",
       "DUDI_Tujuan",
-      "Alamat_DUDI",
-      "Bidang_Pekerjaan",
-      "Nama_Pemimpin",
-      "Nama_PIC",
-      "No_Telp_DUDI",
-      "Hari_Kerja",
-      "Jam_Kerja",
-      "Link_Maps",
-      "No_WA",
-      "Alamat_Domisili",
+      "No_Surat_Permohonan",
+      "Tgl_Kirim_Surat",
+      "Status_Balasan_DUDI",
+      "Tgl_Balasan",
+      "Link_Surat_PDF",
       "Status_Kakomli",
       "Catatan_Kakomli",
       "Status_Hubin",
@@ -590,36 +585,30 @@ var HUBIN_SHEETS_BLUEPRINT = [
   },
   {
     sheetName: "Data_Perizinan_PKL",
-    displayName: "7. Data Perizinan PKL (Izin & Surat DUDI)",
-    description: "Tracking kategori izin siswa, rentang tanggal izin, pengiriman surat permohonan resmi, dan status balasan DUDI.",
+    displayName: "7. Perizinan Siswa PKL (SO/SD/I/ID)",
+    description: "Catatan ketidakhadiran & izin siswa selama PKL (SO, SD, I, ID) dari input manual atau impor Excel.",
     category: "operasional",
     icon: "FileCheck",
     color: "teal",
     headers: [
       "ID_Perizinan",
-      "No_Pengajuan",
       "NIS",
       "Nama_Siswa",
+      "ID_DUDI",
+      "DUDI_Tujuan",
       "Izin",
       "Tgl_Mulai_Izin",
       "Tgl_Selesai_Izin",
       "Rentang_Tanggal",
-      "No_Surat_Permohonan",
-      "ID_DUDI",
-      "DUDI_Tujuan",
-      "Tgl_Kirim_Surat",
-      "Status_Balasan_DUDI",
-      "Tgl_Balasan",
       "Catatan_Perizinan",
-      "Link_Bukti_Balasan",
-      "Link_Surat_PDF"
+      "Link_Bukti_Balasan"
     ],
     sampleData: []
   },
   {
-    sheetName: "Plotting_Pemberangkatan",
-    displayName: "8. Data Siswa PKL & Penempatan",
-    description: "Penjadwalan pemberangkatan kelompok siswa PKL dan penetapan guru pendamping resmi oleh Pokja Hubin.",
+    sheetName: "data_plotting",
+    displayName: "8. Data Plotting, Nilai & Sertifikat",
+    description: "Penempatan PKL siswa, guru pendamping, jadwal berangkat/tarik, rekap 4 nilai DUDI, predikat, no seri blangko, & raport.",
     category: "operasional",
     icon: "Calendar",
     color: "blue",
@@ -634,7 +623,17 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Tanggal_Berangkat",
       "Tanggal_Rencana_Tarik",
       "Status_Penempatan",
-      "Catatan_Penempatan"
+      "Catatan_Penempatan",
+      "Nilai_K3LH",
+      "Nilai_Softskills",
+      "Nilai_Hardskills",
+      "Nilai_Alur_Bisnis_Dunia_Kerja",
+      "Nilai_rata_rata",
+      "Predikat",
+      "No_Seri_Blangko",
+      "Status_Blangko",
+      "Status_Raport",
+      "Tgl_Terbit"
     ],
     sampleData: []
   },
@@ -681,34 +680,8 @@ var HUBIN_SHEETS_BLUEPRINT = [
     sampleData: []
   },
   {
-    sheetName: "Nilai_Dan_Sertifikat",
-    displayName: "10. Nilai, Raport & No Seri Blangko",
-    description: "Rekapitulasi 4 kategori nilai DUDI (K3LH, Softskills, Hardskills, Alur Bisnis Dunia Kerja), rata-rata nilai, predikat, no seri blangko, & raport.",
-    category: "evaluasi",
-    icon: "Award",
-    color: "emerald",
-    headers: [
-      "ID_Penempatan",
-      "NIS",
-      "Nama_Siswa",
-      "ID_DUDI",
-      "DUDI_Tujuan",
-      "Nilai_K3LH",
-      "Nilai_Softskills",
-      "Nilai_Hardskills",
-      "Nilai_Alur_Bisnis_Dunia_Kerja",
-      "Nilai_rata_rata",
-      "Predikat",
-      "No_Seri_Blangko",
-      "Status_Blangko",
-      "Status_Raport",
-      "Tgl_Terbit"
-    ],
-    sampleData: []
-  },
-  {
     sheetName: "Master_Akun",
-    displayName: "11. Master Akun Pengelola",
+    displayName: "10. Master Akun Pengelola",
     description: "Akun login username & password terenkripsi (SHA-256) untuk seluruh peran admin pengelola portal.",
     category: "master",
     icon: "ShieldCheck",
@@ -727,7 +700,7 @@ var HUBIN_SHEETS_BLUEPRINT = [
   },
   {
     sheetName: "Log_Penerbitan_Surat",
-    displayName: "12. Log Penerbitan Surat Monitoring",
+    displayName: "11. Log Penerbitan Surat Monitoring",
     description: "Catatan status terbit surat tugas/monitoring/pengantaran/penarikan per DUDI & Tahap (1-8) sebagai kunci pembuka portal supervisi.",
     category: "evaluasi",
     icon: "FileCheck2",
@@ -751,6 +724,18 @@ var HUBIN_SHEETS_BLUEPRINT = [
     sampleData: []
   }
 ];
+var DATA_PLOTTING_FORMULA_COLS = [
+  "Nama_Siswa",
+  "Nama_DUDI",
+  "DUDI_Tujuan",
+  "Guru_Pendamping",
+  "Nilai_K3LH",
+  "Nilai_Softskills",
+  "Nilai_Hardskills",
+  "Nilai_Alur_Bisnis_Dunia_Kerja",
+  "Nilai_rata_rata",
+  "Predikat"
+];
 var FORMULA_MANAGED_COLUMNS = {
   Master_Jurusan: ["Kuota_Siswa", "Total_Terdaftar"],
   Master_Kelas_Walas: ["Jurusan", "Jumlah_Siswa"],
@@ -758,18 +743,10 @@ var FORMULA_MANAGED_COLUMNS = {
   Master_Guru_Pendamping: ["Jumlah_Bimbingan"],
   Data_Pengajuan_PKL: ["Nama_Siswa", "Guru_Pendamping"],
   Data_Perizinan_PKL: ["Nama_Siswa", "Rentang_Tanggal", "DUDI_Tujuan"],
-  Plotting_Pemberangkatan: ["Nama_Siswa", "Nama_DUDI", "Guru_Pendamping"],
+  data_plotting: DATA_PLOTTING_FORMULA_COLS,
+  Plotting_Pemberangkatan: DATA_PLOTTING_FORMULA_COLS,
   Monitoring_5_Tahap: ["Nama_Siswa", "DUDI_Tujuan", "Guru_Pendamping", "Nilai_rata_rata"],
-  Nilai_Dan_Sertifikat: [
-    "Nama_Siswa",
-    "DUDI_Tujuan",
-    "Nilai_K3LH",
-    "Nilai_Softskills",
-    "Nilai_Hardskills",
-    "Nilai_Alur_Bisnis_Dunia_Kerja",
-    "Nilai_rata_rata",
-    "Predikat"
-  ]
+  Nilai_Dan_Sertifikat: DATA_PLOTTING_FORMULA_COLS
 };
 function normalizeFormulaHeaderKey(key) {
   return String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -791,6 +768,7 @@ var SHEET_DEPENDENTS_MAP = {
     "Master_Kelas_Walas",
     "Data_Pengajuan_PKL",
     "Data_Perizinan_PKL",
+    "data_plotting",
     "Plotting_Pemberangkatan",
     "Monitoring_5_Tahap",
     "Nilai_Dan_Sertifikat"
@@ -800,6 +778,7 @@ var SHEET_DEPENDENTS_MAP = {
     "Master_Kelas_Walas",
     "Data_Pengajuan_PKL",
     "Data_Perizinan_PKL",
+    "data_plotting",
     "Plotting_Pemberangkatan",
     "Monitoring_5_Tahap",
     "Nilai_Dan_Sertifikat"
@@ -808,12 +787,14 @@ var SHEET_DEPENDENTS_MAP = {
     "Master_Kelas_Walas",
     "Data_Pengajuan_PKL",
     "Data_Perizinan_PKL",
+    "data_plotting",
     "Monitoring_5_Tahap",
     "Nilai_Dan_Sertifikat"
   ],
   Master_DUDI: [
     "Data_Pengajuan_PKL",
     "Data_Perizinan_PKL",
+    "data_plotting",
     "Plotting_Pemberangkatan",
     "Monitoring_5_Tahap",
     "Nilai_Dan_Sertifikat",
@@ -823,19 +804,30 @@ var SHEET_DEPENDENTS_MAP = {
     "Master_Jurusan",
     "Master_DUDI",
     "Data_Pengajuan_PKL",
+    "data_plotting",
     "Plotting_Pemberangkatan",
     "Monitoring_5_Tahap",
     "Log_Penerbitan_Surat"
   ],
-  Data_Pengajuan_PKL: ["Master_Jurusan", "Data_Perizinan_PKL"],
+  Data_Pengajuan_PKL: ["Master_Jurusan"],
+  data_plotting: [
+    "Master_DUDI",
+    "Master_Guru_Pendamping",
+    "Master_Jurusan",
+    "Data_Perizinan_PKL",
+    "Monitoring_5_Tahap",
+    "Nilai_Dan_Sertifikat"
+  ],
   Plotting_Pemberangkatan: [
     "Master_DUDI",
     "Master_Guru_Pendamping",
     "Master_Jurusan",
+    "Data_Perizinan_PKL",
+    "data_plotting",
     "Monitoring_5_Tahap",
     "Nilai_Dan_Sertifikat"
   ],
-  Monitoring_5_Tahap: ["Nilai_Dan_Sertifikat"]
+  Monitoring_5_Tahap: ["data_plotting", "Nilai_Dan_Sertifikat"]
 };
 function getDependentSheets(sheetName) {
   return SHEET_DEPENDENTS_MAP[sheetName] || [];
@@ -1090,7 +1082,7 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
       Kontak_Walas: ["kontakWalas", "kontak_walas", "Kontak_Walas"],
       Jumlah_Siswa: ["jumlahSiswa", "jumlah_siswa", "Jumlah_Siswa"],
       // DUDI
-      Nama_DUDI: ["namaDudi", "nama_dudi", "Nama_DUDI", "nama"],
+      Nama_DUDI: ["namaDudi", "dudiTujuan", "nama_dudi", "Nama_DUDI", "nama"],
       Bidang_Keahlian: ["bidangKeahlian", "bidang_keahlian", "Bidang_Keahlian"],
       Alamat: ["alamat", "Alamat"],
       Wilayah_Kota: ["wilayahKota", "wilayah_kota", "Wilayah_Kota"],
@@ -1203,6 +1195,7 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
       Master_Guru_Pendamping: "ID",
       Data_Pengajuan_PKL: "No_Pengajuan",
       Data_Perizinan_PKL: "ID_Perizinan",
+      data_plotting: "ID_Penempatan",
       Plotting_Pemberangkatan: "ID_Penempatan",
       Monitoring_5_Tahap: "ID_Monitoring",
       Nilai_Dan_Sertifikat: "ID_Penempatan",
@@ -1558,6 +1551,14 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
         record.kontakPic = record.noTelpDudi;
       }
     }
+    if (sheetName === "data_plotting" || sheetName === "Plotting_Pemberangkatan" || sheetName === "Nilai_Dan_Sertifikat") {
+      if (!record.dudiTujuan && record.namaDudi) {
+        record.dudiTujuan = record.namaDudi;
+      }
+      if (!record.namaDudi && record.dudiTujuan) {
+        record.namaDudi = record.dudiTujuan;
+      }
+    }
     const sheetRowNum = rowIndex + 2;
     record._sheetRowNumber = sheetRowNum;
     if (!record.id) {
@@ -1885,6 +1886,12 @@ function resolveActualTabName(requestedSheet, existingTabs) {
   if (exactCi) return exactCi;
   if (requestedSheet === "Master_Siswa_XI" || requestedSheet === "Master_Siswa") {
     return lowerMap.get("master_siswa_xi") || lowerMap.get("master_siswa") || null;
+  }
+  if (requestedSheet === "data_plotting" || requestedSheet === "Plotting_Pemberangkatan") {
+    return lowerMap.get("data_plotting") || lowerMap.get("plotting_pemberangkatan") || null;
+  }
+  if (requestedSheet === "Nilai_Dan_Sertifikat") {
+    return lowerMap.get("nilai_dan_sertifikat") || lowerMap.get("data_plotting") || lowerMap.get("plotting_pemberangkatan") || null;
   }
   if (requestedSheet === "Monitoring_5_Tahap" || requestedSheet === "Monitoring_6_Tahap" || requestedSheet === "Monitoring_8_Tahap" || requestedSheet === "Monitoring_PKL") {
     return lowerMap.get("monitoring_5_tahap") || lowerMap.get("monitoring_6_tahap") || lowerMap.get("monitoring_8_tahap") || lowerMap.get("monitoring_pkl") || null;
@@ -2251,7 +2258,7 @@ function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicit
       }
     }
   }
-  const nisWanted = String(rowObj && (rowObj.NIS || rowObj.nis) || "").trim() || (sheetName === "Nilai_Dan_Sertifikat" || sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa" ? cleanId : "");
+  const nisWanted = String(rowObj && (rowObj.NIS || rowObj.nis) || "").trim() || (sheetName === "data_plotting" || sheetName === "Plotting_Pemberangkatan" || sheetName === "Nilai_Dan_Sertifikat" || sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa" ? cleanId : "");
   const nisWantedDigits = stripNisSymbols(nisWanted);
   if (nisWanted && nisColIdx !== -1) {
     for (let r2 = 1; r2 < values.length; r2++) {
@@ -3181,6 +3188,11 @@ async function writeLiveSheetViaGas(sheetName, action, payload, options) {
       invalidateSheetCacheEntry(config.spreadsheetId, "Master_Siswa_XI");
       invalidateSheetCacheEntry(config.spreadsheetId, "Master_Siswa");
     }
+    if (sheetName === "data_plotting" || sheetName === "Plotting_Pemberangkatan" || sheetName === "Nilai_Dan_Sertifikat") {
+      invalidateSheetCacheEntry(config.spreadsheetId, "data_plotting");
+      invalidateSheetCacheEntry(config.spreadsheetId, "Plotting_Pemberangkatan");
+      invalidateSheetCacheEntry(config.spreadsheetId, "Nilai_Dan_Sertifikat");
+    }
     for (const dep of getDependentSheets(sheetName)) {
       invalidateSheetCacheEntry(config.spreadsheetId, dep);
     }
@@ -3258,6 +3270,11 @@ async function writeLiveSheetViaGas(sheetName, action, payload, options) {
     siswaIndexCache.delete(config.spreadsheetId);
     invalidateSheetCacheEntry(config.spreadsheetId, "Master_Siswa_XI");
     invalidateSheetCacheEntry(config.spreadsheetId, "Master_Siswa");
+  }
+  if (sheetName === "data_plotting" || sheetName === "Plotting_Pemberangkatan" || sheetName === "Nilai_Dan_Sertifikat") {
+    invalidateSheetCacheEntry(config.spreadsheetId, "data_plotting");
+    invalidateSheetCacheEntry(config.spreadsheetId, "Plotting_Pemberangkatan");
+    invalidateSheetCacheEntry(config.spreadsheetId, "Nilai_Dan_Sertifikat");
   }
   for (const dep of getDependentSheets(sheetName)) {
     invalidateSheetCacheEntry(config.spreadsheetId, dep);
@@ -4032,7 +4049,7 @@ function getTablesForRelationScope(scope) {
       "Master_Jurusan",
       "Master_DUDI",
       "Data_Pengajuan_PKL",
-      "Plotting_Pemberangkatan",
+      "data_plotting",
       "Monitoring_5_Tahap",
       "Log_Penerbitan_Surat"
     ];
@@ -4043,7 +4060,7 @@ function getTablesForRelationScope(scope) {
       "Master_Guru_Pendamping",
       "Master_Kelas_Walas",
       "Master_Siswa_XI",
-      "Plotting_Pemberangkatan"
+      "data_plotting"
     ];
   }
   if (scope === "dudi") {
@@ -4052,9 +4069,8 @@ function getTablesForRelationScope(scope) {
       "Master_Guru_Pendamping",
       "Data_Pengajuan_PKL",
       "Data_Perizinan_PKL",
-      "Plotting_Pemberangkatan",
+      "data_plotting",
       "Monitoring_5_Tahap",
-      "Nilai_Dan_Sertifikat",
       "Log_Penerbitan_Surat"
     ];
   }
@@ -4066,9 +4082,8 @@ function getTablesForRelationScope(scope) {
     "Master_Kelas_Walas",
     "Data_Pengajuan_PKL",
     "Data_Perizinan_PKL",
-    "Plotting_Pemberangkatan",
+    "data_plotting",
     "Monitoring_5_Tahap",
-    "Nilai_Dan_Sertifikat",
     "Log_Penerbitan_Surat"
   ];
 }
@@ -4080,9 +4095,8 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
     /* @__PURE__ */ new Set([
       "Data_Pengajuan_PKL",
       "Data_Perizinan_PKL",
-      "Plotting_Pemberangkatan",
-      "Monitoring_5_Tahap",
-      "Nilai_Dan_Sertifikat"
+      "data_plotting",
+      "Monitoring_5_Tahap"
     ]),
     forceRefresh
   );
@@ -4093,9 +4107,8 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
   const kelasList = sheets["Master_Kelas_Walas"] || [];
   const pengajuanList = sheets["Data_Pengajuan_PKL"] || [];
   const perizinanList = sheets["Data_Perizinan_PKL"] || [];
-  const placements = sheets["Plotting_Pemberangkatan"] || [];
+  const placements = sheets["data_plotting"] || [];
   const monitoringList = sheets["Monitoring_5_Tahap"] || [];
-  const sertifikatList = sheets["Nilai_Dan_Sertifikat"] || [];
   const logSuratList = sheets["Log_Penerbitan_Surat"] || [];
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   const hintedId = String(mutationHint?.mutatedId || "").trim();
@@ -4231,7 +4244,6 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
   const perizinanUpdates = [];
   const placementUpdates = [];
   const monitoringUpdates = [];
-  const sertifikatUpdates = [];
   const logSuratUpdates = [];
   if (scope === "all" || scope === "guru" || scope === "dudi") {
     for (const d of dudiList) {
@@ -4341,7 +4353,6 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
       const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
-      const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, "Alamat", "alamat") : "";
       const currGuruId = pickField(pq, "ID_Guru_Pendamping", "idGuruPendamping");
       const currGuruName = pickField(pq, "Guru_Pendamping", "guruPendamping");
       const matchedGuru = resolveGuruRecord(currGuruId, currGuruName) || (matchedDudi ? resolveGuruRecord(
@@ -4359,7 +4370,6 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
           _sheetRowNumber: pq._sheetRowNumber,
           ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
           ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {},
-          ...nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {},
           ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
           ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
         });
@@ -4368,22 +4378,24 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
     for (const iz of perizinanList) {
       const izId = pickField(iz, "ID_Perizinan", "noPerizinan", "id");
       if (!izId) continue;
+      const nisDigits = stripNisSymbols(pickField(iz, "NIS", "nis"));
+      const plt = nisDigits ? placementByNis.get(nisDigits) : void 0;
       const currDudiId = pickField(iz, "ID_DUDI", "idDudi");
       const currDudiName = pickField(iz, "DUDI_Tujuan", "dudiTujuan");
-      const currAlamat = pickField(iz, "Alamat_DUDI", "alamatDudi");
-      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName) || (plt ? resolveDudiRecord(
+        pickField(plt, "ID_DUDI", "idDudi"),
+        pickField(plt, "Nama_DUDI", "namaDudi", "DUDI_Tujuan")
+      ) : void 0);
       if (!matchedDudi) continue;
       const nextDudiId = pickField(matchedDudi, "ID", "id");
       const nextDudiName = pickField(matchedDudi, "Nama_DUDI", "namaDudi");
-      const nextAlamat = pickField(matchedDudi, "Alamat", "alamat");
-      if (nextDudiId && nextDudiId !== currDudiId || nextDudiName && nextDudiName !== currDudiName || nextAlamat && nextAlamat !== currAlamat) {
+      if (nextDudiId && nextDudiId !== currDudiId || nextDudiName && nextDudiName !== currDudiName) {
         perizinanUpdates.push({
           id: izId,
           ID_Perizinan: izId,
           _sheetRowNumber: iz._sheetRowNumber,
           ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
-          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {},
-          ...nextAlamat ? { Alamat_DUDI: nextAlamat, alamatDudi: nextAlamat } : {}
+          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}
         });
       }
     }
@@ -4436,14 +4448,12 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
       const nextNis = currNisRaw || (plt ? stripNisSymbols(pickField(plt, "NIS", "nis")) : "");
       const currDudiId = pickField(m, "ID_DUDI", "idDudi");
       const currDudiName = pickField(m, "DUDI_Tujuan", "dudiTujuan");
-      const currDudiAlamat = pickField(m, "Alamat_DUDI", "alamatDudi");
       const matchedDudi = resolveDudiRecord(currDudiId, currDudiName) || (plt ? resolveDudiRecord(
         pickField(plt, "ID_DUDI", "idDudi"),
         pickField(plt, "Nama_DUDI", "namaDudi", "DUDI_Tujuan")
       ) : void 0) || (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : void 0);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
-      const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, "Alamat", "alamat") : "";
       const currGuruId = pickField(m, "ID_Guru_Pendamping", "idGuruPendamping");
       const currGuruName = pickField(m, "Guru_Pendamping", "guruPendamping");
       const matchedGuru = resolveGuruRecord(currGuruId, currGuruName) || (plt ? resolveGuruRecord(
@@ -4457,7 +4467,7 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
       const nextGuruName = matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : "";
       const needsPltUpdate = Boolean(nextPltId && nextPltId !== currPltId);
       const needsNisUpdate = Boolean(nextNis && !currNisRaw);
-      const needsDudiUpdate = Boolean(nextDudiId && nextDudiId !== currDudiId) || Boolean(nextDudiName && nextDudiName !== currDudiName) || Boolean(nextDudiAlamat && nextDudiAlamat !== currDudiAlamat);
+      const needsDudiUpdate = Boolean(nextDudiId && nextDudiId !== currDudiId) || Boolean(nextDudiName && nextDudiName !== currDudiName);
       const needsGuruUpdate = Boolean(nextGuruId && nextGuruId !== currGuruId) || Boolean(nextGuruName && nextGuruName !== currGuruName);
       if (needsPltUpdate || needsNisUpdate || needsDudiUpdate || needsGuruUpdate) {
         monitoringUpdates.push({
@@ -4468,36 +4478,8 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
           ...needsNisUpdate ? { NIS: nextNis, nis: nextNis } : {},
           ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
           ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {},
-          ...nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {},
           ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
           ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
-        });
-      }
-    }
-    for (const sr of sertifikatList) {
-      const srId = pickField(sr, "ID_Penempatan", "idPenempatan", "id");
-      const nisDigits = stripNisSymbols(pickField(sr, "NIS", "nis"));
-      if (!srId && !nisDigits) continue;
-      const plt = nisDigits ? placementByNis.get(nisDigits) : void 0;
-      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : void 0;
-      const pltCanonicalId = plt ? pickField(plt, "ID_Penempatan", "idPenempatan", "id") : "";
-      const nextPltId = pltCanonicalId && (!srId || srId.startsWith("PLT-2")) ? pltCanonicalId : srId;
-      const currDudiId = pickField(sr, "ID_DUDI", "idDudi");
-      const currDudiName = pickField(sr, "DUDI_Tujuan", "dudiTujuan");
-      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName) || (plt ? resolveDudiRecord(
-        pickField(plt, "ID_DUDI", "idDudi"),
-        pickField(plt, "Nama_DUDI", "namaDudi", "DUDI_Tujuan")
-      ) : void 0) || (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : void 0);
-      const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
-      const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
-      if (nextPltId && nextPltId !== srId || nextDudiId && nextDudiId !== currDudiId || nextDudiName && nextDudiName !== currDudiName) {
-        sertifikatUpdates.push({
-          id: srId || nisDigits,
-          NIS: nisDigits || void 0,
-          _sheetRowNumber: sr._sheetRowNumber,
-          ...nextPltId ? { ID_Penempatan: nextPltId, idPenempatan: nextPltId } : {},
-          ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
-          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}
         });
       }
     }
@@ -4543,7 +4525,6 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
     ,
     flushedPlacements,
     flushedMonitoring,
-    ,
     flushedLogSurat
   ] = await Promise.all([
     flushBulkUpdates("Master_Jurusan", jurusanUpdates),
@@ -4552,9 +4533,8 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false,
     flushBulkUpdates("Master_Siswa_XI", siswaUpdates),
     flushBulkUpdates("Data_Pengajuan_PKL", pengajuanUpdates),
     flushBulkUpdates("Data_Perizinan_PKL", perizinanUpdates),
-    flushBulkUpdates("Plotting_Pemberangkatan", placementUpdates),
+    flushBulkUpdates("data_plotting", placementUpdates),
     flushBulkUpdates("Monitoring_5_Tahap", monitoringUpdates),
-    flushBulkUpdates("Nilai_Dan_Sertifikat", sertifikatUpdates),
     flushBulkUpdates("Log_Penerbitan_Surat", logSuratUpdates)
   ]);
   updatedDudi = flushedDudi;
@@ -6193,7 +6173,7 @@ function registerPublicStudentRoutes(app2) {
       let autoIdGuruPendamping = "";
       let autoGuruPendamping = "";
       let matchedDudiRow = null;
-      if (!payload.is_dudi_unregistered && (resolvedDudiId || resolvedDudiNama)) {
+      if (resolvedDudiId || resolvedDudiNama) {
         try {
           const dudiRes = await fetchLiveSheetViaGas("Master_DUDI", false);
           matchedDudiRow = dudiRes.rows.find((d) => {
@@ -6210,6 +6190,22 @@ function registerPublicStudentRoutes(app2) {
               "idGuruPendamping"
             );
             autoGuruPendamping = pickField(matchedDudiRow, "Guru_Pendamping", "guruPendamping");
+          } else if (resolvedDudiNama) {
+            const newDudiId = `DUD-${Date.now().toString(36).toUpperCase()}`;
+            await writeLiveSheetViaGas("Master_DUDI", "CREATE", {
+              id: newDudiId,
+              ID: newDudiId,
+              Nama_DUDI: resolvedDudiNama,
+              Bidang_Keahlian: String(payload.bidang_dudi || "-").trim() || "-",
+              Alamat: String(payload.alamat_dudi || "-").trim() || "-",
+              Wilayah_Kota: "Ponorogo",
+              Link_Maps: mapsCheck.normalizedUrl,
+              Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || "").trim(),
+              Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || "").trim(),
+              Kuota_Maksimal: 4,
+              Status_Kerjasama: "Mitra Baru"
+            });
+            resolvedDudiId = newDudiId;
           }
         } catch {
         }
@@ -6284,35 +6280,16 @@ function registerPublicStudentRoutes(app2) {
         ID_DUDI: resolvedDudiId,
         idDudi: resolvedDudiId,
         nama_dudi: resolvedDudiNama,
-        Alamat_DUDI: String(payload.alamat_dudi || ""),
-        alamatDudi: String(payload.alamat_dudi || ""),
-        Bidang_Pekerjaan: String(payload.bidang_dudi || ""),
-        bidangPekerjaan: String(payload.bidang_dudi || ""),
-        Nama_Pemimpin: "",
-        namaPemimpin: "",
-        Nama_PIC: "",
-        namaPic: "",
-        No_Telp_DUDI: "",
-        noTelpDudi: "",
-        Kontak_PIC: "",
-        kontakPic: "",
-        Hari_Kerja: String(payload.hari_kerja || payload.Hari_Kerja || "").trim(),
-        hariKerja: String(payload.hari_kerja || payload.Hari_Kerja || "").trim(),
-        hari_kerja: String(payload.hari_kerja || payload.Hari_Kerja || "").trim(),
-        Jam_Kerja: String(payload.jam_kerja || payload.Jam_Kerja || "").trim(),
-        jamKerja: String(payload.jam_kerja || payload.Jam_Kerja || "").trim(),
-        jam_kerja: String(payload.jam_kerja || payload.Jam_Kerja || "").trim(),
-        Link_Maps: mapsCheck.normalizedUrl,
-        linkMaps: mapsCheck.normalizedUrl,
-        link_maps: mapsCheck.normalizedUrl,
-        No_WA: String(payload.telepon || ""),
-        noWa: String(payload.telepon || ""),
-        Alamat_Domisili: String(payload.alamat_domisili || ""),
-        alamatDomisili: String(payload.alamat_domisili || ""),
-        Nama_Ortu_Wali: String(payload.nama_orang_tua || ""),
-        namaOrtuWali: String(payload.nama_orang_tua || ""),
-        No_Ortu_Wali: String(payload.telepon_orang_tua || ""),
-        noOrtuWali: String(payload.telepon_orang_tua || ""),
+        No_Surat_Permohonan: "",
+        noSuratPermohonan: "",
+        Tgl_Kirim_Surat: "",
+        tanggalKirimSurat: "",
+        Status_Balasan_DUDI: "Belum Dikirim",
+        statusBalasanDudi: "Belum Dikirim",
+        Tgl_Balasan: "",
+        tanggalBalasan: "",
+        Link_Surat_PDF: "",
+        linkSuratPdf: "",
         Status_Kakomli: "Pending",
         statusKakomli: "Pending",
         Catatan_Kakomli: baseStatusNote,
@@ -6491,41 +6468,10 @@ async function syncDudiContactToMasterAndPengajuan(input) {
     });
     synced = true;
   }
-  const reqRes = await fetchLiveSheetViaGas("Data_Pengajuan_PKL", false).catch(() => ({ rows: [] }));
-  const matchingReqs = reqRes.rows.filter((r) => {
-    const rDudiId = pickField(r, "ID_DUDI", "idDudi");
-    const rDudiNama = normalizeStr(pickField(r, "DUDI_Tujuan", "dudiTujuan"));
-    const isTarget = targetDudiId && rDudiId === targetDudiId || targetDudiNameNorm && rDudiNama === targetDudiNameNorm;
-    const hasBlankContact = !pickField(r, "Nama_Pemimpin", "namaPemimpin") || !pickField(r, "Nama_PIC", "namaPic") || !pickField(r, "No_Telp_DUDI", "noTelpDudi") || inputHariKerja && !pickField(r, "Hari_Kerja", "hariKerja") || inputJamKerja && !pickField(r, "Jam_Kerja", "jamKerja");
-    return isTarget && hasBlankContact;
-  });
-  const pengajuanUpdates = [];
-  for (const mr of matchingReqs.slice(0, 10)) {
-    const mrId = pickField(mr, "No_Pengajuan", "noPengajuan", "id");
-    if (!mrId) continue;
-    pengajuanUpdates.push({
-      ...mr,
-      id: mrId,
-      No_Pengajuan: mrId,
-      Nama_Pemimpin: pickField(mr, "Nama_Pemimpin", "namaPemimpin") || inputPemimpin,
-      Nama_PIC: pickField(mr, "Nama_PIC", "namaPic") || inputPic,
-      No_Telp_DUDI: pickField(mr, "No_Telp_DUDI", "noTelpDudi") || inputTelpDudi,
-      Kontak_PIC: pickField(mr, "Kontak_PIC", "kontakPic") || inputTelpDudi,
-      Hari_Kerja: pickField(mr, "Hari_Kerja", "hariKerja") || inputHariKerja,
-      Jam_Kerja: pickField(mr, "Jam_Kerja", "jamKerja") || inputJamKerja
-    });
-  }
-  if (pengajuanUpdates.length > 0) {
-    await writeLiveSheetViaGas("Data_Pengajuan_PKL", "BULK_UPDATE", {
-      ids: pengajuanUpdates.map((r) => r.id),
-      updatedRows: pengajuanUpdates
-    }).catch(() => {
-    });
-  }
   return synced;
 }
 async function upsertNilaiDanSertifikat(input) {
-  const nilaiRes = await fetchLiveSheetViaGas("Nilai_Dan_Sertifikat", true).catch(() => ({ rows: [] }));
+  const plottingRes = await fetchLiveSheetViaGas("data_plotting", true).catch(() => ({ rows: [] }));
   const cleanNis = stripNisSymbols(input.nis) || String(input.nis || "").trim();
   const idPenempatan = String(input.idPenempatan || `PLT-${cleanNis}`).trim();
   let resolvedDudiId = String(input.idDudi || "").trim();
@@ -6539,36 +6485,36 @@ async function upsertNilaiDanSertifikat(input) {
       resolvedDudiId = pickField(matchedDudi, "ID", "id");
     }
   }
-  const existingNilai = nilaiRes.rows.find((n) => {
+  const existingRow = plottingRes.rows.find((n) => {
     const rowNis = pickField(n, "NIS", "nis");
     const rowNisDigits = stripNisSymbols(rowNis);
     const rowPlt = pickField(n, "ID_Penempatan", "idPenempatan");
     return cleanNis && (rowNisDigits === cleanNis || rowNis === cleanNis) || idPenempatan && rowPlt === idPenempatan;
   });
-  if (existingNilai) {
-    const existingId = pickField(existingNilai, "ID_Penempatan", "idPenempatan", "id") || idPenempatan;
-    const existingDudiId = pickField(existingNilai, "ID_DUDI", "idDudi") || resolvedDudiId;
-    await writeLiveSheetViaGas("Nilai_Dan_Sertifikat", "UPDATE", {
+  if (existingRow) {
+    const existingId = pickField(existingRow, "ID_Penempatan", "idPenempatan", "id") || idPenempatan;
+    const existingDudiId = pickField(existingRow, "ID_DUDI", "idDudi") || resolvedDudiId;
+    await writeLiveSheetViaGas("data_plotting", "UPDATE", {
       id: existingId,
       ID_Penempatan: existingId,
       idPenempatan: existingId,
-      _sheetRowNumber: existingNilai._sheetRowNumber,
-      NIS: cleanNis || pickField(existingNilai, "NIS", "nis"),
-      nis: cleanNis || pickField(existingNilai, "NIS", "nis"),
+      _sheetRowNumber: existingRow._sheetRowNumber,
+      NIS: cleanNis || pickField(existingRow, "NIS", "nis"),
+      nis: cleanNis || pickField(existingRow, "NIS", "nis"),
       ID_DUDI: existingDudiId,
       idDudi: existingDudiId,
-      No_Seri_Blangko: pickField(existingNilai, "No_Seri_Blangko", "noSeriBlangko"),
-      noSeriBlangko: pickField(existingNilai, "No_Seri_Blangko", "noSeriBlangko"),
-      Status_Blangko: pickField(existingNilai, "Status_Blangko", "statusBlangko") || "Tersedia",
-      statusBlangko: pickField(existingNilai, "Status_Blangko", "statusBlangko") || "Tersedia",
+      No_Seri_Blangko: pickField(existingRow, "No_Seri_Blangko", "noSeriBlangko"),
+      noSeriBlangko: pickField(existingRow, "No_Seri_Blangko", "noSeriBlangko"),
+      Status_Blangko: pickField(existingRow, "Status_Blangko", "statusBlangko") || "Tersedia",
+      statusBlangko: pickField(existingRow, "Status_Blangko", "statusBlangko") || "Tersedia",
       Status_Raport: "Siap Cetak",
       statusRaport: "Siap Cetak",
-      Tgl_Terbit: pickField(existingNilai, "Tgl_Terbit", "tanggalTerbit") || input.tglTerbit,
-      tanggalTerbit: pickField(existingNilai, "Tgl_Terbit", "tanggalTerbit") || input.tglTerbit
+      Tgl_Terbit: pickField(existingRow, "Tgl_Terbit", "tanggalTerbit") || input.tglTerbit,
+      tanggalTerbit: pickField(existingRow, "Tgl_Terbit", "tanggalTerbit") || input.tglTerbit
     });
     return;
   }
-  await writeLiveSheetViaGas("Nilai_Dan_Sertifikat", "CREATE", {
+  await writeLiveSheetViaGas("data_plotting", "CREATE", {
     id: idPenempatan,
     ID_Penempatan: idPenempatan,
     idPenempatan,
@@ -6576,6 +6522,10 @@ async function upsertNilaiDanSertifikat(input) {
     nis: cleanNis,
     ID_DUDI: resolvedDudiId,
     idDudi: resolvedDudiId,
+    Nama_DUDI: input.namaDudi || "",
+    namaDudi: input.namaDudi || "",
+    Status_Penempatan: "Sedang PKL",
+    statusPenempatan: "Sedang PKL",
     No_Seri_Blangko: "",
     noSeriBlangko: "",
     Status_Blangko: "Tersedia",
@@ -6782,8 +6732,8 @@ function registerPublicTeacherMonitoringRoutes(app2) {
       const mapped = mapPublicPetugasRows(rows);
       if (!isServerlessRuntime) {
         void fetchBatchSheetsViaGas(
-          ["Plotting_Pemberangkatan", "Master_DUDI"],
-          /* @__PURE__ */ new Set(["Plotting_Pemberangkatan", "Master_DUDI"])
+          ["data_plotting", "Master_DUDI"],
+          /* @__PURE__ */ new Set(["data_plotting", "Master_DUDI"])
         ).catch(() => {
         });
       }
@@ -6875,13 +6825,13 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         return res.status(400).json({ success: false, message: "Parameter petugasNama atau petugasId wajib diisi." });
       }
       const { sheets } = await fetchBatchSheetsViaGas(
-        ["Plotting_Pemberangkatan", "Master_DUDI", "Data_Pengajuan_PKL"],
-        /* @__PURE__ */ new Set(["Plotting_Pemberangkatan", "Data_Pengajuan_PKL"])
+        ["data_plotting", "Master_DUDI", "Data_Pengajuan_PKL"],
+        /* @__PURE__ */ new Set(["data_plotting", "Data_Pengajuan_PKL"])
       );
       const result = aggregatePetugasDudiGroups({
         petugasNama,
         petugasId,
-        plottingRows: sheets["Plotting_Pemberangkatan"] || [],
+        plottingRows: sheets["data_plotting"] || [],
         dudiRows: sheets["Master_DUDI"] || [],
         pengajuanRows: sheets["Data_Pengajuan_PKL"] || []
       });
@@ -6909,19 +6859,17 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         [
           "Master_DUDI",
           "Master_Jurusan",
-          "Plotting_Pemberangkatan",
+          "data_plotting",
           "Data_Pengajuan_PKL",
           "Master_Siswa_XI",
           "Monitoring_5_Tahap",
-          "Nilai_Dan_Sertifikat",
           "Log_Penerbitan_Surat"
         ],
         /* @__PURE__ */ new Set([
-          "Plotting_Pemberangkatan",
+          "data_plotting",
           "Data_Pengajuan_PKL",
           "Master_Siswa_XI",
           "Monitoring_5_Tahap",
-          "Nilai_Dan_Sertifikat",
           "Log_Penerbitan_Surat"
         ])
       );
@@ -6937,17 +6885,18 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         dudiId,
         dudiNama
       );
+      const plottingRows = sheets["data_plotting"] || [];
       const result = buildDudiStudentsWithSummary({
         dudiNama,
         dudiId,
         petugasNama,
         petugasId,
         dudiRows: sheets["Master_DUDI"] || [],
-        plottingRows: sheets["Plotting_Pemberangkatan"] || [],
+        plottingRows,
         pengajuanRows: sheets["Data_Pengajuan_PKL"] || [],
         siswaRows,
         monitoringRows: sheets["Monitoring_5_Tahap"] || [],
-        nilaiRows: sheets["Nilai_Dan_Sertifikat"] || [],
+        nilaiRows: plottingRows,
         jurusanRows: sheets["Master_Jurusan"] || [],
         stageControl,
         issuedStages
@@ -7348,7 +7297,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           }).then(() => {
             gradeSynced = true;
           }).catch((gradeErr) => {
-            console.warn("[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:", gradeErr);
+            console.warn("[submit-monitoring] Sync to data_plotting warning:", gradeErr);
           })
         );
       }
@@ -7778,7 +7727,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         });
         nilaiSynced = true;
       } catch (syncErr) {
-        console.warn("[update-grades] Sync to Nilai_Dan_Sertifikat warning:", syncErr);
+        console.warn("[update-grades] Sync to data_plotting warning:", syncErr);
       }
       res.json({
         success: true,
@@ -7888,13 +7837,16 @@ function registerDocumentRoutes(app2) {
     try {
       await requireAdminAuth(req);
       const body = req.body || {};
-      const perizinanId = String(body.perizinanId || body.id || "").trim();
+      const pengajuanId = String(body.pengajuanId || "").trim();
+      const perizinanId = String(body.perizinanId || (!pengajuanId ? body.id : "") || "").trim();
+      const targetSheet = body.sourceSheet === "Data_Pengajuan_PKL" || pengajuanId ? "Data_Pengajuan_PKL" : "Data_Perizinan_PKL";
+      const targetId = targetSheet === "Data_Pengajuan_PKL" ? pengajuanId : perizinanId;
       let existingRow = null;
-      if (perizinanId) {
-        const izinRes = await fetchLiveSheetViaGas("Data_Perizinan_PKL", false).catch(() => ({ rows: [] }));
-        existingRow = izinRes.rows.find((r) => {
-          const rid = pickField(r, "ID_Perizinan", "idPerizinan", "id");
-          return rid === perizinanId;
+      if (targetId) {
+        const resSheet = await fetchLiveSheetViaGas(targetSheet, false).catch(() => ({ rows: [] }));
+        existingRow = resSheet.rows.find((r) => {
+          const rid = targetSheet === "Data_Pengajuan_PKL" ? pickField(r, "No_Pengajuan", "noPengajuan", "id") : pickField(r, "ID_Perizinan", "idPerizinan", "id");
+          return rid === targetId;
         });
       }
       const nisClean = stripNisSymbols(
@@ -7930,10 +7882,11 @@ function registerDocumentRoutes(app2) {
           alamatDudi = pickField(matchedDudi, "Alamat", "alamat") || alamatDudi;
         }
       }
+      const resolvedNoSurat = String(body.noSuratPermohonan || "").trim() || pickField(existingRow || {}, "No_Surat_Permohonan", "noSuratPermohonan") || `421.5 / ___ / Hubin / SMK.PGRI2 / ${(/* @__PURE__ */ new Date()).getFullYear()}`;
       const gasPayload = {
-        perizinanId: perizinanId || `IZN-${Date.now()}`,
-        noPerizinan: String(body.noPerizinan || "").trim() || pickField(existingRow || {}, "ID_Perizinan", "idPerizinan", "id") || perizinanId,
-        noSuratPermohonan: String(body.noSuratPermohonan || "").trim() || pickField(existingRow || {}, "No_Surat_Permohonan", "noSuratPermohonan") || `421.5 / ___ / Hubin / SMK.PGRI2 / ${(/* @__PURE__ */ new Date()).getFullYear()}`,
+        perizinanId: targetId || `REQ-${Date.now()}`,
+        noPerizinan: targetId,
+        noSuratPermohonan: resolvedNoSurat,
         namaSiswa: namaSiswa || "-",
         nis: nisClean,
         kelas: kelas || "-",
@@ -7952,15 +7905,30 @@ function registerDocumentRoutes(app2) {
           502
         );
       }
-      if (existingRow && perizinanId) {
-        await writeLiveSheetViaGas("Data_Perizinan_PKL", "UPDATE", {
-          ...existingRow,
-          id: pickField(existingRow, "ID_Perizinan", "idPerizinan", "id") || perizinanId,
-          ID_Perizinan: pickField(existingRow, "ID_Perizinan", "idPerizinan", "id") || perizinanId,
-          Link_Surat_PDF: pdfUrl,
-          linkSuratPdf: pdfUrl
-        }).catch(() => {
-        });
+      if (existingRow && targetId) {
+        if (targetSheet === "Data_Pengajuan_PKL") {
+          const pengId = pickField(existingRow, "No_Pengajuan", "noPengajuan", "id") || targetId;
+          await writeLiveSheetViaGas("Data_Pengajuan_PKL", "UPDATE", {
+            ...existingRow,
+            id: pengId,
+            No_Pengajuan: pengId,
+            No_Surat_Permohonan: resolvedNoSurat,
+            noSuratPermohonan: resolvedNoSurat,
+            Link_Surat_PDF: pdfUrl,
+            linkSuratPdf: pdfUrl
+          }).catch(() => {
+          });
+        } else {
+          const izId = pickField(existingRow, "ID_Perizinan", "idPerizinan", "id") || targetId;
+          await writeLiveSheetViaGas("Data_Perizinan_PKL", "UPDATE", {
+            ...existingRow,
+            id: izId,
+            ID_Perizinan: izId,
+            Link_Bukti_Balasan: pdfUrl,
+            linkBuktiBalasan: pdfUrl
+          }).catch(() => {
+          });
+        }
       }
       return res.json({
         success: true,

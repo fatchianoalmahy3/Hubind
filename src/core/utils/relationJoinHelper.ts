@@ -97,6 +97,7 @@ interface BuiltRelationIndexes {
   guruByNormName: Map<string, Record<string, any>>;
   jurusanNameByKey: Map<string, string>;
   placementById: Map<string, Record<string, any>>;
+  placementByNis: Map<string, Record<string, any>>;
 }
 
 function buildRelationIndexes(maps: RelationSnapshotMaps): BuiltRelationIndexes {
@@ -146,10 +147,19 @@ function buildRelationIndexes(maps: RelationSnapshotMaps): BuiltRelationIndexes 
   }
 
   const placementById = new Map<string, Record<string, any>>();
+  const placementByNis = new Map<string, Record<string, any>>();
   if (Array.isArray(maps.placementRows)) {
     for (const p of maps.placementRows) {
       const pid = String(p.idPenempatan ?? p.id ?? '').trim();
       if (pid && !placementById.has(pid)) placementById.set(pid, p);
+      const pNis = stripNisSymbols(p.nis ?? p.NIS);
+      if (pNis) {
+        const status = normalizeRelationText(p.statusPenempatan ?? p.Status_Penempatan);
+        const isClosed = status === 'pindah dudi' || status === 'dibatalkan' || status === 'batal';
+        if (!placementByNis.has(pNis) || !isClosed) {
+          placementByNis.set(pNis, p);
+        }
+      }
     }
   }
 
@@ -162,6 +172,7 @@ function buildRelationIndexes(maps: RelationSnapshotMaps): BuiltRelationIndexes 
     guruByNormName,
     jurusanNameByKey,
     placementById,
+    placementByNis,
   };
 }
 
@@ -262,12 +273,16 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     }
   }
 
-  const placement = out.idPenempatan
-    ? idx.placementById.get(String(out.idPenempatan).trim())
-    : undefined;
+  const placement =
+    (out.idPenempatan ? idx.placementById.get(String(out.idPenempatan).trim()) : undefined) ||
+    (sheetName === 'Data_Perizinan_PKL' && targetDigits
+      ? idx.placementByNis.get(targetDigits)
+      : undefined);
 
   const dudiId = String(out.idDudi || out.ID_DUDI || placement?.idDudi || '').trim();
-  const dudiNameKey = normalizeRelationText(out.namaDudi || out.dudiTujuan || placement?.namaDudi);
+  const dudiNameKey = normalizeRelationText(
+    out.namaDudi || out.dudiTujuan || placement?.namaDudi || placement?.dudiTujuan
+  );
   const dudi =
     (dudiId ? idx.dudiById.get(dudiId) : undefined) ||
     (dudiNameKey ? idx.dudiByNormName.get(dudiNameKey) : undefined);
@@ -275,12 +290,18 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
   if (dudi) {
     if (!out.idDudi && dudi.id) out.idDudi = dudi.id;
     const latestDudiName = String(dudi.namaDudi || '').trim();
-    if (sheetName === 'Plotting_Pemberangkatan') {
-      if (latestDudiName) out.namaDudi = latestDudiName;
+    if (
+      sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat'
+    ) {
+      if (latestDudiName) {
+        out.namaDudi = latestDudiName;
+        out.dudiTujuan = latestDudiName;
+      }
     } else if (
       sheetName === 'Data_Perizinan_PKL' ||
       sheetName === 'Monitoring_5_Tahap' ||
-      sheetName === 'Nilai_Dan_Sertifikat' ||
       sheetName === 'Data_Pengajuan_PKL'
     ) {
       if (latestDudiName) out.dudiTujuan = latestDudiName;
@@ -303,6 +324,15 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
         if ((!out.linkMaps || out.linkMaps === '-') && dudi.linkMaps) out.linkMaps = dudi.linkMaps;
       }
     }
+  } else if (
+    (sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat') &&
+    (out.namaDudi || out.dudiTujuan)
+  ) {
+    const fallbackName = String(out.namaDudi || out.dudiTujuan).trim();
+    out.namaDudi = fallbackName;
+    out.dudiTujuan = fallbackName;
   }
 
   const guruId = String(
@@ -319,7 +349,10 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     if (
       !out.idGuruPendamping &&
       guru.id &&
-      (sheetName === 'Plotting_Pemberangkatan' || sheetName === 'Monitoring_5_Tahap' || sheetName === 'Data_Pengajuan_PKL')
+      (sheetName === 'data_plotting' ||
+        sheetName === 'Plotting_Pemberangkatan' ||
+        sheetName === 'Monitoring_5_Tahap' ||
+        sheetName === 'Data_Pengajuan_PKL')
     ) {
       out.idGuruPendamping = guru.id;
     }
@@ -335,7 +368,11 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     }
   }
 
-  if (sheetName === 'Monitoring_5_Tahap' || sheetName === 'Nilai_Dan_Sertifikat') {
+  if (
+    sheetName === 'Monitoring_5_Tahap' ||
+    sheetName === 'data_plotting' ||
+    sheetName === 'Nilai_Dan_Sertifikat'
+  ) {
     const k3 = Number(out.nilaiK3lh ?? out.Nilai_K3LH ?? 0);
     const ss = Number(out.nilaiSoftskill ?? out.Nilai_Softskills ?? 0);
     const hs = Number(out.nilaiKompetensiTeknis ?? out.Nilai_Hardskills ?? 0);
@@ -343,7 +380,7 @@ function enrichRecordWithIndexes<T extends Record<string, any>>(
     if (k3 + ss + hs + ab > 0) {
       const avg = calculateEqualWeightedAverage(k3, ss, hs, ab);
       out.nilaiRataRata = avg;
-      if (sheetName === 'Nilai_Dan_Sertifikat') {
+      if (sheetName === 'data_plotting' || sheetName === 'Nilai_Dan_Sertifikat') {
         out.predikat = getPredikatFromScore(avg);
       }
     }
@@ -442,26 +479,36 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     }
   }
 
-  // Placement lookup when idPenempatan present
+  // Placement lookup when idPenempatan present (or fallback by NIS on Data_Perizinan_PKL)
+  const nisDigitsForPlt = stripNisSymbols(out.nis || out.NIS);
   const placement =
-    Array.isArray(maps.placementRows) && out.idPenempatan
+    (Array.isArray(maps.placementRows) && out.idPenempatan
       ? maps.placementRows.find((p) => String(p.idPenempatan || p.id).trim() === String(out.idPenempatan).trim())
-      : undefined;
+      : undefined) ||
+    (sheetName === 'Data_Perizinan_PKL' && Array.isArray(maps.placementRows) && nisDigitsForPlt
+      ? maps.placementRows.find((p) => stripNisSymbols(p.nis ?? p.NIS) === nisDigitsForPlt)
+      : undefined);
 
   const dudi = findDudi(
     maps.dudiRows,
     out.idDudi || out.ID_DUDI || placement?.idDudi,
-    out.namaDudi || out.dudiTujuan || placement?.namaDudi
+    out.namaDudi || out.dudiTujuan || placement?.namaDudi || placement?.dudiTujuan
   );
   if (dudi) {
     if (!out.idDudi && dudi.id) out.idDudi = dudi.id;
     const latestDudiName = String(dudi.namaDudi || '').trim();
-    if (sheetName === 'Plotting_Pemberangkatan') {
-      if (latestDudiName) out.namaDudi = latestDudiName;
+    if (
+      sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat'
+    ) {
+      if (latestDudiName) {
+        out.namaDudi = latestDudiName;
+        out.dudiTujuan = latestDudiName;
+      }
     } else if (
       sheetName === 'Data_Perizinan_PKL' ||
       sheetName === 'Monitoring_5_Tahap' ||
-      sheetName === 'Nilai_Dan_Sertifikat' ||
       sheetName === 'Data_Pengajuan_PKL'
     ) {
       if (latestDudiName) out.dudiTujuan = latestDudiName;
@@ -484,6 +531,15 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
         if ((!out.linkMaps || out.linkMaps === '-') && dudi.linkMaps) out.linkMaps = dudi.linkMaps;
       }
     }
+  } else if (
+    (sheetName === 'data_plotting' ||
+      sheetName === 'Plotting_Pemberangkatan' ||
+      sheetName === 'Nilai_Dan_Sertifikat') &&
+    (out.namaDudi || out.dudiTujuan)
+  ) {
+    const fallbackName = String(out.namaDudi || out.dudiTujuan).trim();
+    out.namaDudi = fallbackName;
+    out.dudiTujuan = fallbackName;
   }
 
   const guru = findGuru(
@@ -495,7 +551,10 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     if (
       !out.idGuruPendamping &&
       guru.id &&
-      (sheetName === 'Plotting_Pemberangkatan' || sheetName === 'Monitoring_5_Tahap' || sheetName === 'Data_Pengajuan_PKL')
+      (sheetName === 'data_plotting' ||
+        sheetName === 'Plotting_Pemberangkatan' ||
+        sheetName === 'Monitoring_5_Tahap' ||
+        sheetName === 'Data_Pengajuan_PKL')
     ) {
       out.idGuruPendamping = guru.id;
     }
@@ -511,7 +570,11 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     }
   }
 
-  if (sheetName === 'Monitoring_5_Tahap' || sheetName === 'Nilai_Dan_Sertifikat') {
+  if (
+    sheetName === 'Monitoring_5_Tahap' ||
+    sheetName === 'data_plotting' ||
+    sheetName === 'Nilai_Dan_Sertifikat'
+  ) {
     const k3 = Number(out.nilaiK3lh ?? out.Nilai_K3LH ?? 0);
     const ss = Number(out.nilaiSoftskill ?? out.Nilai_Softskills ?? 0);
     const hs = Number(out.nilaiKompetensiTeknis ?? out.Nilai_Hardskills ?? 0);
@@ -519,7 +582,7 @@ export function enrichRecordWithRelations<T extends Record<string, any>>(
     if (k3 + ss + hs + ab > 0) {
       const avg = calculateEqualWeightedAverage(k3, ss, hs, ab);
       out.nilaiRataRata = avg;
-      if (sheetName === 'Nilai_Dan_Sertifikat') {
+      if (sheetName === 'data_plotting' || sheetName === 'Nilai_Dan_Sertifikat') {
         out.predikat = getPredikatFromScore(avg);
       }
     }

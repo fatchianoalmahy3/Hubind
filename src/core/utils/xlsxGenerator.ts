@@ -12,7 +12,7 @@ export const MASTER_IMPORT_WORKBOOK_SHEET_NAMES = [
   'Master_Kelas_Walas',
   'Master_DUDI',
   'Master_Siswa_XI',
-  'Plotting_Pemberangkatan',
+  'data_plotting',
 ] as const;
 
 const TEXT_PRESERVED_KEYS = new Set([

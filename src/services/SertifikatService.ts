@@ -21,7 +21,7 @@ export class SertifikatService extends BaseRepository<Sertifikat> {
   private static instance: SertifikatService;
 
   private constructor() {
-    super('Nilai_Dan_Sertifikat', SertifikatMetadata, initialSertifikat);
+    super('data_plotting', SertifikatMetadata, initialSertifikat);
   }
 
   public static getInstance(): SertifikatService {
@@ -40,7 +40,7 @@ export class SertifikatService extends BaseRepository<Sertifikat> {
   /**
    * Single Source of Truth (SSOT) Nilai PKL:
    * Seluruh perubahan 4 komponen nilai PKL ditulis ke Monitoring_5_Tahap;
-   * Nilai_Dan_Sertifikat menarik nilai, rata-rata, dan predikat secara otomatis via ARRAYFORMULA.
+   * data_plotting menarik nilai, rata-rata, dan predikat secara otomatis via ARRAYFORMULA.
    */
   public async syncGradesViaMonitoring(
     target: Partial<Sertifikat>,
@@ -165,15 +165,40 @@ export class SertifikatService extends BaseRepository<Sertifikat> {
       { silentToast: true }
     );
 
-    const updated = await this.update(id, {
-      nilaiK3lh: scores.nilaiK3lh,
-      nilaiSoftskill: scores.nilaiSoftskill,
-      nilaiKompetensiTeknis: scores.nilaiKompetensiTeknis,
-      nilaiAlurBisnis: scores.nilaiAlurBisnis,
-      nilaiRataRata,
-      predikat,
-      statusRaport: 'Siap Cetak',
-    });
+    const updated = existing
+      ? await this.update(id, {
+          nilaiK3lh: scores.nilaiK3lh,
+          nilaiSoftskill: scores.nilaiSoftskill,
+          nilaiKompetensiTeknis: scores.nilaiKompetensiTeknis,
+          nilaiAlurBisnis: scores.nilaiAlurBisnis,
+          nilaiRataRata,
+          predikat,
+          statusRaport: 'Siap Cetak',
+        })
+      : await this.create({
+          id,
+          idPenempatan: id,
+          nis: '',
+          namaSiswa: '',
+          idDudi: '',
+          namaDudi: '',
+          dudiTujuan: '',
+          idGuruPendamping: '',
+          guruPendamping: '',
+          tanggalBerangkat: '',
+          tanggalRencanaTarik: '',
+          statusPenempatan: 'Terjadwal',
+          nilaiK3lh: scores.nilaiK3lh,
+          nilaiSoftskill: scores.nilaiSoftskill,
+          nilaiKompetensiTeknis: scores.nilaiKompetensiTeknis,
+          nilaiAlurBisnis: scores.nilaiAlurBisnis,
+          nilaiRataRata,
+          predikat,
+          noSeriBlangko: '',
+          statusBlangko: 'Tersedia',
+          statusRaport: 'Siap Cetak',
+          tanggalTerbit: getTodayWibIsoDate(),
+        } as any);
 
     if (updated) {
       updated.nilaiK3lh = scores.nilaiK3lh;

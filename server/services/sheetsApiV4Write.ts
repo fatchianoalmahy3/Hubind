@@ -5,9 +5,11 @@ import { fetchWithRetry, fetchWithTimeout } from '../utils/httpHelpers';
 import { registerMetadataCacheClearHook } from './serverSheetCache';
 import {
   SHEETS_API_TIMEOUT_MS,
+  clearSheetsApiFallbackReason,
   colIndexToLetter,
   getSpreadsheetMetadataViaApiV4,
   invalidateSheetsAccessTokenCache,
+  recordSheetsApiFallbackReason,
   resolveActualTabName,
   resolveGoogleSheetsWriteAuth,
 } from './sheetsApiV4Client';
@@ -259,7 +261,9 @@ function findRowIndexById(
 
   const nisWanted =
     String((rowObj && (rowObj.NIS || rowObj.nis)) || '').trim() ||
-    (sheetName === 'Nilai_Dan_Sertifikat' ||
+    (sheetName === 'data_plotting' ||
+    sheetName === 'Plotting_Pemberangkatan' ||
+    sheetName === 'Nilai_Dan_Sertifikat' ||
     sheetName === 'Master_Siswa_XI' ||
     sheetName === 'Master_Siswa'
       ? cleanId
@@ -437,6 +441,43 @@ async function readSheetValuesMatrix(
   return Array.isArray(json?.values) ? json.values : [];
 }
 
+async function readSingleSheetRow(
+  spreadsheetId: string,
+  actualTab: string,
+  sheetRowNum: number,
+  colCount: number,
+  token: string
+): Promise<any[] | null> {
+  if (!Number.isInteger(sheetRowNum) || sheetRowNum < 2) return null;
+  const lastCol = colIndexToLetter(Math.max(0, colCount - 1));
+  const range = encodeURIComponent(`${quoteA1Sheet(actualTab)}!A${sheetRowNum}:${lastCol}${sheetRowNum}`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+    spreadsheetId
+  )}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER&majorDimension=ROWS`;
+
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    },
+    { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 1, baseDelayMs: 200 }
+  );
+
+  if (res.status === 401) {
+    invalidateSheetsAccessTokenCache();
+    recordSheetsApiFallbackReason('Token OAuth Service Account ditolak (HTTP 401).');
+    return null;
+  }
+  if (!res.ok) {
+    recordSheetsApiFallbackReason(`Baca 1 baris Sheets API gagal (HTTP ${res.status}).`);
+    return null;
+  }
+  const json = await res.json();
+  const rows: any[][] = Array.isArray(json?.values) ? json.values : [];
+  return Array.isArray(rows[0]) ? rows[0] : [];
+}
+
 async function batchUpdateValueRanges(
   spreadsheetId: string,
   data: Array<{ range: string; values: Array<Array<string | number>> }>,
@@ -467,16 +508,24 @@ async function batchUpdateValueRanges(
 
   if (res.status === 401) {
     invalidateSheetsAccessTokenCache();
+    recordSheetsApiFallbackReason('Token OAuth Service Account ditolak saat tulis (HTTP 401).');
     return { fallback: true };
   }
   if (res.status === 403 || res.status === 404) {
+    recordSheetsApiFallbackReason(
+      res.status === 403
+        ? 'Spreadsheet belum di-share sebagai Editor ke email Service Account atau Google Sheets API belum aktif (HTTP 403).'
+        : 'Spreadsheet tidak ditemukan untuk Service Account (HTTP 404).'
+    );
     return { fallback: true };
   }
   if (!res.ok) {
     const errTxt = await res.text().catch(() => '');
+    recordSheetsApiFallbackReason(`Sheets API batchUpdate HTTP ${res.status}`);
     console.warn(`[Sheets API v4 Write] batchUpdate HTTP ${res.status}: ${errTxt.slice(0, 140)}`);
     return { fallback: true };
   }
+  clearSheetsApiFallbackReason();
   return { ok: true };
 }
 
@@ -712,6 +761,7 @@ export async function tryWriteSheetViaApiV4(
   const auth = await resolveGoogleSheetsWriteAuth();
   if (!auth) return null;
 
+  let hasMutatedSheet = false;
   try {
     const meta = await getSpreadsheetMetadataViaApiV4(spreadsheetId, auth, false);
     const actualTab = resolveActualTabName(sheetName, meta.tabNames);
@@ -729,6 +779,144 @@ export async function tryWriteSheetViaApiV4(
       );
       if (!schema) return null;
       const { headers, isFormulaCol } = schema;
+
+      if (action === 'UPDATE') {
+        const rowObj = payload || {};
+        const targetId = extractRecordId(rowObj);
+        const parsedHint = parseRowHintFromId(targetId);
+        const explicitRowNum = Number(rowObj._sheetRowNumber || parsedHint.rowNum || 0);
+
+        let sheetRowNumber = -1;
+        if (explicitRowNum >= 2) {
+          const singleRow = await readSingleSheetRow(
+            spreadsheetId,
+            actualTab,
+            explicitRowNum,
+            headers.length,
+            auth.token
+          );
+          if (singleRow) {
+            const singleMatch = findRowIndexById(
+              [headers, singleRow],
+              headers,
+              targetId,
+              rowObj,
+              sheetName,
+              2
+            );
+            if (singleMatch === 1) {
+              sheetRowNumber = explicitRowNum;
+            }
+          }
+        }
+
+        if (sheetRowNumber === -1) {
+          const values = await readSheetValuesMatrix(spreadsheetId, actualTab, headers.length, auth.token);
+          if (!values) return null;
+          const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum);
+          if (rowIdx === -1) {
+            throw new PortalConfigError(
+              'GAS_WRITE_ERROR',
+              `Baris data dengan ID "${targetId}" tidak ditemukan di sheet "${sheetName}". Segarkan tabel terlebih dahulu lalu coba simpan ulang.`,
+              502
+            );
+          }
+          sheetRowNumber = rowIdx + 1;
+        }
+
+        const ranges = buildPartialRowUpdateRanges(
+          actualTab,
+          sheetRowNumber,
+          headers,
+          isFormulaCol,
+          rowObj
+        );
+        hasMutatedSheet = true;
+        const writeRes = await batchUpdateValueRanges(spreadsheetId, ranges, auth.token);
+        if ('fallback' in writeRes) {
+          return null;
+        }
+
+        return {
+          verified: true,
+          savedId: targetId || undefined,
+          sheetRowNumber,
+          savedAt: new Date().toISOString(),
+        };
+      }
+
+      if (action === 'DELETE') {
+        const sheetId = meta.sheetIds[actualTab];
+        if (typeof sheetId !== 'number') return null;
+
+        const rowPayload = payload || {};
+        const deletedRowObj = rowPayload.deletedRow || rowPayload;
+        const targetId = String(
+          extractRecordId(rowPayload) || extractRecordId(deletedRowObj) || ''
+        ).trim();
+        const parsedHint = parseRowHintFromId(targetId);
+        const explicitRowNum = Number(
+          rowPayload._sheetRowNumber || deletedRowObj._sheetRowNumber || parsedHint.rowNum || 0
+        );
+
+        let rowIdx = -1;
+        if (explicitRowNum >= 2) {
+          const singleRow = await readSingleSheetRow(
+            spreadsheetId,
+            actualTab,
+            explicitRowNum,
+            headers.length,
+            auth.token
+          );
+          if (singleRow) {
+            const singleMatch = findRowIndexById(
+              [headers, singleRow],
+              headers,
+              targetId,
+              deletedRowObj,
+              sheetName,
+              2
+            );
+            if (singleMatch === 1) {
+              rowIdx = explicitRowNum - 1;
+            }
+          }
+        }
+
+        if (rowIdx === -1) {
+          const values = await readSheetValuesMatrix(spreadsheetId, actualTab, headers.length, auth.token);
+          if (!values) return null;
+          rowIdx = findRowIndexById(
+            values,
+            headers,
+            targetId,
+            deletedRowObj,
+            sheetName,
+            explicitRowNum
+          );
+        }
+
+        if (rowIdx === -1) {
+          throw new PortalConfigError(
+            'GAS_WRITE_ERROR',
+            `Baris data yang akan dihapus (ID: "${targetId}") tidak ditemukan di sheet "${sheetName}".`,
+            502
+          );
+        }
+
+        hasMutatedSheet = true;
+        const delRes = await deleteRowsViaBatchUpdate(spreadsheetId, sheetId, [rowIdx], auth.token);
+        if ('fallback' in delRes) {
+          return null;
+        }
+
+        return {
+          verified: true,
+          savedId: targetId || undefined,
+          sheetRowNumber: rowIdx + 1,
+          savedAt: new Date().toISOString(),
+        };
+      }
 
       const values = await readSheetValuesMatrix(spreadsheetId, actualTab, headers.length, auth.token);
       if (!values) return null;
@@ -761,6 +949,7 @@ export async function tryWriteSheetViaApiV4(
         let usedAtomicAppend = false;
 
         if (allColANonEmpty && nextRowColA === nextAppendRow) {
+          hasMutatedSheet = true;
           const reserved = await atomicAppendColAReserveRows(
             spreadsheetId,
             actualTab,
@@ -780,6 +969,7 @@ export async function tryWriteSheetViaApiV4(
           isFormulaCol,
           usedAtomicAppend ? 1 : 0
         );
+        hasMutatedSheet = true;
         const writeRes = await batchUpdateValueRanges(spreadsheetId, ranges, auth.token);
         if ('fallback' in writeRes) {
           if (usedAtomicAppend) {
@@ -797,81 +987,6 @@ export async function tryWriteSheetViaApiV4(
           verified: true,
           savedId: firstId || undefined,
           sheetRowNumber: finalStartRow,
-          savedAt: new Date().toISOString(),
-        };
-      }
-
-      if (action === 'UPDATE') {
-        const rowObj = payload || {};
-        const targetId = extractRecordId(rowObj);
-        const explicitRowNum = Number(rowObj._sheetRowNumber || 0);
-        const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum);
-        if (rowIdx === -1) {
-          throw new PortalConfigError(
-            'GAS_WRITE_ERROR',
-            `Baris data dengan ID "${targetId}" tidak ditemukan di sheet "${sheetName}". Segarkan tabel terlebih dahulu lalu coba simpan ulang.`,
-            502
-          );
-        }
-
-        const sheetRowNumber = rowIdx + 1;
-        const ranges = buildPartialRowUpdateRanges(
-          actualTab,
-          sheetRowNumber,
-          headers,
-          isFormulaCol,
-          rowObj
-        );
-        const writeRes = await batchUpdateValueRanges(spreadsheetId, ranges, auth.token);
-        if ('fallback' in writeRes) {
-          return null;
-        }
-
-        return {
-          verified: true,
-          savedId: targetId || undefined,
-          sheetRowNumber,
-          savedAt: new Date().toISOString(),
-        };
-      }
-
-      if (action === 'DELETE') {
-        const sheetId = meta.sheetIds[actualTab];
-        if (typeof sheetId !== 'number') return null;
-
-        const rowPayload = payload || {};
-        const deletedRowObj = rowPayload.deletedRow || rowPayload;
-        const targetId = String(
-          extractRecordId(rowPayload) || extractRecordId(deletedRowObj) || ''
-        ).trim();
-        const explicitRowNum = Number(
-          rowPayload._sheetRowNumber || deletedRowObj._sheetRowNumber || 0
-        );
-        const rowIdx = findRowIndexById(
-          values,
-          headers,
-          targetId,
-          deletedRowObj,
-          sheetName,
-          explicitRowNum
-        );
-        if (rowIdx === -1) {
-          throw new PortalConfigError(
-            'GAS_WRITE_ERROR',
-            `Baris data yang akan dihapus (ID: "${targetId}") tidak ditemukan di sheet "${sheetName}".`,
-            502
-          );
-        }
-
-        const delRes = await deleteRowsViaBatchUpdate(spreadsheetId, sheetId, [rowIdx], auth.token);
-        if ('fallback' in delRes) {
-          return null;
-        }
-
-        return {
-          verified: true,
-          savedId: targetId || undefined,
-          sheetRowNumber: rowIdx + 1,
           savedAt: new Date().toISOString(),
         };
       }
@@ -908,6 +1023,7 @@ export async function tryWriteSheetViaApiV4(
           );
         }
 
+        hasMutatedSheet = true;
         const delRes = await deleteRowsViaBatchUpdate(
           spreadsheetId,
           sheetId,
@@ -968,6 +1084,7 @@ export async function tryWriteSheetViaApiV4(
         );
       }
 
+      hasMutatedSheet = true;
       const writeRes = await batchUpdateValueRanges(spreadsheetId, allRanges, auth.token);
       if ('fallback' in writeRes) {
         return null;
@@ -981,6 +1098,10 @@ export async function tryWriteSheetViaApiV4(
     });
   } catch (err: any) {
     if (err instanceof PortalConfigError) {
+      if (err.code === 'GAS_TIMEOUT' && !hasMutatedSheet) {
+        console.warn('[Sheets API v4 Write] Pre-write timeout, fallback to GAS:', err.message);
+        return null;
+      }
       throw err;
     }
     console.warn('[Sheets API v4 Write] Fallback to GAS:', err?.message);
