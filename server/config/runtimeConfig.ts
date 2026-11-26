@@ -5,7 +5,7 @@ import {
   DEFAULT_MONITORING_STAGE_CONTROL,
   type MonitoringStageControl,
 } from '../../src/core/types/schema';
-import type { FirebaseAppletConfig, WorkspaceConfig } from '../types';
+import { PortalConfigError, type FirebaseAppletConfig, type WorkspaceConfig } from '../types';
 import { fetchWithRetry } from '../utils/httpHelpers';
 
 export const __dirnameResolved =
@@ -79,6 +79,8 @@ export function normalizeServerMonitoringStageControl(raw: any): MonitoringStage
       unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
       lockedReason: '',
       requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true,
+      gradeStage: DEFAULT_MONITORING_STAGE_CONTROL.gradeStage ?? 5,
+      perJurusan: {},
     };
   }
   const requireSequential = typeof raw.requireSequential === 'boolean' ? raw.requireSequential : true;
@@ -93,11 +95,52 @@ export function normalizeServerMonitoringStageControl(raw: any): MonitoringStage
         .filter((n: number) => Number.isInteger(n) && n >= 1 && n <= 8)
     )
   ).sort((a, b) => a - b);
+
+  const rawGradeStage = Number(raw.gradeStage);
+  const gradeStage =
+    Number.isInteger(rawGradeStage) && rawGradeStage >= 2 && rawGradeStage <= 8
+      ? rawGradeStage
+      : 5;
+
+  const perJurusan: Record<string, { enabledStages: number[]; gradeStage?: number }> = {};
+  if (raw.perJurusan && typeof raw.perJurusan === 'object' && !Array.isArray(raw.perJurusan)) {
+    for (const [rawKey, rawVal] of Object.entries(raw.perJurusan).slice(0, 30)) {
+      const cleanKey = String(rawKey || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9_-]/g, '')
+        .slice(0, 20);
+      if (!cleanKey || !rawVal || typeof rawVal !== 'object') continue;
+      const valObj = rawVal as Record<string, any>;
+      const enabledRaw = Array.isArray(valObj.enabledStages)
+        ? valObj.enabledStages
+        : [1, 2, 3, 4, 5, 6, 7, 8];
+      const enabledStages = Array.from(
+        new Set<number>(
+          enabledRaw
+            .map((n: any) => Number(n))
+            .filter((n: number) => Number.isInteger(n) && n >= 1 && n <= 8)
+        )
+      )
+        .sort((a, b) => a - b)
+        .slice(0, 8);
+      if (enabledStages.length === 0) continue;
+      const jurGradeRaw = Number(valObj.gradeStage);
+      const hasValidJurGrade =
+        Number.isInteger(jurGradeRaw) && jurGradeRaw >= 2 && jurGradeRaw <= 8;
+      perJurusan[cleanKey] = hasValidJurGrade
+        ? { enabledStages, gradeStage: jurGradeRaw }
+        : { enabledStages };
+    }
+  }
+
   return {
     requireSequential,
     unlockedStages: deduped.slice(0, 8),
     lockedReason: String(raw.lockedReason ?? '').trim().slice(0, 150),
     requireIssuedLetter,
+    gradeStage,
+    perJurusan,
   };
 }
 
@@ -165,18 +208,49 @@ export async function getFirestoreWorkspaceConfig(forceRefresh = false): Promise
       firebaseCfg.projectId
     )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/config/workspace`;
 
-    const res = await fetchWithRetry(
-      url,
-      { headers: { Accept: 'application/json' } },
-      { timeoutMs: 8_000, retries: 1, baseDelayMs: 200 }
-    );
+    let res: globalThis.Response;
+    try {
+      res = await fetchWithRetry(
+        url,
+        { headers: { Accept: 'application/json' } },
+        { timeoutMs: 8_000, retries: 2, baseDelayMs: 250 }
+      );
+    } catch (err: any) {
+      if (cachedWorkspaceConfig) {
+        console.warn('[Firestore Config] Network error, returning stale cached config:', err?.message);
+        return cachedWorkspaceConfig.config;
+      }
+      if (err instanceof PortalConfigError) throw err;
+      throw new PortalConfigError(
+        'FIRESTORE_UNAVAILABLE',
+        'Gagal menghubungi layanan konfigurasi Cloud Server. Silakan coba lagi beberapa saat.',
+        503
+      );
+    }
+
     if (res.status === 404) {
       cachedWorkspaceConfig = { config: emptyConfig, fetchedAt: Date.now() };
       return emptyConfig;
     }
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gagal membaca konfigurasi Firestore (${res.status}): ${errText.slice(0, 160)}`);
+      const errText = await res.text().catch(() => '');
+      const isTransient = res.status >= 500 || res.status === 429;
+      if (isTransient && cachedWorkspaceConfig) {
+        console.warn(
+          `[Firestore Config] Transient HTTP ${res.status}, returning stale cached config.`
+        );
+        return cachedWorkspaceConfig.config;
+      }
+      console.warn(
+        `[Firestore Config] Read failed (${res.status}): ${errText.slice(0, 160)}`
+      );
+      throw new PortalConfigError(
+        isTransient ? 'FIRESTORE_UNAVAILABLE' : 'FIRESTORE_CONFIG_ERROR',
+        isTransient
+          ? 'Layanan konfigurasi Firestore sedang mengalami gangguan sementara. Silakan coba lagi beberapa saat.'
+          : `Gagal membaca konfigurasi workspace Cloud Server (HTTP ${res.status}).`,
+        isTransient ? 503 : 502
+      );
     }
 
     const docJson = await res.json();

@@ -6,7 +6,7 @@ import {
   serverTimestamp,
   Unsubscribe,
 } from 'firebase/firestore';
-import { db, auth, OperationType, handleFirestoreError } from './firebaseApp';
+import { db, auth, OperationType, handleFirestoreError, isTransientFirestoreError } from './firebaseApp';
 import type { AcademicYearConfig, WorkspaceTemplateConfig } from '../GoogleSheetClient';
 import { DEFAULT_MONITORING_STAGE_CONTROL, type MonitoringStageControl } from '../types/schema';
 import { normalizeGasUrl } from '../utils/safeFetchJson';
@@ -128,6 +128,8 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
       unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
       lockedReason: '',
       requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true,
+      gradeStage: DEFAULT_MONITORING_STAGE_CONTROL.gradeStage ?? 5,
+      perJurusan: {},
     };
   }
   const obj = raw as Record<string, unknown>;
@@ -143,11 +145,53 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
         .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
     )
   ).sort((a, b) => a - b);
+
+  const rawGradeStage = Number(obj.gradeStage);
+  const gradeStage =
+    Number.isInteger(rawGradeStage) && rawGradeStage >= 2 && rawGradeStage <= 8
+      ? rawGradeStage
+      : 5;
+
+  const perJurusan: Record<string, { enabledStages: number[]; gradeStage?: number }> = {};
+  if (obj.perJurusan && typeof obj.perJurusan === 'object' && !Array.isArray(obj.perJurusan)) {
+    const entries = Object.entries(obj.perJurusan as Record<string, unknown>).slice(0, 30);
+    for (const [rawKey, rawVal] of entries) {
+      const cleanKey = String(rawKey || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9_-]/g, '')
+        .slice(0, 20);
+      if (!cleanKey || !rawVal || typeof rawVal !== 'object') continue;
+      const valObj = rawVal as Record<string, unknown>;
+      const enabledRaw = Array.isArray(valObj.enabledStages)
+        ? valObj.enabledStages
+        : [1, 2, 3, 4, 5, 6, 7, 8];
+      const enabledStages = Array.from(
+        new Set(
+          enabledRaw
+            .map((n) => Number(n))
+            .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+        )
+      )
+        .sort((a, b) => a - b)
+        .slice(0, 8);
+      if (enabledStages.length === 0) continue;
+      const jurGradeRaw = Number(valObj.gradeStage);
+      const hasValidJurGrade =
+        Number.isInteger(jurGradeRaw) && jurGradeRaw >= 2 && jurGradeRaw <= 8;
+      perJurusan[cleanKey] = hasValidJurGrade
+        ? { enabledStages, gradeStage: jurGradeRaw }
+        : { enabledStages };
+    }
+  }
+
   return {
     requireSequential,
     unlockedStages: deduped.slice(0, 8),
     lockedReason: sanitizeString(obj.lockedReason ?? '', 150),
     requireIssuedLetter,
+    gradeStage,
+    perJurusan,
   };
 }
 
@@ -233,6 +277,22 @@ function normalizeConfigData(raw: Record<string, any> | undefined): PersistedWor
   };
 }
 
+async function withTransientFirestoreRetry<T>(task: () => Promise<T>, maxRetries = 2): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientFirestoreError(error) || attempt === maxRetries) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export class WorkspaceConfigStore {
   public static readCachedConfigSync(): PersistedWorkspaceConfig | null {
     if (typeof window === 'undefined') return null;
@@ -262,7 +322,7 @@ export class WorkspaceConfigStore {
   }> {
     const ref = doc(db, 'config', 'workspace');
     try {
-      const snap = await getDocFromServer(ref);
+      const snap = await withTransientFirestoreRetry(() => getDocFromServer(ref));
       if (!snap.exists()) {
         const empty = normalizeConfigData(undefined);
         WorkspaceConfigStore.writeCachedConfigSync(empty);
@@ -349,7 +409,7 @@ export class WorkspaceConfigStore {
 
     const adminRef = doc(db, 'admins', user.uid);
     try {
-      const snap = await getDocFromServer(adminRef);
+      const snap = await withTransientFirestoreRetry(() => getDocFromServer(adminRef));
       return snap.exists();
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, `admins/${user.uid}`);
@@ -362,16 +422,18 @@ export class WorkspaceConfigStore {
 
     const adminRef = doc(db, 'admins', user.uid);
     try {
-      const existingSnap = await getDocFromServer(adminRef);
+      const existingSnap = await withTransientFirestoreRetry(() => getDocFromServer(adminRef));
       if (!existingSnap.exists()) {
-        await setDoc(adminRef, {
-          uid: user.uid.slice(0, 128),
-          email: (user.email || '').slice(0, 256),
-          displayName: (user.displayName || 'Admin Hubin').slice(0, 150),
-          role: 'Hubin',
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
+        await withTransientFirestoreRetry(() =>
+          setDoc(adminRef, {
+            uid: user.uid.slice(0, 128),
+            email: (user.email || '').slice(0, 256),
+            displayName: (user.displayName || 'Admin Hubin').slice(0, 150),
+            role: 'Hubin',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })
+        );
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `admins/${user.uid}`);

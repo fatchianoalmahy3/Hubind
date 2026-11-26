@@ -71,7 +71,7 @@ export class GoogleDriveSheetService {
     Nama_Pemimpin: ['namaPemimpin', 'nama_pemimpin', 'Nama_Pemimpin', 'pimpinan'],
     Nama_PIC: ['namaPic', 'nama_pic', 'Nama_PIC'],
     Kontak_PIC: ['kontakPic', 'kontak_pic', 'Kontak_PIC'],
-    No_Telp_DUDI: ['noTelpDudi', 'no_telp_dudi', 'No_Telp_DUDI', 'teleponDudi'],
+    No_Telp_DUDI: ['noTelpDudi', 'no_telp_dudi', 'No_Telp_DUDI', 'teleponDudi', 'kontakPic', 'kontak_pic', 'Kontak_PIC'],
     Link_Maps: ['linkMaps', 'link_maps', 'Link_Maps', 'linkMapsDudi', 'googleMapsUrl'],
     Hari_Kerja: ['hariKerja', 'hari_kerja', 'Hari_Kerja'],
     Jam_Kerja: ['jamKerja', 'jam_kerja', 'Jam_Kerja'],
@@ -615,6 +615,14 @@ export class GoogleDriveSheetService {
     }
     if (!record.idJurusan && record.jurusan && (sheetName === 'Master_Siswa_XI' || sheetName === 'Master_Siswa' || sheetName === 'Master_Kelas_Walas')) {
       record.idJurusan = generateJurusanCode(String(record.jurusan));
+    }
+    if (sheetName === 'Master_DUDI') {
+      if (!record.noTelpDudi && record.kontakPic) {
+        record.noTelpDudi = record.kontakPic;
+      }
+      if (!record.kontakPic && record.noTelpDudi) {
+        record.kontakPic = record.noTelpDudi;
+      }
     }
 
     const sheetRowNum = rowIndex + 2;

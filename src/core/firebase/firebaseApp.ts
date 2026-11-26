@@ -62,14 +62,37 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+export function isTransientFirestoreError(error: unknown): boolean {
+  const code = String((error as any)?.code || '').toLowerCase();
+  const message = String(error instanceof Error ? error.message : error || '').toLowerCase();
+  return (
+    code === 'internal' ||
+    code === 'unavailable' ||
+    code === 'deadline-exceeded' ||
+    code === 'resource-exhausted' ||
+    message.includes('internal error encountered') ||
+    message.includes('the service is currently unavailable')
+  );
+}
+
 async function testFirestoreConnection(): Promise<void> {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration (Firestore offline).');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+      return;
+    } catch (error) {
+      if (isTransientFirestoreError(error) && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 350));
+        continue;
+      }
+      if (error instanceof Error && error.message.includes('the client is offline')) {
+        console.error('Please check your Firebase configuration (Firestore offline).');
+      } else if (isTransientFirestoreError(error)) {
+        console.warn('[Firestore] Transient startup connection error; continuing safely.');
+      }
+      return;
     }
   }
 }
 
-testFirestoreConnection();
+void testFirestoreConnection();

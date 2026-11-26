@@ -82,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const rekapDudiEntry = {
     id: 'rekap_monitoring_dudi',
-    label: 'Rekap Monitoring DUDI',
+    label: 'Rekap DUDI / Kelas',
     icon: ClipboardCheck,
   };
 

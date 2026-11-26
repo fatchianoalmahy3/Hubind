@@ -8,6 +8,7 @@ import {
   PortalConfigError,
   type ServerAdminAccountRecord,
 } from '../types';
+import { fetchWithRetry } from '../utils/httpHelpers';
 import { fetchLiveSheetViaGas } from './sheetsTransport';
 
 export const ROLE_TITLE_MAP: Record<string, string> = {
@@ -230,16 +231,35 @@ export async function requireAdminAuth(req: Request): Promise<AuthenticatedAdmin
     throw new PortalConfigError('UNAUTHORIZED', 'Token sesi tidak valid atau kedaluwarsa.', 401);
   }
 
-  const lookupRes = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseCfg.apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken: token }),
-    }
-  );
+  let lookupRes: globalThis.Response;
+  try {
+    lookupRes = await fetchWithRetry(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseCfg.apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      },
+      { timeoutMs: 8_000, retries: 2, baseDelayMs: 250 }
+    );
+  } catch (err: any) {
+    if (err instanceof PortalConfigError) throw err;
+    throw new PortalConfigError(
+      'GOOGLE_AUTH_UNAVAILABLE',
+      'Layanan autentikasi Google sedang mengalami gangguan sementara. Silakan coba lagi.',
+      503
+    );
+  }
 
   if (!lookupRes.ok) {
+    await lookupRes.text().catch(() => '');
+    if (lookupRes.status >= 500 || lookupRes.status === 429) {
+      throw new PortalConfigError(
+        'GOOGLE_AUTH_UNAVAILABLE',
+        'Layanan autentikasi Google sedang mengalami gangguan sementara. Silakan coba lagi.',
+        503
+      );
+    }
     throw new PortalConfigError('UNAUTHORIZED', 'Sesi login telah berakhir. Silakan masuk ulang.', 401);
   }
 
@@ -261,14 +281,36 @@ export async function requireAdminAuth(req: Request): Promise<AuthenticatedAdmin
     firebaseCfg.projectId
   )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/admins/${encodeURIComponent(uid)}`;
 
-  const adminRes = await fetch(adminDocUrl, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
-  });
+  let adminRes: globalThis.Response;
+  try {
+    adminRes = await fetchWithRetry(
+      adminDocUrl,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      },
+      { timeoutMs: 8_000, retries: 2, baseDelayMs: 250 }
+    );
+  } catch (err: any) {
+    if (err instanceof PortalConfigError) throw err;
+    throw new PortalConfigError(
+      'FIRESTORE_UNAVAILABLE',
+      'Layanan verifikasi admin Cloud sedang mengalami gangguan sementara. Silakan coba lagi.',
+      503
+    );
+  }
 
   if (!adminRes.ok) {
+    await adminRes.text().catch(() => '');
+    if (adminRes.status >= 500 || adminRes.status === 429) {
+      throw new PortalConfigError(
+        'FIRESTORE_UNAVAILABLE',
+        'Layanan verifikasi admin Cloud sedang mengalami gangguan sementara. Silakan coba lagi.',
+        503
+      );
+    }
     throw new PortalConfigError(
       'FORBIDDEN',
       `Akun (${email}) tidak terdaftar sebagai Admin Hubin terotorisasi.`,

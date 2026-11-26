@@ -18,6 +18,7 @@ import {
   BarChart3,
   Printer,
   Lock,
+  Download,
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -31,6 +32,7 @@ interface ToolbarProps {
   onSyncSpreadsheet: () => void;
   syncing: boolean;
   onOpenImportModal: () => void;
+  onExportAllXlsx?: () => void;
   onOpenAddModal: () => void;
   onOpenDocsModal?: () => void;
   onOpenSimulatorModal?: () => void;
@@ -57,6 +59,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSyncSpreadsheet,
   syncing,
   onOpenImportModal,
+  onExportAllXlsx,
   onOpenAddModal,
   onOpenDocsModal,
   onOpenSimulatorModal,
@@ -318,7 +321,27 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900">Import Excel (.xlsx / .csv)</div>
                       <div className="text-[11px] text-slate-500 truncate">
-                        Unggah baris massal ke Cloud Server
+                        Unggah 1 sheet atau Workbook 6-Sheet
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {onExportAllXlsx && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setToolsMenuOpen(false);
+                      onExportAllXlsx();
+                    }}
+                    className="w-full min-h-10 px-3.5 py-2 text-left text-xs hover:bg-slate-50 flex items-center gap-2.5 text-slate-700 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-blue-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900">Export Data (.xlsx)</div>
+                      <div className="text-[11px] text-slate-500 truncate">
+                        Unduh tabel tampil ke Excel (.xlsx)
                       </div>
                     </div>
                   </button>

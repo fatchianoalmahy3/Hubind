@@ -43,6 +43,11 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
     formUrl?: string;
   } | null>(null);
 
+  const gasScriptCode = useMemo(
+    () => buildAutoGenerateSheetsFormScript(config.activeYear || '2026/2027'),
+    [config.activeYear]
+  );
+
   useEffect(() => {
     if (isOpen) {
       setTargetSpreadsheetId(client.getConfig().spreadsheetId || '');
@@ -88,11 +93,6 @@ export const AutoGenerateSyncModal: React.FC<AutoGenerateSyncModalProps> = ({
       `Template CSV tabel [${def.sheetName}] berhasil diunduh.`
     );
   };
-
-  const gasScriptCode = useMemo(
-    () => buildAutoGenerateSheetsFormScript(config.activeYear || '2026/2027'),
-    [config.activeYear]
-  );
 
   const copyScript = () => {
     navigator.clipboard.writeText(gasScriptCode);

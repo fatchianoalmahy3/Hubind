@@ -230,6 +230,7 @@ export class RelationSyncService {
     const placementByNis = new Map<string, PenempatanPKL>();
     const activePlacementNisSet = new Set<string>();
     const pengajuanNisSet = new Set<string>();
+    const pengajuanByNis = new Map<string, Pengajuan>();
 
     for (const p of placements) {
       const nisDigits = getCanonicalNisDigits(p.nis);
@@ -246,7 +247,23 @@ export class RelationSyncService {
         continue;
       }
       const nisDigits = getCanonicalNisDigits(req.nis);
-      if (nisDigits) pengajuanNisSet.add(nisDigits);
+      if (!nisDigits) continue;
+      pengajuanNisSet.add(nisDigits);
+      const shNorm = normalize(req.statusHubin);
+      const skNorm = normalize(req.statusKakomli);
+      const prev = pengajuanByNis.get(nisDigits);
+      const prevRank = prev
+        ? normalize(prev.statusHubin) === 'terjadwal' || normalize(prev.statusHubin) === 'siap diberangkatkan'
+          ? 3
+          : normalize(prev.statusKakomli) === 'disetujui'
+            ? 2
+            : 1
+        : 0;
+      const nextRank =
+        shNorm === 'terjadwal' || shNorm === 'siap diberangkatkan' ? 3 : skNorm === 'disetujui' ? 2 : 1;
+      if (!prev || nextRank >= prevRank) {
+        pengajuanByNis.set(nisDigits, req);
+      }
     }
 
     const silent = { silentToast: true };
@@ -333,13 +350,20 @@ export class RelationSyncService {
 
       for (const p of placements) {
         const patch: Partial<PenempatanPKL> = {};
+        const nisDigits = getCanonicalNisDigits(p.nis);
+        const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
         const matchedDudi =
           (p.idDudi && dudiById.get(p.idDudi)) ||
-          (p.namaDudi && dudiByName.get(normalize(p.namaDudi)));
+          (p.namaDudi && dudiByName.get(normalize(p.namaDudi))) ||
+          (reqRef?.idDudi ? dudiById.get(reqRef.idDudi) : undefined) ||
+          (reqRef?.dudiTujuan ? dudiByName.get(normalize(reqRef.dudiTujuan)) : undefined);
         if (matchedDudi && p.idDudi !== matchedDudi.id) {
           patch.idDudi = matchedDudi.id;
         }
-        const matchedGuru = resolveGuru(p.idGuruPendamping, p.guruPendamping);
+        const matchedGuru = resolveGuru(
+          p.idGuruPendamping || matchedDudi?.idGuruPendamping || reqRef?.idGuruPendamping,
+          p.guruPendamping || matchedDudi?.guruPendamping || reqRef?.guruPendamping
+        );
         if (matchedGuru && p.idGuruPendamping !== matchedGuru.id) {
           patch.idGuruPendamping = matchedGuru.id;
         }
@@ -350,6 +374,7 @@ export class RelationSyncService {
         const patch: Record<string, any> = {};
         const nisDigits = getCanonicalNisDigits(m.nis);
         const linkedPlt = nisDigits ? placementByNis.get(nisDigits) : undefined;
+        const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
         if (
           linkedPlt?.idPenempatan &&
           (!m.idPenempatan || String(m.idPenempatan).startsWith('PLT-2')) &&
@@ -360,13 +385,15 @@ export class RelationSyncService {
         const matchedDudi =
           (m.idDudi && dudiById.get(m.idDudi)) ||
           (linkedPlt?.idDudi && dudiById.get(linkedPlt.idDudi)) ||
-          (m.dudiTujuan && dudiByName.get(normalize(m.dudiTujuan)));
+          (m.dudiTujuan && dudiByName.get(normalize(m.dudiTujuan))) ||
+          (reqRef?.idDudi ? dudiById.get(reqRef.idDudi) : undefined) ||
+          (reqRef?.dudiTujuan ? dudiByName.get(normalize(reqRef.dudiTujuan)) : undefined);
         if (matchedDudi && m.idDudi !== matchedDudi.id) {
           patch.idDudi = matchedDudi.id;
         }
         const matchedGuru = resolveGuru(
-          m.idGuruPendamping || linkedPlt?.idGuruPendamping,
-          m.guruPendamping || linkedPlt?.guruPendamping
+          m.idGuruPendamping || linkedPlt?.idGuruPendamping || matchedDudi?.idGuruPendamping || reqRef?.idGuruPendamping,
+          m.guruPendamping || linkedPlt?.guruPendamping || matchedDudi?.guruPendamping || reqRef?.guruPendamping
         );
         if (matchedGuru && m.idGuruPendamping !== matchedGuru.id) {
           patch.idGuruPendamping = matchedGuru.id;
@@ -378,6 +405,7 @@ export class RelationSyncService {
         const patch: Record<string, any> = {};
         const nisDigits = getCanonicalNisDigits(sert.nis);
         const linkedPlt = nisDigits ? placementByNis.get(nisDigits) : undefined;
+        const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
         if (
           linkedPlt?.idPenempatan &&
           (!sert.idPenempatan || String(sert.idPenempatan).startsWith('PLT-2')) &&
@@ -388,7 +416,9 @@ export class RelationSyncService {
         const matchedDudi =
           (sert.idDudi && dudiById.get(sert.idDudi)) ||
           (linkedPlt?.idDudi && dudiById.get(linkedPlt.idDudi)) ||
-          (sert.dudiTujuan && dudiByName.get(normalize(sert.dudiTujuan)));
+          (sert.dudiTujuan && dudiByName.get(normalize(sert.dudiTujuan))) ||
+          (reqRef?.idDudi ? dudiById.get(reqRef.idDudi) : undefined) ||
+          (reqRef?.dudiTujuan ? dudiByName.get(normalize(reqRef.dudiTujuan)) : undefined);
         if (matchedDudi && sert.idDudi !== matchedDudi.id) {
           patch.idDudi = matchedDudi.id;
         }

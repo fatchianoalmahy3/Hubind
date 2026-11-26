@@ -28,9 +28,12 @@ import {
 import { formatIndonesianDate } from '../../core/utils/dateHelpers';
 import {
   formatRangePair,
+  getPreviousEnabledStage,
   getStageValueByNumber,
   isStageFullyVerified,
   normalizeMonitoringVerificationStatus,
+  resolveMonitoringStagePolicy,
+  type ResolvedMonitoringStagePolicy,
 } from '../../core/utils/monitoringHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import { formatPhoneDisplay, getWhatsAppHref } from '../../core/utils/autoIdHelpers';
@@ -57,6 +60,7 @@ interface MonitoringEntryStepProps {
   studentsError: string;
   selectedStudentIndex: number;
   activeStudent: any;
+  studentPolicy: ResolvedMonitoringStagePolicy;
   activeStageNum: number;
   stageControl: MonitoringStageControl;
   issuedStages: number[];
@@ -130,6 +134,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   studentsError,
   selectedStudentIndex,
   activeStudent,
+  studentPolicy,
   activeStageNum,
   stageControl,
   issuedStages,
@@ -361,9 +366,12 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
             <div className="flex sm:hidden gap-2 overflow-x-auto pb-1 snap-x">
               {dudiStudents.map((student, idx) => {
                 const isSelected = selectedStudentIndex === idx;
-                const completedCount = Array.isArray(student.completedStages)
-                  ? student.completedStages.length
-                  : 0;
+                const stuPolicy =
+                  student.stagePolicy || resolveMonitoringStagePolicy(stageControl, student.jurusan);
+                const completedCount = (Array.isArray(student.completedStages)
+                  ? student.completedStages
+                  : []
+                ).filter((n: number) => stuPolicy.enabledStages.includes(n)).length;
                 const hasGrade = Boolean(student.hasSubmittedGrades);
 
                 return (
@@ -387,7 +395,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     >
                       <span>{student.kelas}</span>
                       <span className="font-semibold shrink-0">
-                        T{completedCount}/8{hasGrade ? ' · ✓' : ''}
+                        T{completedCount}/{stuPolicy.totalStages}{hasGrade ? ' · ✓' : ''}
                       </span>
                     </div>
                   </button>
@@ -399,9 +407,12 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
             <div className="hidden sm:grid sm:grid-cols-2 md:grid-cols-3 gap-2">
               {dudiStudents.map((student, idx) => {
                 const isSelected = selectedStudentIndex === idx;
-                const completedCount = Array.isArray(student.completedStages)
-                  ? student.completedStages.length
-                  : 0;
+                const stuPolicy =
+                  student.stagePolicy || resolveMonitoringStagePolicy(stageControl, student.jurusan);
+                const completedCount = (Array.isArray(student.completedStages)
+                  ? student.completedStages
+                  : []
+                ).filter((n: number) => stuPolicy.enabledStages.includes(n)).length;
                 const hasGrade = Boolean(student.hasSubmittedGrades);
 
                 return (
@@ -418,7 +429,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-slate-500 tabular-nums">
                       <span>NIS: {formatNisVisual(student.nis)}</span>
                       <span className="font-semibold text-slate-600">
-                        Tahap {completedCount}/8{hasGrade ? ' · Nilai ✓' : ''}
+                        Tahap {completedCount}/{stuPolicy.totalStages}{hasGrade ? ' · Nilai ✓' : ''}
                       </span>
                     </div>
                     <div className="font-bold text-xs mt-1 leading-snug">{student.nama}</div>
@@ -430,7 +441,14 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
           </div>
 
           {activeStudent && (() => {
-            const recStageNum = activeStudent.recommendedStage || 1;
+            const visibleStages = MONITORING_STAGES.filter((st) =>
+              studentPolicy.enabledStages.includes(st.num)
+            );
+            const recStageNum = activeStudent.recommendedStage || studentPolicy.enabledStages[0] || 1;
+            const recOrderIdx = Math.max(
+              1,
+              visibleStages.findIndex((st) => st.num === recStageNum) + 1
+            );
             const recLog = activeStudent.stageLogs?.[recStageNum];
             const recIsCompleted = (activeStudent.completedStages || []).includes(recStageNum);
             const recNormStatus = recIsCompleted
@@ -462,7 +480,11 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   </p>
                 </div>
                 <div className="text-[11px] sm:text-xs font-semibold text-blue-700 tabular-nums">
-                  Deteksi Otomatis: Tahap {recStageNum} dari 8
+                  Deteksi Otomatis: {getStageValueByNumber(recStageNum)} ({recOrderIdx}/{studentPolicy.totalStages} tahap
+                  {studentPolicy.isCustomJurusanPolicy && studentPolicy.jurusanCode
+                    ? ` ${studentPolicy.jurusanCode}`
+                    : ''}
+                  )
                   {recAwaitingVerify && (
                     <span className="ml-1.5 text-amber-700">
                       ({recNormStatus === 'Tervalidasi Kakomli'
@@ -473,14 +495,14 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 </div>
               </div>
 
-              {/* 8-Stage Auto-Detect & SuperAdmin Control Selector */}
+              {/* Stage Auto-Detect & Jurusan-Scoped SuperAdmin Control Selector */}
               <div className="space-y-1.5 sm:space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
                   <span className="font-bold text-slate-800">
-                    Tahap Monitoring ({stageControl.requireSequential ? 'Berurutan 1–8' : 'Mode Fleksibel'}):
+                    Tahap Monitoring ({stageControl.requireSequential ? `Berurutan · ${studentPolicy.totalStages} Tahap` : `Mode Fleksibel · ${studentPolicy.totalStages} Tahap`}):
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    {!stageControl.unlockedStages.includes(activeStageNum)
+                    {!studentPolicy.unlockedStages.includes(activeStageNum)
                       ? 'Dikunci SuperAdmin · Baca-Saja'
                       : !isStageLetterIssued
                       ? 'Surat Belum Terbit · Baca-Saja'
@@ -492,21 +514,22 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   </span>
                 </div>
 
-                {/* Mobile: 1-Row Horizontal Scrollable Stage Selector (cuts ~180px height & removes truncation) */}
+                {/* Mobile: 1-Row Horizontal Scrollable Stage Selector */}
                 <div className="flex sm:hidden gap-1.5 overflow-x-auto pb-1 snap-x">
-                  {MONITORING_STAGES.map((st) => {
+                  {visibleStages.map((st) => {
                     const isCompleted = (activeStudent.completedStages || []).includes(st.num);
                     const isVerifiedFull =
                       isCompleted && isStageFullyVerified(activeStudent.stageLogs?.[st.num]?.status);
-                    const isGlobalUnlocked = stageControl.unlockedStages.includes(st.num);
+                    const isGlobalUnlocked = studentPolicy.unlockedStages.includes(st.num);
                     const isLetterIssued =
                       stageControl.requireIssuedLetter === false || issuedStages.includes(st.num);
+                    const prevStage = getPreviousEnabledStage(studentPolicy.enabledStages, st.num);
                     const isSequentialLocked =
                       isGlobalUnlocked &&
                       isLetterIssued &&
                       stageControl.requireSequential &&
-                      st.num > 1 &&
-                      !(activeStudent.completedStages || []).includes(st.num - 1);
+                      prevStage !== null &&
+                      !(activeStudent.completedStages || []).includes(prevStage);
                     const isReadOnlyHistory = (!isGlobalUnlocked || !isLetterIssued) && isCompleted;
                     const isDisabled =
                       ((!isGlobalUnlocked || !isLetterIssued) && !isCompleted) ||
@@ -538,7 +561,10 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             : 'border-slate-200 bg-white text-slate-700 cursor-pointer'
                         }`}
                       >
-                        <span>{st.label}</span>
+                        <span>
+                          {st.label}
+                          {st.num === studentPolicy.gradeStage ? ' · Nilai' : ''}
+                        </span>
                         {isDisabled ? (
                           <Lock
                             className={`w-3.5 h-3.5 shrink-0 ${
@@ -569,24 +595,25 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   })}
                 </div>
 
-                {/* Desktop / Tablet: 4x2 Grid */}
+                {/* Desktop / Tablet: Multi-Column Stage Grid */}
                 <div className="hidden sm:grid sm:grid-cols-4 gap-2">
-                  {MONITORING_STAGES.map((st) => {
+                  {visibleStages.map((st) => {
                     const isCompleted = (activeStudent.completedStages || []).includes(st.num);
                     const isVerifiedFull =
                       isCompleted && isStageFullyVerified(activeStudent.stageLogs?.[st.num]?.status);
                     const stageNormStatus = isCompleted
                       ? normalizeMonitoringVerificationStatus(activeStudent.stageLogs?.[st.num]?.status)
                       : 'Belum Terlaksana';
-                    const isGlobalUnlocked = stageControl.unlockedStages.includes(st.num);
+                    const isGlobalUnlocked = studentPolicy.unlockedStages.includes(st.num);
                     const isLetterIssued =
                       stageControl.requireIssuedLetter === false || issuedStages.includes(st.num);
+                    const prevStage = getPreviousEnabledStage(studentPolicy.enabledStages, st.num);
                     const isSequentialLocked =
                       isGlobalUnlocked &&
                       isLetterIssued &&
                       stageControl.requireSequential &&
-                      st.num > 1 &&
-                      !(activeStudent.completedStages || []).includes(st.num - 1);
+                      prevStage !== null &&
+                      !(activeStudent.completedStages || []).includes(prevStage);
                     const isReadOnlyHistory = (!isGlobalUnlocked || !isLetterIssued) && isCompleted;
                     const isDisabled =
                       ((!isGlobalUnlocked || !isLetterIssued) && !isCompleted) ||
@@ -605,8 +632,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             ? `Surat ${st.value} untuk DUDI "${selectedDudi?.nama || ''}" belum diterbitkan Admin Hubin di Pusat Dokumen`
                             : isReadOnlyHistory
                             ? `${st.value} — ${stageNormStatus} (Klik untuk melihat mode Baca-Saja)`
-                            : isSequentialLocked
-                            ? `Terkunci — selesaikan ${getStageValueByNumber(st.num - 1)} terlebih dahulu`
+                            : isSequentialLocked && prevStage !== null
+                            ? `Terkunci — selesaikan ${getStageValueByNumber(prevStage)} terlebih dahulu`
                             : isVerifiedFull
                             ? `${st.value} — Terverifikasi Kakomli & Hubin`
                             : isCompleted
@@ -632,7 +659,10 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                             : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 cursor-pointer'
                         }`}
                       >
-                        <span>{st.label}</span>
+                        <span className="truncate">
+                          {st.label}
+                          {st.num === studentPolicy.gradeStage ? ' · Nilai' : ''}
+                        </span>
                         {isDisabled ? (
                           <Lock
                             className={`w-3.5 h-3.5 shrink-0 ${
@@ -664,10 +694,11 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-500">
                   {stageControl.requireSequential
-                    ? 'Urutan tahap 1 → 8: tahap berikut terbuka otomatis setelah tahap sebelumnya disimpan.'
+                    ? `Urutan ${studentPolicy.totalStages} tahap aktif jurusan: tahap berikut terbuka otomatis setelah tahap sebelumnya disimpan.`
                     : 'Mode Transisi aktif: tahap berstatus Terbuka dapat langsung dipilih.'}
                   {stageControl.requireIssuedLetter !== false &&
                     ' Pengisian aktif untuk tahap yang suratnya sudah diterbitkan Admin Hubin.'}
+                  {` Input nilai PKL dibuka mulai ${getStageValueByNumber(studentPolicy.gradeStage)}.`}
                 </p>
 
                 {stageControl.requireIssuedLetter !== false &&
@@ -692,17 +723,17 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   )}
 
                 {isStageReadOnly && (
-                  !stageControl.unlockedStages.includes(activeStageNum) || !isStageLetterIssued ? (
+                  !studentPolicy.unlockedStages.includes(activeStageNum) || !isStageLetterIssued ? (
                     <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-900">
                       <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div>
                         <div className="font-bold">
-                          {!stageControl.unlockedStages.includes(activeStageNum)
+                          {!studentPolicy.unlockedStages.includes(activeStageNum)
                             ? `Tahap ${activeStageNum} Dikunci oleh SuperAdmin (Mode Baca-Saja)`
                             : `Surat Tahap ${activeStageNum} Belum Diterbitkan Admin (Mode Baca-Saja)`}
                         </div>
                         <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
-                          {!stageControl.unlockedStages.includes(activeStageNum)
+                          {!studentPolicy.unlockedStages.includes(activeStageNum)
                             ? `${stageControl.lockedReason ? `${stageControl.lockedReason}. ` : ''}Riwayat yang sudah tersimpan tetap ditampilkan untuk ditinjau, namun tidak dapat diubah atau disimpan ulang.`
                             : `Admin Hubin / Pokja perlu mencetak atau menandai surat ${getStageValueByNumber(activeStageNum)} untuk DUDI "${selectedDudi?.nama || 'ini'}" sebagai Terbit di Pusat Dokumen sebelum pengisian dibuka.`}
                         </p>
@@ -1307,8 +1338,8 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                         <span>Apakah nilai PKL sudah muncul?</span>
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        {activeStageNum === 5
-                          ? 'Wajib dijawab pada Monitoring ke-4. Jika belum muncul, nilai dapat menyusul pada Monitoring ke-5, ke-6, atau Penarikan.'
+                        {activeStageNum === studentPolicy.gradeStage
+                          ? `Wajib dijawab pada ${getStageValueByNumber(studentPolicy.gradeStage)}. Jika belum muncul, nilai dapat menyusul pada tahap aktif berikutnya.`
                           : `Nilai PKL belum tercatat pada tahap sebelumnya. Pilih "Ya" apabila nilai DUDI sudah keluar pada ${getStageValueByNumber(activeStageNum)}.`}
                       </p>
 
@@ -1477,11 +1508,11 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
               {/* Primary Save CTA OR Read-Only Notice */}
               <div className="sticky bottom-0 z-10 -mx-3 -mb-3 sm:static sm:mx-0 sm:mb-0 px-3 py-2.5 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xs sm:backdrop-blur-none border-t border-slate-200 sm:border-t-0 flex justify-end">
                 {isStageReadOnly ? (
-                  !stageControl.unlockedStages.includes(activeStageNum) || !isStageLetterIssued ? (
+                  !studentPolicy.unlockedStages.includes(activeStageNum) || !isStageLetterIssued ? (
                     <div className="w-full sm:w-auto min-h-[44px] px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-xs flex items-center justify-center gap-2">
                       <Lock className="w-4 h-4 text-amber-600 shrink-0" />
                       <span>
-                        {!stageControl.unlockedStages.includes(activeStageNum)
+                        {!studentPolicy.unlockedStages.includes(activeStageNum)
                           ? 'Mode Baca-Saja (Tahap Dikunci SuperAdmin)'
                           : 'Mode Baca-Saja (Surat Tahap Belum Diterbitkan Admin)'}
                       </span>

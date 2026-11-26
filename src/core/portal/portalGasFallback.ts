@@ -6,16 +6,18 @@ import {
   calculateEqualWeightedAverage,
   extractStageNumber,
   getPredikatFromScore,
+  getPreviousEnabledStage,
   getStageValueByNumber,
   parseKompetensiList,
   parseKondisiBengkel,
   resolveIssuedStagesForDudi,
+  resolveMonitoringStagePolicy,
   serializeFormat0701Tag,
   serializeKompetensiList,
   serializeKondisiBengkel,
   stripStructuredTagsFromNote,
 } from '../utils/monitoringHelpers';
-import { type IssuedStageDetail, type MonitoringStageControl } from '../types/schema';
+import { type IssuedStageDetail, type Jurusan, type MonitoringStageControl } from '../types/schema';
 import {
   getTodayWibDateTime,
   getTodayWibIsoDate,
@@ -714,9 +716,10 @@ export async function directFetchDudiStudents(
   issuedStageDetails: Record<number, IssuedStageDetail>;
   data: any[];
 }> {
-  const [dudiRows, plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows, logSuratRows] =
+  const [dudiRows, jurusanRows, plottingRows, pengajuanRows, siswaRows, monitoringRows, nilaiRows, logSuratRows] =
     await Promise.all([
       readSheetDirect('Master_DUDI').catch(() => [] as any[]),
+      readSheetDirect('Master_Jurusan').catch(() => [] as any[]),
       readSheetDirect('Plotting_Pemberangkatan', true),
       readSheetDirect('Data_Pengajuan_PKL', true),
       readMasterSiswaDirect().catch(() => [] as any[]),
@@ -725,6 +728,7 @@ export async function directFetchDudiStudents(
       readSheetDirect('Log_Penerbitan_Surat', true).catch(() => [] as any[]),
     ]);
 
+  await GoogleSheetClient.getInstance().initFromFirestore().catch(() => {});
   const stageControl = GoogleSheetClient.getInstance().getMonitoringStageControl();
   const { issuedStages, issuedStageDetails } = resolveIssuedStagesForDudi(
     logSuratRows,
@@ -737,6 +741,7 @@ export async function directFetchDudiStudents(
     petugasNama,
     petugasId,
     dudiRows,
+    jurusanRows,
     plottingRows,
     pengajuanRows,
     siswaRows,
@@ -797,7 +802,34 @@ export async function directSubmitMonitoring(payload: any) {
 
   await GoogleSheetClient.getInstance().initFromFirestore().catch(() => {});
   const stageControl = GoogleSheetClient.getInstance().getMonitoringStageControl();
-  if (!stageControl.unlockedStages.includes(stageNum)) {
+  const hasPerJurusan = Boolean(
+    stageControl.perJurusan && Object.keys(stageControl.perJurusan).length > 0
+  );
+  const jurusanRows = hasPerJurusan
+    ? await readSheetDirect('Master_Jurusan').catch(() => [] as any[])
+    : ([] as any[]);
+  const jurusanCatalog: Jurusan[] = jurusanRows.map((j: any) => ({
+    id: pickField(j, 'ID', 'id'),
+    kode: pickField(j, 'Kode_Jurusan', 'Kode', 'kode', 'kodeJurusan'),
+    nama: pickField(j, 'Nama_Jurusan', 'Nama', 'nama', 'namaJurusan'),
+    namaKakomli: '',
+    kontakWA: '',
+    kuotaSiswa: 0,
+    totalTerdaftar: 0,
+  }));
+  const studentPolicy = resolveMonitoringStagePolicy(
+    stageControl,
+    String(payload.jurusan || ''),
+    jurusanCatalog
+  );
+
+  if (!studentPolicy.enabledStages.includes(stageNum)) {
+    throw new Error(
+      `${stageStr} tidak termasuk tahapan monitoring aktif untuk jurusan ${studentPolicy.jurusanCode || String(payload.jurusan || 'ini')}.`
+    );
+  }
+
+  if (!studentPolicy.unlockedStages.includes(stageNum)) {
     throw new Error(
       stageControl.lockedReason
         ? `${stageStr} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).`
@@ -823,7 +855,8 @@ export async function directSubmitMonitoring(payload: any) {
 
   const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true).catch(() => [] as any[]);
 
-  if (stageControl.requireSequential && stageNum >= 2) {
+  const prevEnabledStage = getPreviousEnabledStage(studentPolicy.enabledStages, stageNum);
+  if (studentPolicy.requireSequential && prevEnabledStage !== null) {
     const summary = buildStudentMonitoringSummary(
       {
         nis: cleanNis,
@@ -834,8 +867,8 @@ export async function directSubmitMonitoring(payload: any) {
       monRows,
       []
     );
-    if (!summary.completedStages.includes(stageNum - 1)) {
-      const prevStageLabel = getStageValueByNumber(stageNum - 1);
+    if (!summary.completedStages.includes(prevEnabledStage)) {
+      const prevStageLabel = getStageValueByNumber(prevEnabledStage);
       throw new Error(
         `${stageStr} masih terkunci. Harap isi dan simpan ${prevStageLabel} untuk ${payload.nama_siswa} terlebih dahulu.`
       );
@@ -987,8 +1020,8 @@ export async function directSubmitMonitoring(payload: any) {
     fotoBuktiUrl: '',
     Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? 'Ya' : 'Belum',
     nilaiDudiTerkumpul: nilaiMuncul && avgScore > 0,
-    Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
-    blangkoSertifikatBawa: stageNum >= 5,
+    Blangko_Sertifikat_Bawa: stageNum >= studentPolicy.gradeStage ? 'Ya' : 'Belum',
+    blangkoSertifikatBawa: stageNum >= studentPolicy.gradeStage,
     Status_Tahap: 'Terlaksana',
     statusTahap: 'Terlaksana',
   };

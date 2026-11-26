@@ -4,11 +4,13 @@ import {
   type AktivitasSikapRating,
   type BukuLaporanStatus,
   type IssuedStageDetail,
+  type Jurusan,
   type KondisiBengkelCheck,
   type KondisiBengkelRating,
   type MonitoringStageControl,
 } from '../types/schema';
 import { normalizeToIsoDate } from './dateHelpers';
+import { matchJurusanItem } from './jurusanHelpers';
 import { stripNisSymbols } from './nisHelpers';
 
 export interface ParsedGradeSummary {
@@ -874,21 +876,55 @@ export function resolveIssuedStagesForDudi(
   return { issuedStages, issuedStageDetails };
 }
 
-export function pickRecommendedStageForControl(
-  completedStages: number[],
+export interface ResolvedMonitoringStagePolicy {
+  jurusanCode: string;
+  isCustomJurusanPolicy: boolean;
+  enabledStages: number[];
+  unlockedStages: number[];
+  gradeStage: number;
+  totalStages: number;
+  requireSequential: boolean;
+  requireIssuedLetter: boolean;
+  lockedReason: string;
+}
+
+function sanitizeStageList(raw: unknown, fallback: number[]): number[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  return Array.from(
+    new Set(
+      raw
+        .map((n) => Number(n))
+        .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+    )
+  ).sort((a, b) => a - b);
+}
+
+function deriveAcronymCode(rawName: string): string {
+  const words = rawName
+    .trim()
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 0 && !/^(dan|atau|di|ke|xi|xii|x)$/i.test(w));
+  if (words.length < 2) return '';
+  return words.map((w) => w[0].toUpperCase()).join('');
+}
+
+export function getPreviousEnabledStage(enabledStages: number[], stageNum: number): number | null {
+  const idx = enabledStages.indexOf(stageNum);
+  if (idx <= 0) return null;
+  return enabledStages[idx - 1];
+}
+
+export function resolveMonitoringStagePolicy(
   control?: MonitoringStageControl | null,
-  issuedStages?: number[],
-  stageLogs?: Record<number, Pick<StageLogEntry, 'status'> | { status?: string }> | null
-): number {
-  const unlocked = Array.isArray(control?.unlockedStages)
-    ? Array.from(
-        new Set(
-          control!.unlockedStages
-            .map((n) => Number(n))
-            .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
-        )
-      ).sort((a, b) => a - b)
-    : [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages];
+  jurusanRaw?: string | null,
+  jurusanCatalog?: Jurusan[]
+): ResolvedMonitoringStagePolicy {
+  const allDefault = [1, 2, 3, 4, 5, 6, 7, 8];
+  const globalUnlocked = sanitizeStageList(
+    control?.unlockedStages,
+    DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages
+  );
   const requireSequential =
     typeof control?.requireSequential === 'boolean'
       ? control.requireSequential
@@ -897,18 +933,108 @@ export function pickRecommendedStageForControl(
     typeof control?.requireIssuedLetter === 'boolean'
       ? control.requireIssuedLetter
       : DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true;
-  const completed = Array.from(
-    new Set(
-      (Array.isArray(completedStages) ? completedStages : [])
-        .map((n) => Number(n))
-        .filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
-    )
-  ).sort((a, b) => a - b);
+  const lockedReason = String(control?.lockedReason ?? '').trim();
+  const rawGlobalGrade = Number(control?.gradeStage);
+  const globalGradeStage =
+    Number.isInteger(rawGlobalGrade) && rawGlobalGrade >= 2 && rawGlobalGrade <= 8
+      ? rawGlobalGrade
+      : 5;
+
+  const perJurusanMap =
+    control?.perJurusan && typeof control.perJurusan === 'object' ? control.perJurusan : {};
+
+  let matchedKey = '';
+  const cleanJurRaw = String(jurusanRaw || '').trim();
+
+  if (cleanJurRaw && cleanJurRaw !== '-' && Object.keys(perJurusanMap).length > 0) {
+    const upperRaw = cleanJurRaw.toUpperCase();
+    // 1. Exact key match (e.g. "RPL")
+    if (perJurusanMap[upperRaw]) {
+      matchedKey = upperRaw;
+    }
+
+    // 2. Catalog lookup via Master_Jurusan (matches full name, code, or ID)
+    if (!matchedKey && Array.isArray(jurusanCatalog) && jurusanCatalog.length > 0) {
+      const catItem = jurusanCatalog.find((j) => matchJurusanItem(cleanJurRaw, j));
+      if (catItem) {
+        const catKode = String(catItem.kode || '').trim().toUpperCase();
+        if (catKode && perJurusanMap[catKode]) {
+          matchedKey = catKode;
+        }
+      }
+    }
+
+    // 3. Word-boundary token match inside kelas/jurusan string (e.g. "XI RPL 1", "jur_rpl")
+    if (!matchedKey) {
+      for (const candidateKey of Object.keys(perJurusanMap)) {
+        const escaped = candidateKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (
+          new RegExp(`(?:^|[^A-Z0-9])${escaped}(?:$|[^A-Z0-9])`, 'i').test(upperRaw)
+        ) {
+          matchedKey = candidateKey;
+          break;
+        }
+      }
+    }
+
+    // 4. Acronym match (e.g. "Rekayasa Perangkat Lunak" -> "RPL")
+    if (!matchedKey) {
+      const acronym = deriveAcronymCode(cleanJurRaw);
+      if (acronym && perJurusanMap[acronym]) {
+        matchedKey = acronym;
+      }
+    }
+  }
+
+  const override = matchedKey ? perJurusanMap[matchedKey] : undefined;
+  const enabledStages = override
+    ? sanitizeStageList(override.enabledStages, allDefault)
+    : [...allDefault];
+  const unlockedStages = enabledStages.filter((num) => globalUnlocked.includes(num));
+
+  let gradeStage = globalGradeStage;
+  const rawJurGrade = Number(override?.gradeStage);
+  if (Number.isInteger(rawJurGrade) && rawJurGrade >= 2 && rawJurGrade <= 8) {
+    gradeStage = rawJurGrade;
+  } else if (!enabledStages.includes(gradeStage)) {
+    const monitoringStagesOnly = enabledStages.filter((n) => n >= 2 && n < 8);
+    if (monitoringStagesOnly.length > 0) {
+      gradeStage = monitoringStagesOnly[monitoringStagesOnly.length - 1];
+    } else {
+      const ge2 = enabledStages.filter((n) => n >= 2);
+      if (ge2.length > 0) gradeStage = ge2[ge2.length - 1];
+    }
+  }
+
+  return {
+    jurusanCode: matchedKey || cleanJurRaw.toUpperCase(),
+    isCustomJurusanPolicy: Boolean(override),
+    enabledStages,
+    unlockedStages,
+    gradeStage,
+    totalStages: enabledStages.length,
+    requireSequential,
+    requireIssuedLetter,
+    lockedReason,
+  };
+}
+
+export function pickRecommendedStageForControl(
+  completedStages: number[],
+  control?: MonitoringStageControl | null,
+  issuedStages?: number[],
+  stageLogs?: Record<number, Pick<StageLogEntry, 'status'> | { status?: string }> | null,
+  studentJurusan?: string,
+  jurusanCatalog?: Jurusan[]
+): number {
+  const policy = resolveMonitoringStagePolicy(control, studentJurusan, jurusanCatalog);
+  const { enabledStages, unlockedStages: unlocked, requireSequential, requireIssuedLetter } = policy;
+  const completed = sanitizeStageList(completedStages, []);
 
   // 1. Prioritize the latest filled stage still waiting for full verification (Kakomli AND Hubin)
   if (stageLogs && typeof stageLogs === 'object' && completed.length > 0) {
     const pendingVerificationStages = completed.filter(
-      (num) => !isStageFullyVerified(stageLogs[num]?.status)
+      (num) => enabledStages.includes(num) && !isStageFullyVerified(stageLogs[num]?.status)
     );
     if (pendingVerificationStages.length > 0) {
       return pendingVerificationStages[pendingVerificationStages.length - 1];
@@ -916,10 +1042,9 @@ export function pickRecommendedStageForControl(
   }
 
   // 2. All filled stages are fully verified (or no stages filled yet): pick next stage to be taken
-  const allStages = [1, 2, 3, 4, 5, 6, 7, 8];
-  const uncompleted = allStages.filter((num) => !completed.includes(num));
+  const uncompleted = enabledStages.filter((num) => !completed.includes(num));
   if (uncompleted.length === 0) {
-    return 8;
+    return enabledStages[enabledStages.length - 1] ?? 8;
   }
 
   const issuedSet = Array.isArray(issuedStages) ? new Set(issuedStages) : null;
@@ -928,14 +1053,17 @@ export function pickRecommendedStageForControl(
   const eligibleOpenStages = unlocked.filter((num) => isEligibleOpenStage(num));
 
   if (requireSequential) {
-    const nextEligibleSequential = eligibleOpenStages.find(
-      (num) => !completed.includes(num) && (num === 1 || completed.includes(num - 1))
-    );
+    const nextEligibleSequential = eligibleOpenStages.find((num) => {
+      if (completed.includes(num)) return false;
+      const prevStage = getPreviousEnabledStage(enabledStages, num);
+      return prevStage === null || completed.includes(prevStage);
+    });
     if (nextEligibleSequential !== undefined) return nextEligibleSequential;
 
-    const nextLogicalSequential = uncompleted.find(
-      (num) => num === 1 || completed.includes(num - 1)
-    );
+    const nextLogicalSequential = uncompleted.find((num) => {
+      const prevStage = getPreviousEnabledStage(enabledStages, num);
+      return prevStage === null || completed.includes(prevStage);
+    });
     if (nextLogicalSequential !== undefined) return nextLogicalSequential;
 
     return uncompleted[0];

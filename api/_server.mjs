@@ -24,7 +24,18 @@ var DEFAULT_MONITORING_STAGE_CONTROL = {
   requireSequential: true,
   unlockedStages: [1, 2, 3, 4, 5, 6, 7, 8],
   lockedReason: "",
-  requireIssuedLetter: true
+  requireIssuedLetter: true,
+  gradeStage: 5,
+  perJurusan: {}
+};
+
+// server/types.ts
+var PortalConfigError = class extends Error {
+  constructor(code, message, status = 503) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
 };
 
 // server/utils/httpHelpers.ts
@@ -84,15 +95,6 @@ var DEFAULT_ADMIN_BOOTSTRAP_TABLES = [
 ];
 var ALLOWED_ADMIN_SHEETS = new Set(Object.keys(SHEET_TO_REST_RESOURCE));
 
-// server/types.ts
-var PortalConfigError = class extends Error {
-  constructor(code, message, status = 503) {
-    super(message);
-    this.code = code;
-    this.status = status;
-  }
-};
-
 // server/utils/httpHelpers.ts
 var GAS_FETCH_TIMEOUT_MS = 15e3;
 async function fetchWithTimeout(url, init = {}, timeoutMs = GAS_FETCH_TIMEOUT_MS) {
@@ -113,18 +115,66 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = GAS_FETCH_TIMEOUT_MS
     clearTimeout(timer);
   }
 }
+var RETRYABLE_HTTP_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+async function fetchWithRetry(url, init = {}, options = {}) {
+  const timeoutMs = options.timeoutMs ?? GAS_FETCH_TIMEOUT_MS;
+  const retries = Math.max(0, options.retries ?? 2);
+  const baseDelayMs = options.baseDelayMs ?? 250;
+  const maxDelayMs = options.maxDelayMs ?? 1500;
+  const retryOnTimeout = options.retryOnTimeout ?? false;
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, init, timeoutMs);
+      if (!RETRYABLE_HTTP_STATUSES.has(res.status) || attempt === retries) {
+        return res;
+      }
+      await res.text().catch(() => "");
+    } catch (err) {
+      lastError = err;
+      const isTimeout = err instanceof PortalConfigError && err.code === "GAS_TIMEOUT";
+      if (attempt === retries || isTimeout && !retryOnTimeout) {
+        throw err;
+      }
+    }
+    const expDelay = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt));
+    const jitter = Math.floor(Math.random() * Math.max(120, Math.round(expDelay * 0.6)));
+    await new Promise((resolve) => setTimeout(resolve, expDelay + jitter));
+  }
+  throw lastError;
+}
+function setPublicSwrCacheHeaders(res, fresh, maxAgeSec = 15, swrSec = 60) {
+  if (fresh) {
+    res.setHeader("Cache-Control", "no-store");
+    return;
+  }
+  res.setHeader(
+    "Cache-Control",
+    `public, max-age=${maxAgeSec}, stale-while-revalidate=${swrSec}`
+  );
+}
+function sanitizeServerErrorMessage(rawMessage) {
+  const msg = String(rawMessage || "").trim();
+  if (!msg) {
+    return "Terjadi kesalahan pada server saat mengakses Database Cloud Server.";
+  }
+  if (msg.includes("Internal error encountered") || /"status"\s*:\s*"INTERNAL"/i.test(msg) || msg.includes('"error"') && msg.includes('"message"')) {
+    return "Layanan Cloud Server / Firestore sedang mengalami gangguan sementara. Silakan coba lagi beberapa saat.";
+  }
+  return msg;
+}
 function handlePortalError(res, err) {
   if (err instanceof PortalConfigError) {
     return res.status(err.status).json({
       success: false,
       code: err.code,
-      message: err.message
+      message: sanitizeServerErrorMessage(err.message)
     });
   }
   return res.status(500).json({
     success: false,
     code: "INTERNAL_ERROR",
-    message: err?.message || "Terjadi kesalahan pada server saat mengakses Database Cloud Server."
+    message: sanitizeServerErrorMessage(err?.message)
   });
 }
 function resolveRestTableName(resourceParam) {
@@ -179,7 +229,7 @@ var isServerlessRuntime = Boolean(
   process.env.VERCEL || process.env.VERCEL_ENV || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION
 );
 var BOOTSTRAP_ADMIN_EMAIL = "fatchiano1@gmail.com";
-var CONFIG_CACHE_TTL_MS = 6e4;
+var CONFIG_CACHE_TTL_MS = 2e4;
 function loadFirebaseConfig() {
   const candidates = [
     path.join(__dirnameResolved, "firebase-applet-config.json"),
@@ -224,7 +274,9 @@ function normalizeServerMonitoringStageControl(raw) {
       requireSequential: DEFAULT_MONITORING_STAGE_CONTROL.requireSequential,
       unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
       lockedReason: "",
-      requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true
+      requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true,
+      gradeStage: DEFAULT_MONITORING_STAGE_CONTROL.gradeStage ?? 5,
+      perJurusan: {}
     };
   }
   const requireSequential = typeof raw.requireSequential === "boolean" ? raw.requireSequential : true;
@@ -235,11 +287,33 @@ function normalizeServerMonitoringStageControl(raw) {
       rawList.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
     )
   ).sort((a, b) => a - b);
+  const rawGradeStage = Number(raw.gradeStage);
+  const gradeStage = Number.isInteger(rawGradeStage) && rawGradeStage >= 2 && rawGradeStage <= 8 ? rawGradeStage : 5;
+  const perJurusan = {};
+  if (raw.perJurusan && typeof raw.perJurusan === "object" && !Array.isArray(raw.perJurusan)) {
+    for (const [rawKey, rawVal] of Object.entries(raw.perJurusan).slice(0, 30)) {
+      const cleanKey = String(rawKey || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 20);
+      if (!cleanKey || !rawVal || typeof rawVal !== "object") continue;
+      const valObj = rawVal;
+      const enabledRaw = Array.isArray(valObj.enabledStages) ? valObj.enabledStages : [1, 2, 3, 4, 5, 6, 7, 8];
+      const enabledStages = Array.from(
+        new Set(
+          enabledRaw.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+        )
+      ).sort((a, b) => a - b).slice(0, 8);
+      if (enabledStages.length === 0) continue;
+      const jurGradeRaw = Number(valObj.gradeStage);
+      const hasValidJurGrade = Number.isInteger(jurGradeRaw) && jurGradeRaw >= 2 && jurGradeRaw <= 8;
+      perJurusan[cleanKey] = hasValidJurGrade ? { enabledStages, gradeStage: jurGradeRaw } : { enabledStages };
+    }
+  }
   return {
     requireSequential,
     unlockedStages: deduped.slice(0, 8),
     lockedReason: String(raw.lockedReason ?? "").trim().slice(0, 150),
-    requireIssuedLetter
+    requireIssuedLetter,
+    gradeStage,
+    perJurusan
   };
 }
 function decodeFirestoreValue(val) {
@@ -294,14 +368,46 @@ async function getFirestoreWorkspaceConfig(forceRefresh = false) {
     const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
       firebaseCfg.projectId
     )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/config/workspace`;
-    const res = await fetchWithTimeout(url, { headers: { Accept: "application/json" } }, 1e4);
+    let res;
+    try {
+      res = await fetchWithRetry(
+        url,
+        { headers: { Accept: "application/json" } },
+        { timeoutMs: 8e3, retries: 2, baseDelayMs: 250 }
+      );
+    } catch (err) {
+      if (cachedWorkspaceConfig) {
+        console.warn("[Firestore Config] Network error, returning stale cached config:", err?.message);
+        return cachedWorkspaceConfig.config;
+      }
+      if (err instanceof PortalConfigError) throw err;
+      throw new PortalConfigError(
+        "FIRESTORE_UNAVAILABLE",
+        "Gagal menghubungi layanan konfigurasi Cloud Server. Silakan coba lagi beberapa saat.",
+        503
+      );
+    }
     if (res.status === 404) {
       cachedWorkspaceConfig = { config: emptyConfig, fetchedAt: Date.now() };
       return emptyConfig;
     }
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gagal membaca konfigurasi Firestore (${res.status}): ${errText.slice(0, 160)}`);
+      const errText = await res.text().catch(() => "");
+      const isTransient = res.status >= 500 || res.status === 429;
+      if (isTransient && cachedWorkspaceConfig) {
+        console.warn(
+          `[Firestore Config] Transient HTTP ${res.status}, returning stale cached config.`
+        );
+        return cachedWorkspaceConfig.config;
+      }
+      console.warn(
+        `[Firestore Config] Read failed (${res.status}): ${errText.slice(0, 160)}`
+      );
+      throw new PortalConfigError(
+        isTransient ? "FIRESTORE_UNAVAILABLE" : "FIRESTORE_CONFIG_ERROR",
+        isTransient ? "Layanan konfigurasi Firestore sedang mengalami gangguan sementara. Silakan coba lagi beberapa saat." : `Gagal membaca konfigurasi workspace Cloud Server (HTTP ${res.status}).`,
+        isTransient ? 503 : 502
+      );
     }
     const docJson = await res.json();
     const fields = docJson?.fields || {};
@@ -375,6 +481,7 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "ID",
       "Kode",
       "Nama_Jurusan",
+      "ID_Kakomli",
       "Nama_Kakomli",
       "NIP_Kakomli",
       "Kontak_WA",
@@ -417,7 +524,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Wilayah_Kota",
       "Nama_Pemimpin",
       "Nama_PIC",
-      "Kontak_PIC",
       "No_Telp_DUDI",
       "Link_Maps",
       "ID_Guru_Pendamping",
@@ -461,8 +567,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Timestamp",
       "NIS",
       "Nama_Siswa",
-      "Jurusan",
-      "Kelas",
       "ID_DUDI",
       "DUDI_Tujuan",
       "Alamat_DUDI",
@@ -475,8 +579,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Link_Maps",
       "No_WA",
       "Alamat_Domisili",
-      "Nama_Ortu_Wali",
-      "No_Ortu_Wali",
       "Status_Kakomli",
       "Catatan_Kakomli",
       "Status_Hubin",
@@ -498,10 +600,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "No_Pengajuan",
       "NIS",
       "Nama_Siswa",
-      "Jurusan",
-      "Kelas",
-      "Nama_Ortu_Wali",
-      "No_Ortu_Wali",
       "Izin",
       "Tgl_Mulai_Izin",
       "Tgl_Selesai_Izin",
@@ -509,7 +607,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "No_Surat_Permohonan",
       "ID_DUDI",
       "DUDI_Tujuan",
-      "Alamat_DUDI",
       "Tgl_Kirim_Surat",
       "Status_Balasan_DUDI",
       "Tgl_Balasan",
@@ -555,8 +652,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Nama_Siswa",
       "ID_DUDI",
       "DUDI_Tujuan",
-      "Alamat_DUDI",
-      "Jurusan",
       "ID_Guru_Pendamping",
       "Guru_Pendamping",
       "Tahap",
@@ -596,8 +691,6 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "ID_Penempatan",
       "NIS",
       "Nama_Siswa",
-      "Jurusan",
-      "Kelas",
       "ID_DUDI",
       "DUDI_Tujuan",
       "Nilai_K3LH",
@@ -650,6 +743,7 @@ var HUBIN_SHEETS_BLUEPRINT = [
       "Nomor_Surat",
       "Tanggal_Terbit",
       "Diterbitkan_Oleh",
+      "ID_Guru_Pendamping",
       "Guru_Pendamping",
       "Link_PDF",
       "Updated_At"
@@ -662,37 +756,12 @@ var FORMULA_MANAGED_COLUMNS = {
   Master_Kelas_Walas: ["Jurusan", "Jumlah_Siswa"],
   Master_DUDI: ["Guru_Pendamping", "Terisi"],
   Master_Guru_Pendamping: ["Jumlah_Bimbingan"],
-  Data_Pengajuan_PKL: [
-    "Nama_Siswa",
-    "Jurusan",
-    "Kelas",
-    "Nama_Ortu_Wali",
-    "No_Ortu_Wali",
-    "Guru_Pendamping"
-  ],
-  Data_Perizinan_PKL: [
-    "Nama_Siswa",
-    "Jurusan",
-    "Kelas",
-    "Nama_Ortu_Wali",
-    "No_Ortu_Wali",
-    "Rentang_Tanggal",
-    "DUDI_Tujuan",
-    "Alamat_DUDI"
-  ],
+  Data_Pengajuan_PKL: ["Nama_Siswa", "Guru_Pendamping"],
+  Data_Perizinan_PKL: ["Nama_Siswa", "Rentang_Tanggal", "DUDI_Tujuan"],
   Plotting_Pemberangkatan: ["Nama_Siswa", "Nama_DUDI", "Guru_Pendamping"],
-  Monitoring_5_Tahap: [
-    "Nama_Siswa",
-    "DUDI_Tujuan",
-    "Alamat_DUDI",
-    "Jurusan",
-    "Guru_Pendamping",
-    "Nilai_rata_rata"
-  ],
+  Monitoring_5_Tahap: ["Nama_Siswa", "DUDI_Tujuan", "Guru_Pendamping", "Nilai_rata_rata"],
   Nilai_Dan_Sertifikat: [
     "Nama_Siswa",
-    "Jurusan",
-    "Kelas",
     "DUDI_Tujuan",
     "Nilai_K3LH",
     "Nilai_Softskills",
@@ -711,6 +780,11 @@ var FORMULA_MANAGED_NORM_SETS = Object.fromEntries(
     new Set(cols.map(normalizeFormulaHeaderKey))
   ])
 );
+function isFormulaManagedColumn(sheetName, headerOrKey) {
+  const set = FORMULA_MANAGED_NORM_SETS[sheetName];
+  if (!set) return false;
+  return set.has(normalizeFormulaHeaderKey(headerOrKey));
+}
 var SHEET_DEPENDENTS_MAP = {
   Master_Siswa_XI: [
     "Master_Jurusan",
@@ -738,16 +812,20 @@ var SHEET_DEPENDENTS_MAP = {
     "Nilai_Dan_Sertifikat"
   ],
   Master_DUDI: [
+    "Data_Pengajuan_PKL",
     "Data_Perizinan_PKL",
     "Plotting_Pemberangkatan",
     "Monitoring_5_Tahap",
-    "Nilai_Dan_Sertifikat"
+    "Nilai_Dan_Sertifikat",
+    "Log_Penerbitan_Surat"
   ],
   Master_Guru_Pendamping: [
+    "Master_Jurusan",
     "Master_DUDI",
     "Data_Pengajuan_PKL",
     "Plotting_Pemberangkatan",
-    "Monitoring_5_Tahap"
+    "Monitoring_5_Tahap",
+    "Log_Penerbitan_Surat"
   ],
   Data_Pengajuan_PKL: ["Master_Jurusan", "Data_Perizinan_PKL"],
   Plotting_Pemberangkatan: [
@@ -998,6 +1076,7 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
       // Jurusan
       Kode: ["kode", "Kode"],
       Nama_Jurusan: ["nama", "namaJurusan", "nama_jurusan", "Nama_Jurusan"],
+      ID_Kakomli: ["idKakomli", "id_kakomli", "ID_Kakomli"],
       Nama_Kakomli: ["namaKakomli", "nama_kakomli", "Nama_Kakomli"],
       NIP_Kakomli: ["nipKakomli", "nip_kakomli", "NIP_Kakomli"],
       Kontak_WA: ["kontakWA", "kontakWa", "kontak_wa", "Kontak_WA", "noWa", "No_WA", "no_wa"],
@@ -1018,7 +1097,7 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
       Nama_Pemimpin: ["namaPemimpin", "nama_pemimpin", "Nama_Pemimpin", "pimpinan"],
       Nama_PIC: ["namaPic", "nama_pic", "Nama_PIC"],
       Kontak_PIC: ["kontakPic", "kontak_pic", "Kontak_PIC"],
-      No_Telp_DUDI: ["noTelpDudi", "no_telp_dudi", "No_Telp_DUDI", "teleponDudi"],
+      No_Telp_DUDI: ["noTelpDudi", "no_telp_dudi", "No_Telp_DUDI", "teleponDudi", "kontakPic", "kontak_pic", "Kontak_PIC"],
       Link_Maps: ["linkMaps", "link_maps", "Link_Maps", "linkMapsDudi", "googleMapsUrl"],
       Hari_Kerja: ["hariKerja", "hari_kerja", "Hari_Kerja"],
       Jam_Kerja: ["jamKerja", "jam_kerja", "Jam_Kerja"],
@@ -1310,6 +1389,7 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
       "id",
       "nis",
       "idjurusan",
+      "idkakomli",
       "kode",
       "iddudi",
       "idgurupendamping",
@@ -1470,6 +1550,14 @@ var GoogleDriveSheetService = class _GoogleDriveSheetService {
     if (!record.idJurusan && record.jurusan && (sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa" || sheetName === "Master_Kelas_Walas")) {
       record.idJurusan = generateJurusanCode(String(record.jurusan));
     }
+    if (sheetName === "Master_DUDI") {
+      if (!record.noTelpDudi && record.kontakPic) {
+        record.noTelpDudi = record.kontakPic;
+      }
+      if (!record.kontakPic && record.noTelpDudi) {
+        record.kontakPic = record.noTelpDudi;
+      }
+    }
     const sheetRowNum = rowIndex + 2;
     record._sheetRowNumber = sheetRowNum;
     if (!record.id) {
@@ -1563,9 +1651,9 @@ var sheetCache = /* @__PURE__ */ new Map();
 var inFlightSheetFetches = /* @__PURE__ */ new Map();
 var inFlightBackgroundRevalidations = /* @__PURE__ */ new Map();
 var siswaIndexCache = /* @__PURE__ */ new Map();
-var metadataCacheClearHook = null;
+var metadataCacheClearHooks = [];
 function registerMetadataCacheClearHook(hook) {
-  metadataCacheClearHook = hook;
+  metadataCacheClearHooks.push(hook);
 }
 function isBackgroundRevalidationActive(cacheKey) {
   const startedAt = inFlightBackgroundRevalidations.get(cacheKey);
@@ -1599,7 +1687,12 @@ async function invalidateServerCaches(sheetParam) {
   invalidateWorkspaceConfigCache();
   sheetCache.clear();
   siswaIndexCache.clear();
-  metadataCacheClearHook?.();
+  metadataCacheClearHooks.forEach((hook) => {
+    try {
+      hook();
+    } catch {
+    }
+  });
 }
 function getOrBuildSiswaIndex(spreadsheetId, rows) {
   let indexEntry = siswaIndexCache.get(spreadsheetId);
@@ -1632,6 +1725,19 @@ var inFlightMetadataFetches = /* @__PURE__ */ new Map();
 registerMetadataCacheClearHook(() => {
   sheetMetadataCache.clear();
 });
+function invalidateSheetsAccessTokenCache() {
+  sheetsAccessTokenCache = null;
+}
+function colIndexToLetter(index0) {
+  let col = index0 + 1;
+  let letter = "";
+  while (col > 0) {
+    const rem = (col - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    col = Math.floor((col - 1) / 26);
+  }
+  return letter || "A";
+}
 var SHEETS_DATE_HEADER_KEYS = /* @__PURE__ */ new Set([
   "tglberangkat",
   "tanggalberangkat",
@@ -1677,78 +1783,79 @@ function getGoogleSheetsApiKey() {
     process.env.GOOGLE_SHEETS_API_KEY || process.env.GOOGLE_CONSOLE_API_KEY || process.env.GOOGLE_API_KEY || ""
   ).trim();
 }
-async function resolveGoogleSheetsReadAuth() {
+async function resolveGoogleSheetsWriteAuth() {
   const sa = getGoogleServiceAccountCreds();
-  if (sa) {
-    const cacheKey = sa.clientEmail;
-    if (sheetsAccessTokenCache && sheetsAccessTokenCache.cacheKey === cacheKey && Date.now() < sheetsAccessTokenCache.expiresAt - 6e4) {
-      return { mode: "bearer", token: sheetsAccessTokenCache.token };
-    }
-    if (!inFlightSheetsTokenPromise) {
-      inFlightSheetsTokenPromise = (async () => {
-        try {
-          const nowSec = Math.floor(Date.now() / 1e3);
-          const headerB64 = Buffer.from(
-            JSON.stringify({ alg: "RS256", typ: "JWT" }),
-            "utf8"
-          ).toString("base64url");
-          const claimB64 = Buffer.from(
-            JSON.stringify({
-              iss: sa.clientEmail,
-              scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
-              aud: "https://oauth2.googleapis.com/token",
-              iat: nowSec,
-              exp: nowSec + 3600
-            }),
-            "utf8"
-          ).toString("base64url");
-          const unsignedJwt = `${headerB64}.${claimB64}`;
-          const signer = crypto2.createSign("RSA-SHA256");
-          signer.update(unsignedJwt);
-          signer.end();
-          const signatureB64 = signer.sign(sa.privateKey, "base64url");
-          const assertion = `${unsignedJwt}.${signatureB64}`;
-          const tokenRes = await fetchWithTimeout(
-            "https://oauth2.googleapis.com/token",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: `grant_type=${encodeURIComponent(
-                "urn:ietf:params:oauth:grant-type:jwt-bearer"
-              )}&assertion=${encodeURIComponent(assertion)}`
-            },
-            SHEETS_API_TIMEOUT_MS
-          );
-          if (!tokenRes.ok) {
-            const errTxt = await tokenRes.text().catch(() => "");
-            console.warn(
-              `[Sheets API v4] OAuth token failed (${tokenRes.status}): ${errTxt.slice(0, 120)}`
-            );
-            return null;
-          }
-          const tokenJson = await tokenRes.json();
-          const accessToken = String(tokenJson?.access_token || "").trim();
-          const expiresIn = Number(tokenJson?.expires_in || 3600);
-          if (!accessToken) return null;
-          sheetsAccessTokenCache = {
-            token: accessToken,
-            expiresAt: Date.now() + expiresIn * 1e3,
-            cacheKey
-          };
-          return accessToken;
-        } catch (err) {
-          console.warn("[Sheets API v4] Token exchange error:", err?.message);
-          return null;
-        } finally {
-          inFlightSheetsTokenPromise = null;
-        }
-      })();
-    }
-    const token = await inFlightSheetsTokenPromise;
-    if (token) {
-      return { mode: "bearer", token };
-    }
+  if (!sa) return null;
+  const cacheKey = sa.clientEmail;
+  if (sheetsAccessTokenCache && sheetsAccessTokenCache.cacheKey === cacheKey && Date.now() < sheetsAccessTokenCache.expiresAt - 6e4) {
+    return { mode: "bearer", token: sheetsAccessTokenCache.token };
   }
+  if (!inFlightSheetsTokenPromise) {
+    inFlightSheetsTokenPromise = (async () => {
+      try {
+        const nowSec = Math.floor(Date.now() / 1e3);
+        const headerB64 = Buffer.from(
+          JSON.stringify({ alg: "RS256", typ: "JWT" }),
+          "utf8"
+        ).toString("base64url");
+        const claimB64 = Buffer.from(
+          JSON.stringify({
+            iss: sa.clientEmail,
+            scope: "https://www.googleapis.com/auth/spreadsheets",
+            aud: "https://oauth2.googleapis.com/token",
+            iat: nowSec,
+            exp: nowSec + 3600
+          }),
+          "utf8"
+        ).toString("base64url");
+        const unsignedJwt = `${headerB64}.${claimB64}`;
+        const signer = crypto2.createSign("RSA-SHA256");
+        signer.update(unsignedJwt);
+        signer.end();
+        const signatureB64 = signer.sign(sa.privateKey, "base64url");
+        const assertion = `${unsignedJwt}.${signatureB64}`;
+        const tokenRes = await fetchWithRetry(
+          "https://oauth2.googleapis.com/token",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: `grant_type=${encodeURIComponent(
+              "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            )}&assertion=${encodeURIComponent(assertion)}`
+          },
+          { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 1, baseDelayMs: 200 }
+        );
+        if (!tokenRes.ok) {
+          const errTxt = await tokenRes.text().catch(() => "");
+          console.warn(
+            `[Sheets API v4] OAuth token failed (${tokenRes.status}): ${errTxt.slice(0, 120)}`
+          );
+          return null;
+        }
+        const tokenJson = await tokenRes.json();
+        const accessToken = String(tokenJson?.access_token || "").trim();
+        const expiresIn = Number(tokenJson?.expires_in || 3600);
+        if (!accessToken) return null;
+        sheetsAccessTokenCache = {
+          token: accessToken,
+          expiresAt: Date.now() + expiresIn * 1e3,
+          cacheKey
+        };
+        return accessToken;
+      } catch (err) {
+        console.warn("[Sheets API v4] Token exchange error:", err?.message);
+        return null;
+      } finally {
+        inFlightSheetsTokenPromise = null;
+      }
+    })();
+  }
+  const token = await inFlightSheetsTokenPromise;
+  return token ? { mode: "bearer", token } : null;
+}
+async function resolveGoogleSheetsReadAuth() {
+  const bearer = await resolveGoogleSheetsWriteAuth();
+  if (bearer) return bearer;
   const apiKey = getGoogleSheetsApiKey();
   if (apiKey) {
     return { mode: "apikey", apiKey };
@@ -1787,7 +1894,7 @@ function resolveActualTabName(requestedSheet, existingTabs) {
 async function getSpreadsheetMetadataViaApiV4(spreadsheetId, auth, forceRefresh = false) {
   const cached = sheetMetadataCache.get(spreadsheetId);
   if (!forceRefresh && cached && Date.now() - cached.fetchedAt < SHEETS_METADATA_TTL_MS) {
-    return { title: cached.title, tabNames: cached.tabNames };
+    return { title: cached.title, tabNames: cached.tabNames, sheetIds: cached.sheetIds };
   }
   if (!forceRefresh) {
     const inflight = inFlightMetadataFetches.get(spreadsheetId);
@@ -1797,19 +1904,35 @@ async function getSpreadsheetMetadataViaApiV4(spreadsheetId, auth, forceRefresh 
     const { url, headers } = buildSheetsApiRequest(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
         spreadsheetId
-      )}?fields=properties.title,sheets.properties.title`,
+      )}?fields=properties.title,sheets.properties(sheetId,title)`,
       auth
     );
-    const res = await fetchWithTimeout(url, { method: "GET", headers }, SHEETS_API_TIMEOUT_MS);
+    const res = await fetchWithRetry(
+      url,
+      { method: "GET", headers },
+      { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 2, baseDelayMs: 200 }
+    );
     if (!res.ok) {
+      if (res.status === 401) invalidateSheetsAccessTokenCache();
       const errTxt = await res.text().catch(() => "");
       throw new Error(`Sheets metadata HTTP ${res.status}: ${errTxt.slice(0, 120)}`);
     }
     const json = await res.json();
     const title = String(json?.properties?.title || "").trim();
-    const tabNames = Array.isArray(json?.sheets) ? json.sheets.map((s) => String(s?.properties?.title || "").trim()).filter(Boolean) : [];
-    sheetMetadataCache.set(spreadsheetId, { title, tabNames, fetchedAt: Date.now() });
-    return { title, tabNames };
+    const tabNames = [];
+    const sheetIds = {};
+    if (Array.isArray(json?.sheets)) {
+      for (const s of json.sheets) {
+        const tabTitle = String(s?.properties?.title || "").trim();
+        if (!tabTitle) continue;
+        tabNames.push(tabTitle);
+        if (typeof s?.properties?.sheetId === "number" && Number.isInteger(s.properties.sheetId)) {
+          sheetIds[tabTitle] = s.properties.sheetId;
+        }
+      }
+    }
+    sheetMetadataCache.set(spreadsheetId, { title, tabNames, sheetIds, fetchedAt: Date.now() });
+    return { title, tabNames, sheetIds };
   })();
   if (!forceRefresh) {
     inFlightMetadataFetches.set(spreadsheetId, p);
@@ -1900,8 +2023,13 @@ async function tryFetchBatchSheetsViaApiV4(spreadsheetId, requestedSheets, optio
       spreadsheetId
     )}/values:batchGet?${rangesQuery}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER&majorDimension=ROWS`;
     const { url, headers } = buildSheetsApiRequest(batchBaseUrl, auth);
-    const res = await fetchWithTimeout(url, { method: "GET", headers }, SHEETS_API_TIMEOUT_MS);
+    const res = await fetchWithRetry(
+      url,
+      { method: "GET", headers },
+      { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 2, baseDelayMs: 200 }
+    );
     if (!res.ok) {
+      if (res.status === 401) invalidateSheetsAccessTokenCache();
       const errTxt = await res.text().catch(() => "");
       console.warn(`[Sheets API v4] batchGet HTTP ${res.status}: ${errTxt.slice(0, 140)}`);
       return null;
@@ -1920,6 +2048,783 @@ async function tryFetchBatchSheetsViaApiV4(spreadsheetId, requestedSheets, optio
     return results;
   } catch (err) {
     console.warn("[Sheets API v4] Fallback to GAS:", err?.message);
+    return null;
+  }
+}
+
+// server/services/sheetsApiV4Write.ts
+var SCHEMA_CACHE_TTL_MS = 3e5;
+var sheetWriteSchemaCache = /* @__PURE__ */ new Map();
+var writeMutexChains = /* @__PURE__ */ new Map();
+registerMetadataCacheClearHook(() => {
+  sheetWriteSchemaCache.clear();
+});
+var KEY_ALIASES = {
+  id: ["id", "idguru", "iddudi", "nopengajuan", "idperizinan", "idpenempatan", "idmonitoring", "idterbit"],
+  nopengajuan: ["nopengajuan", "id"],
+  idperizinan: ["idperizinan", "noperizinan", "id"],
+  noperizinan: ["noperizinan", "idperizinan", "id"],
+  idpenempatan: ["idpenempatan", "id"],
+  idmonitoring: ["idmonitoring", "id"],
+  idterbit: ["idterbit", "id"],
+  iddudi: ["iddudi", "id"],
+  idgurupendamping: ["idgurupendamping", "idguru"],
+  idguru: ["idguru", "idgurupendamping", "id"],
+  nohp: ["nohp", "nohpsiswa", "nowa"],
+  nohpsiswa: ["nohpsiswa", "nohp", "nowa"],
+  nowa: ["nowa", "kontakwa", "nohpsiswa"],
+  kontakwa: ["kontakwa", "nowa"],
+  emailgoogle: ["emailgoogle", "email"],
+  alamatdomisili: ["alamatdomisili", "alamat"],
+  alamatdudi: ["alamatdudi", "alamat"],
+  namaortuwali: ["namaortuwali", "namaorangtua", "namaortu"],
+  noortuwali: ["noortuwali", "teleponorangtua", "nohportu"],
+  namapemimpin: ["namapemimpin", "pimpinan"],
+  namapic: ["namapic", "pic"],
+  kontakpic: ["kontakpic", "notelpdudi", "telepondudi"],
+  notelpdudi: ["notelpdudi", "kontakpic", "telepondudi"],
+  duditujuan: ["duditujuan", "namadudi"],
+  namadudi: ["namadudi", "duditujuan"],
+  tglberangkat: ["tglberangkat", "tanggalberangkat"],
+  tanggalberangkat: ["tanggalberangkat", "tglberangkat"],
+  tglkunjungan: ["tglkunjungan", "tanggalkunjungan"],
+  tanggalkunjungan: ["tanggalkunjungan", "tglkunjungan"],
+  tglkirimsurat: ["tglkirimsurat", "tanggalkirimsurat"],
+  tanggalkirimsurat: ["tanggalkirimsurat", "tglkirimsurat"],
+  tglbalasan: ["tglbalasan", "tanggalbalasan"],
+  tanggalbalasan: ["tanggalbalasan", "tglbalasan"],
+  tglterbit: ["tglterbit", "tanggalterbit"],
+  tanggalterbit: ["tanggalterbit", "tglterbit"],
+  fotobuktidrive: ["fotobuktidrive", "fotobuktiurl"],
+  fotobuktiurl: ["fotobuktiurl", "fotobuktidrive"],
+  fotourl: ["fotourl", "foto"],
+  noseriblangko: ["noseriblangko"],
+  passwordhash: ["passwordhash"],
+  nilaisoftskills: ["nilaisoftskills", "nilaisoftskill"],
+  nilaisoftskill: ["nilaisoftskill", "nilaisoftskills"],
+  nilaihardskills: ["nilaihardskills", "nilaikompetensiteknis"],
+  nilaikompetensiteknis: ["nilaikompetensiteknis", "nilaihardskills"],
+  nilaialurbisnisduniakerja: ["nilaialurbisnisduniakerja", "nilaialurbisnis"],
+  nilaialurbisnis: ["nilaialurbisnis", "nilaialurbisnisduniakerja"],
+  nilairatarata: ["nilairatarata", "nilaidudi", "nilaiakhir"],
+  nilaidudi: ["nilaidudi", "nilairatarata", "nilaiakhir"],
+  idjurusan: ["idjurusan", "jurusan"],
+  jurusan: ["jurusan", "idjurusan"],
+  namalengkap: ["namalengkap", "nama", "namasiswa", "namaguru"],
+  namaguru: ["namaguru", "namalengkap", "nama"],
+  namasiswa: ["namasiswa", "nama", "namalengkap"],
+  linkmaps: ["linkmaps", "mapsurl", "googlemaps"],
+  linksuratpdf: ["linksuratpdf", "linkpdf"],
+  izin: ["izin", "statusizinortu"],
+  statusizinortu: ["statusizinortu", "izin"],
+  tglmulaiizin: ["tglmulaiizin", "tanggalmulaiizin"],
+  tanggalmulaiizin: ["tanggalmulaiizin", "tglmulaiizin"],
+  tglselesaiizin: ["tglselesaiizin", "tanggalselesaiizin"],
+  tanggalselesaiizin: ["tanggalselesaiizin", "tglselesaiizin"],
+  rentangtanggal: ["rentangtanggal"],
+  harikerja: ["harikerja"],
+  jamkerja: ["jamkerja"],
+  bukulaporan: ["bukulaporan"],
+  aktivitasdp: ["aktivitasdp"],
+  aktivitasmt: ["aktivitasmt"],
+  aktivitaskrt: ["aktivitaskrt"],
+  kompetensididapat: ["kompetensididapat", "kompetensisiswa"],
+  kondisibengkel: ["kondisibengkel"],
+  ttdsiswa: ["ttdsiswa"]
+};
+function normalizeKey(key) {
+  return String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function quoteA1Sheet(tabName) {
+  return `'${tabName.replace(/'/g, "''")}'`;
+}
+function formatWriteCellValue(val) {
+  if (val === void 0 || val === null) return "";
+  if (typeof val === "boolean") return val ? "Ya" : "Belum";
+  if (typeof val === "number") return Number.isFinite(val) ? val : "";
+  return String(val);
+}
+var PRIMARY_ID_NORM_KEYS = /* @__PURE__ */ new Set([
+  "id",
+  "nopengajuan",
+  "idperizinan",
+  "noperizinan",
+  "idpenempatan",
+  "idmonitoring",
+  "idterbit"
+]);
+function getNormalizedValue(rowObj, header) {
+  if (!rowObj || typeof rowObj !== "object") return void 0;
+  const target = normalizeKey(header);
+  const candidateTargets = KEY_ALIASES[target] || [target];
+  const keys = Object.keys(rowObj);
+  const sanitizePrimaryIfNeeded = (val) => {
+    if (!PRIMARY_ID_NORM_KEYS.has(target) || typeof val !== "string") return val;
+    const { cleanId, rowNum } = parseRowHintFromId(val);
+    if (rowNum > 0 && !cleanId) return void 0;
+    return cleanId;
+  };
+  let firstDefined = void 0;
+  if (rowObj[header] !== void 0) {
+    const cleaned = sanitizePrimaryIfNeeded(rowObj[header]);
+    if (cleaned !== void 0 && String(cleaned === null ? "" : cleaned).trim() !== "") {
+      return cleaned;
+    }
+    firstDefined = cleaned;
+  }
+  for (const wanted of candidateTargets) {
+    for (const k of keys) {
+      if (k === "_sheetRowNumber") continue;
+      if (normalizeKey(k) === wanted) {
+        const val = sanitizePrimaryIfNeeded(rowObj[k]);
+        if (val !== void 0 && val !== null && String(val).trim() !== "") {
+          return val;
+        }
+        if (firstDefined === void 0 && val !== void 0) {
+          firstDefined = val;
+        }
+      }
+    }
+  }
+  return firstDefined;
+}
+function parseRowHintFromId(rawId) {
+  const str = String(rawId || "").trim();
+  const hashMatch = str.match(/^(.*)#r(\d+)$/);
+  if (hashMatch) {
+    return { cleanId: hashMatch[1].trim(), rowNum: Number(hashMatch[2]) };
+  }
+  const placeholderMatch = str.match(/^row_(\d+)$/);
+  if (placeholderMatch) {
+    return { cleanId: "", rowNum: Number(placeholderMatch[1]) };
+  }
+  return { cleanId: str, rowNum: 0 };
+}
+function extractRecordId(obj) {
+  if (!obj || typeof obj !== "object") return "";
+  return String(
+    obj.id || obj.ID || obj.No_Pengajuan || obj.noPengajuan || obj.ID_Perizinan || obj.noPerizinan || obj.ID_Penempatan || obj.idPenempatan || obj.ID_Monitoring || obj.idMonitoring || obj.ID_Terbit || obj.idTerbit || ""
+  ).trim();
+}
+function findColumnIndex(headers, candidatesNorm) {
+  for (let c = 0; c < headers.length; c++) {
+    if (candidatesNorm.includes(normalizeKey(headers[c]))) {
+      return c;
+    }
+  }
+  return -1;
+}
+function findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum) {
+  const parsed = parseRowHintFromId(targetId);
+  const cleanId = parsed.cleanId;
+  const rowNumHint = Number(explicitRowNum || rowObj && rowObj._sheetRowNumber || parsed.rowNum || 0);
+  let idColIdx = findColumnIndex(headers, [
+    "id",
+    "nopengajuan",
+    "idperizinan",
+    "idpenempatan",
+    "idmonitoring",
+    "idterbit"
+  ]);
+  if (idColIdx === -1) idColIdx = 0;
+  const nisColIdx = findColumnIndex(headers, ["nis"]);
+  const userColIdx = findColumnIndex(headers, ["username"]);
+  const namaColIdx = findColumnIndex(headers, ["namasiswa", "namalengkap", "namadudi"]);
+  if (rowNumHint >= 2 && rowNumHint <= values.length) {
+    const idx = rowNumHint - 1;
+    const cellId = String(values[idx]?.[idColIdx] ?? "").trim();
+    const nisWanted2 = String(rowObj && (rowObj.NIS || rowObj.nis) || "").trim();
+    const nisWantedDigits2 = stripNisSymbols(nisWanted2);
+    const cellNis = nisColIdx !== -1 ? String(values[idx]?.[nisColIdx] ?? "").trim() : "";
+    const cellNisDigits = stripNisSymbols(cellNis);
+    const nisMatches = nisWanted2 && cellNis === nisWanted2 || nisWantedDigits2 && cellNisDigits === nisWantedDigits2;
+    if (cleanId && cellId === cleanId || !cellId && (!nisWanted2 || !cellNis || nisMatches) || nisMatches) {
+      return idx;
+    }
+  }
+  if (cleanId) {
+    for (let r = 1; r < values.length; r++) {
+      const colVal = String(values[r]?.[idColIdx] ?? "").trim();
+      const firstColVal = String(values[r]?.[0] ?? "").trim();
+      if (colVal === cleanId || firstColVal === cleanId) {
+        return r;
+      }
+    }
+  }
+  const nisWanted = String(rowObj && (rowObj.NIS || rowObj.nis) || "").trim() || (sheetName === "Nilai_Dan_Sertifikat" || sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa" ? cleanId : "");
+  const nisWantedDigits = stripNisSymbols(nisWanted);
+  if (nisWanted && nisColIdx !== -1) {
+    for (let r2 = 1; r2 < values.length; r2++) {
+      const rowNisStr = String(values[r2]?.[nisColIdx] ?? "").trim();
+      if (rowNisStr === nisWanted || nisWantedDigits && stripNisSymbols(rowNisStr) === nisWantedDigits) {
+        return r2;
+      }
+    }
+  }
+  const userWanted = String(rowObj && (rowObj.Username || rowObj.username) || "").trim();
+  if (userWanted && userColIdx !== -1) {
+    for (let r3 = 1; r3 < values.length; r3++) {
+      if (String(values[r3]?.[userColIdx] ?? "").trim().toLowerCase() === userWanted.toLowerCase()) {
+        return r3;
+      }
+    }
+  }
+  const namaWanted = String(
+    rowObj && (rowObj.Nama_Siswa || rowObj.namaSiswa || rowObj.Nama_Lengkap || rowObj.Nama_DUDI) || ""
+  ).trim();
+  if (namaWanted && namaColIdx !== -1 && (rowNumHint >= 2 || !cleanId)) {
+    for (let r4 = 1; r4 < values.length; r4++) {
+      if (String(values[r4]?.[namaColIdx] ?? "").trim().toLowerCase() === namaWanted.toLowerCase()) {
+        return r4;
+      }
+    }
+  }
+  return -1;
+}
+function getNextAppendRowNonFormula(values, isFormulaCol) {
+  if (values.length <= 1) return 2;
+  const cols = isFormulaCol.length;
+  for (let r = values.length - 1; r >= 1; r--) {
+    const row = values[r] || [];
+    for (let c = 0; c < cols; c++) {
+      if (!isFormulaCol[c] && String(row[c] ?? "").trim() !== "") {
+        return r + 2;
+      }
+    }
+  }
+  return 2;
+}
+function getNextRowInColA(values) {
+  for (let r = values.length - 1; r >= 1; r--) {
+    if (String(values[r]?.[0] ?? "").trim() !== "") {
+      return r + 2;
+    }
+  }
+  return 2;
+}
+async function withSheetWriteLock(lockKey, task) {
+  const prev = writeMutexChains.get(lockKey) || Promise.resolve();
+  const next = prev.catch(() => void 0).then(task);
+  const tracked = next.finally(() => {
+    if (writeMutexChains.get(lockKey) === tracked) {
+      writeMutexChains.delete(lockKey);
+    }
+  });
+  writeMutexChains.set(lockKey, tracked);
+  return next;
+}
+async function getSheetWriteSchema(spreadsheetId, actualTab, requestedSheetName, token, respectActualFormulasOnly = false) {
+  const cacheKey = `${spreadsheetId}::${actualTab}`;
+  const cached = sheetWriteSchemaCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SCHEMA_CACHE_TTL_MS) {
+    return {
+      headers: cached.headers,
+      isFormulaCol: respectActualFormulasOnly ? cached.actualFormulaCol : cached.managedFormulaCol
+    };
+  }
+  const range12 = encodeURIComponent(`${quoteA1Sheet(actualTab)}!1:2`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+    spreadsheetId
+  )}/values/${range12}?valueRenderOption=FORMULA&majorDimension=ROWS`;
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` }
+    },
+    { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 2, baseDelayMs: 200 }
+  );
+  if (res.status === 401) {
+    invalidateSheetsAccessTokenCache();
+    return null;
+  }
+  if (!res.ok) {
+    return null;
+  }
+  const json = await res.json();
+  const rows = Array.isArray(json?.values) ? json.values : [];
+  const rawHeaders = Array.isArray(rows[0]) ? rows[0] : [];
+  const row2 = Array.isArray(rows[1]) ? rows[1] : [];
+  const headers = rawHeaders.map((h) => String(h ?? "").trim());
+  if (headers.length === 0 || headers.every((h) => !h)) {
+    return null;
+  }
+  const actualFormulaCol = headers.map((_header, idx) => {
+    const f1 = String(rawHeaders[idx] ?? "");
+    const f2 = String(row2[idx] ?? "");
+    return f1.startsWith("=") || f2.startsWith("=");
+  });
+  const managedFormulaCol = headers.map(
+    (header, idx) => actualFormulaCol[idx] || isFormulaManagedColumn(requestedSheetName, header) || isFormulaManagedColumn(actualTab, header)
+  );
+  sheetWriteSchemaCache.set(cacheKey, {
+    headers,
+    actualFormulaCol,
+    managedFormulaCol,
+    fetchedAt: Date.now()
+  });
+  return {
+    headers,
+    isFormulaCol: respectActualFormulasOnly ? actualFormulaCol : managedFormulaCol
+  };
+}
+async function readSheetValuesMatrix(spreadsheetId, actualTab, colCount, token) {
+  const lastCol = colIndexToLetter(Math.max(0, colCount - 1));
+  const range = encodeURIComponent(`${quoteA1Sheet(actualTab)}!A1:${lastCol}`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+    spreadsheetId
+  )}/values/${range}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER&majorDimension=ROWS`;
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` }
+    },
+    { timeoutMs: SHEETS_API_TIMEOUT_MS, retries: 2, baseDelayMs: 200 }
+  );
+  if (res.status === 401) {
+    invalidateSheetsAccessTokenCache();
+    return null;
+  }
+  if (!res.ok) {
+    return null;
+  }
+  const json = await res.json();
+  return Array.isArray(json?.values) ? json.values : [];
+}
+async function batchUpdateValueRanges(spreadsheetId, data, token) {
+  if (data.length === 0) return { ok: true };
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+    spreadsheetId
+  )}/values:batchUpdate`;
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        valueInputOption: "RAW",
+        data
+      })
+    },
+    { timeoutMs: 12e3, retries: 2, baseDelayMs: 250 }
+  );
+  if (res.status === 401) {
+    invalidateSheetsAccessTokenCache();
+    return { fallback: true };
+  }
+  if (res.status === 403 || res.status === 404) {
+    return { fallback: true };
+  }
+  if (!res.ok) {
+    const errTxt = await res.text().catch(() => "");
+    console.warn(`[Sheets API v4 Write] batchUpdate HTTP ${res.status}: ${errTxt.slice(0, 140)}`);
+    return { fallback: true };
+  }
+  return { ok: true };
+}
+async function deleteRowsViaBatchUpdate(spreadsheetId, sheetId, zeroBasedRowIndices, token) {
+  const uniqueDesc = Array.from(
+    new Set(zeroBasedRowIndices.filter((idx) => Number.isInteger(idx) && idx >= 1))
+  ).sort((a, b) => b - a);
+  if (uniqueDesc.length === 0) return { ok: true };
+  const requests = [];
+  let runEnd = uniqueDesc[0] + 1;
+  let runStart = uniqueDesc[0];
+  for (let i = 1; i < uniqueDesc.length; i++) {
+    const idx = uniqueDesc[i];
+    if (idx === runStart - 1) {
+      runStart = idx;
+    } else {
+      requests.push({
+        deleteDimension: {
+          range: { sheetId, dimension: "ROWS", startIndex: runStart, endIndex: runEnd }
+        }
+      });
+      runEnd = idx + 1;
+      runStart = idx;
+    }
+  }
+  requests.push({
+    deleteDimension: {
+      range: { sheetId, dimension: "ROWS", startIndex: runStart, endIndex: runEnd }
+    }
+  });
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+    spreadsheetId
+  )}:batchUpdate`;
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ requests })
+    },
+    { timeoutMs: 12e3, retries: 2, baseDelayMs: 250 }
+  );
+  if (res.status === 401) {
+    invalidateSheetsAccessTokenCache();
+    return { fallback: true };
+  }
+  if (res.status === 403 || res.status === 404) {
+    return { fallback: true };
+  }
+  if (!res.ok) {
+    const errTxt = await res.text().catch(() => "");
+    console.warn(`[Sheets API v4 Delete] batchUpdate HTTP ${res.status}: ${errTxt.slice(0, 140)}`);
+    return { fallback: true };
+  }
+  return { ok: true };
+}
+async function atomicAppendColAReserveRows(spreadsheetId, actualTab, colAValues, token) {
+  const range = encodeURIComponent(`${quoteA1Sheet(actualTab)}!A:A`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+    spreadsheetId
+  )}/values/${range}:append?valueInputOption=RAW&insertDataOption=OVERWRITE`;
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          majorDimension: "ROWS",
+          values: colAValues.map((v) => [v])
+        })
+      },
+      12e3
+    );
+    if (res.status === 429 && attempt < 2) {
+      await res.text().catch(() => "");
+      const jitter = 250 + Math.floor(Math.random() * 500);
+      await new Promise((r) => setTimeout(r, jitter));
+      continue;
+    }
+    if (res.status === 401) {
+      invalidateSheetsAccessTokenCache();
+      return null;
+    }
+    if (!res.ok) {
+      return null;
+    }
+    const json = await res.json();
+    const updatedRange = String(json?.updates?.updatedRange || "");
+    const m = updatedRange.match(/!A(\d+)(?::A(\d+))?$/);
+    if (!m || !m[1]) return null;
+    const startRow = Number(m[1]);
+    return Number.isInteger(startRow) && startRow >= 2 ? { startRow } : null;
+  }
+  return null;
+}
+function buildAppendRangesForMatrix(actualTab, startRow, matrix, isFormulaCol, startCol = 0) {
+  const ranges = [];
+  const cols = isFormulaCol.length;
+  const endRow = startRow + matrix.length - 1;
+  const quotedTab = quoteA1Sheet(actualTab);
+  let c = startCol;
+  while (c < cols) {
+    if (isFormulaCol[c]) {
+      c++;
+      continue;
+    }
+    const spanStart = c;
+    while (c < cols && !isFormulaCol[c]) {
+      c++;
+    }
+    const spanEnd = c - 1;
+    const subMatrix = matrix.map((row) => row.slice(spanStart, spanEnd + 1));
+    const startL = colIndexToLetter(spanStart);
+    const endL = colIndexToLetter(spanEnd);
+    ranges.push({
+      range: `${quotedTab}!${startL}${startRow}:${endL}${endRow}`,
+      values: subMatrix
+    });
+  }
+  return ranges;
+}
+function buildPartialRowUpdateRanges(actualTab, sheetRow, headers, isFormulaCol, rowObj) {
+  const ranges = [];
+  const quotedTab = quoteA1Sheet(actualTab);
+  const cols = headers.length;
+  let c = 0;
+  while (c < cols) {
+    if (isFormulaCol[c]) {
+      c++;
+      continue;
+    }
+    const rawVal = getNormalizedValue(rowObj, headers[c]);
+    if (rawVal === void 0) {
+      c++;
+      continue;
+    }
+    const spanStart = c;
+    const spanValues = [];
+    while (c < cols && !isFormulaCol[c]) {
+      const nextVal = getNormalizedValue(rowObj, headers[c]);
+      if (nextVal === void 0) break;
+      spanValues.push(formatWriteCellValue(nextVal));
+      c++;
+    }
+    const spanEnd = c - 1;
+    const startL = colIndexToLetter(spanStart);
+    const endL = colIndexToLetter(spanEnd);
+    ranges.push({
+      range: spanStart === spanEnd ? `${quotedTab}!${startL}${sheetRow}` : `${quotedTab}!${startL}${sheetRow}:${endL}${sheetRow}`,
+      values: [spanValues]
+    });
+  }
+  return ranges;
+}
+async function tryWriteSheetViaApiV4(spreadsheetId, sheetName, action, payload, options) {
+  if (action !== "CREATE" && action !== "UPDATE" && action !== "BULK_UPDATE" && action !== "IMPORT" && action !== "DELETE" && action !== "BULK_DELETE") {
+    return null;
+  }
+  const auth = await resolveGoogleSheetsWriteAuth();
+  if (!auth) return null;
+  try {
+    const meta = await getSpreadsheetMetadataViaApiV4(spreadsheetId, auth, false);
+    const actualTab = resolveActualTabName(sheetName, meta.tabNames);
+    if (!actualTab) {
+      return null;
+    }
+    return await withSheetWriteLock(`${spreadsheetId}::${actualTab}`, async () => {
+      const schema = await getSheetWriteSchema(
+        spreadsheetId,
+        actualTab,
+        sheetName,
+        auth.token,
+        Boolean(options?.respectActualFormulasOnly)
+      );
+      if (!schema) return null;
+      const { headers, isFormulaCol } = schema;
+      const values = await readSheetValuesMatrix(spreadsheetId, actualTab, headers.length, auth.token);
+      if (!values) return null;
+      if (action === "CREATE" || action === "IMPORT") {
+        const items = action === "IMPORT" ? Array.isArray(payload) ? payload : [] : [payload || {}];
+        if (items.length === 0) {
+          return {
+            verified: true,
+            savedAt: (/* @__PURE__ */ new Date()).toISOString()
+          };
+        }
+        const matrix = items.map(
+          (item) => headers.map((h) => {
+            const val = getNormalizedValue(item, h);
+            return val !== void 0 ? formatWriteCellValue(val) : "";
+          })
+        );
+        const nextAppendRow = getNextAppendRowNonFormula(values, isFormulaCol);
+        const nextRowColA = getNextRowInColA(values);
+        const allColANonEmpty = !isFormulaCol[0] && matrix.every((row) => String(row[0] ?? "").trim() !== "");
+        let finalStartRow = nextAppendRow;
+        let usedAtomicAppend = false;
+        if (allColANonEmpty && nextRowColA === nextAppendRow) {
+          const reserved = await atomicAppendColAReserveRows(
+            spreadsheetId,
+            actualTab,
+            matrix.map((row) => row[0]),
+            auth.token
+          );
+          if (reserved) {
+            finalStartRow = reserved.startRow;
+            usedAtomicAppend = true;
+          }
+        }
+        const ranges = buildAppendRangesForMatrix(
+          actualTab,
+          finalStartRow,
+          matrix,
+          isFormulaCol,
+          usedAtomicAppend ? 1 : 0
+        );
+        const writeRes2 = await batchUpdateValueRanges(spreadsheetId, ranges, auth.token);
+        if ("fallback" in writeRes2) {
+          if (usedAtomicAppend) {
+            throw new PortalConfigError(
+              "GAS_WRITE_FAILED",
+              `Gagal melengkapi seluruh kolom baris baru di [${sheetName}]. Silakan segarkan tabel untuk memeriksa baris #${finalStartRow} lalu ulangi.`,
+              502
+            );
+          }
+          return null;
+        }
+        const firstId = extractRecordId(items[0]) || String(matrix[0]?.[0] ?? "").trim();
+        return {
+          verified: true,
+          savedId: firstId || void 0,
+          sheetRowNumber: finalStartRow,
+          savedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
+      if (action === "UPDATE") {
+        const rowObj = payload || {};
+        const targetId = extractRecordId(rowObj);
+        const explicitRowNum = Number(rowObj._sheetRowNumber || 0);
+        const rowIdx = findRowIndexById(values, headers, targetId, rowObj, sheetName, explicitRowNum);
+        if (rowIdx === -1) {
+          throw new PortalConfigError(
+            "GAS_WRITE_ERROR",
+            `Baris data dengan ID "${targetId}" tidak ditemukan di sheet "${sheetName}". Segarkan tabel terlebih dahulu lalu coba simpan ulang.`,
+            502
+          );
+        }
+        const sheetRowNumber = rowIdx + 1;
+        const ranges = buildPartialRowUpdateRanges(
+          actualTab,
+          sheetRowNumber,
+          headers,
+          isFormulaCol,
+          rowObj
+        );
+        const writeRes2 = await batchUpdateValueRanges(spreadsheetId, ranges, auth.token);
+        if ("fallback" in writeRes2) {
+          return null;
+        }
+        return {
+          verified: true,
+          savedId: targetId || void 0,
+          sheetRowNumber,
+          savedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
+      if (action === "DELETE") {
+        const sheetId = meta.sheetIds[actualTab];
+        if (typeof sheetId !== "number") return null;
+        const rowPayload = payload || {};
+        const deletedRowObj = rowPayload.deletedRow || rowPayload;
+        const targetId = String(
+          extractRecordId(rowPayload) || extractRecordId(deletedRowObj) || ""
+        ).trim();
+        const explicitRowNum = Number(
+          rowPayload._sheetRowNumber || deletedRowObj._sheetRowNumber || 0
+        );
+        const rowIdx = findRowIndexById(
+          values,
+          headers,
+          targetId,
+          deletedRowObj,
+          sheetName,
+          explicitRowNum
+        );
+        if (rowIdx === -1) {
+          throw new PortalConfigError(
+            "GAS_WRITE_ERROR",
+            `Baris data yang akan dihapus (ID: "${targetId}") tidak ditemukan di sheet "${sheetName}".`,
+            502
+          );
+        }
+        const delRes = await deleteRowsViaBatchUpdate(spreadsheetId, sheetId, [rowIdx], auth.token);
+        if ("fallback" in delRes) {
+          return null;
+        }
+        return {
+          verified: true,
+          savedId: targetId || void 0,
+          sheetRowNumber: rowIdx + 1,
+          savedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
+      if (action === "BULK_DELETE") {
+        const sheetId = meta.sheetIds[actualTab];
+        if (typeof sheetId !== "number") return null;
+        const ids = Array.isArray(payload?.ids) ? payload.ids : [];
+        const deletedRows = Array.isArray(payload?.deletedRows) ? payload.deletedRows : [];
+        const rowIndices = /* @__PURE__ */ new Set();
+        for (const rowObj of deletedRows) {
+          const idx = findRowIndexById(
+            values,
+            headers,
+            extractRecordId(rowObj),
+            rowObj,
+            sheetName,
+            rowObj?._sheetRowNumber
+          );
+          if (idx >= 1) rowIndices.add(idx);
+        }
+        for (const rawId of ids) {
+          const idx = findRowIndexById(values, headers, String(rawId), null, sheetName, 0);
+          if (idx >= 1) rowIndices.add(idx);
+        }
+        if (rowIndices.size === 0 && (ids.length > 0 || deletedRows.length > 0)) {
+          throw new PortalConfigError(
+            "GAS_WRITE_ERROR",
+            `Baris yang dipilih tidak ditemukan di sheet "${sheetName}". Segarkan tabel lalu coba lagi.`,
+            502
+          );
+        }
+        const delRes = await deleteRowsViaBatchUpdate(
+          spreadsheetId,
+          sheetId,
+          Array.from(rowIndices),
+          auth.token
+        );
+        if ("fallback" in delRes) {
+          return null;
+        }
+        return {
+          verified: true,
+          savedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+      }
+      const updatedRows = Array.isArray(payload) ? payload : Array.isArray(payload?.updatedRows) ? payload.updatedRows : Array.isArray(payload?.rows) ? payload.rows : [];
+      const allRanges = [];
+      const missingIds = [];
+      let lastRowNum;
+      for (const rowObj of updatedRows) {
+        if (!rowObj || typeof rowObj !== "object") continue;
+        const targetId = extractRecordId(rowObj);
+        const rowIdx = findRowIndexById(
+          values,
+          headers,
+          targetId,
+          rowObj,
+          sheetName,
+          rowObj._sheetRowNumber
+        );
+        if (rowIdx === -1) {
+          missingIds.push(targetId || "(tanpa ID)");
+          continue;
+        }
+        const sheetRowNumber = rowIdx + 1;
+        lastRowNum = sheetRowNumber;
+        allRanges.push(
+          ...buildPartialRowUpdateRanges(actualTab, sheetRowNumber, headers, isFormulaCol, rowObj)
+        );
+      }
+      if (missingIds.length > 0) {
+        throw new PortalConfigError(
+          "GAS_WRITE_ERROR",
+          `${missingIds.length} baris tidak ditemukan di sheet "${sheetName}" (${missingIds.slice(0, 3).join(", ")}). Segarkan tabel terlebih dahulu agar pembaruan seragam tersimpan penuh.`,
+          502
+        );
+      }
+      const writeRes = await batchUpdateValueRanges(spreadsheetId, allRanges, auth.token);
+      if ("fallback" in writeRes) {
+        return null;
+      }
+      return {
+        verified: true,
+        sheetRowNumber: lastRowNum,
+        savedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    });
+  } catch (err) {
+    if (err instanceof PortalConfigError) {
+      throw err;
+    }
+    console.warn("[Sheets API v4 Write] Fallback to GAS:", err?.message);
     return null;
   }
 }
@@ -1998,7 +2903,7 @@ function triggerBackgroundSheetRefresh(sheetName, cacheKey) {
   });
 }
 async function fetchLiveSheetViaGas(sheetName, forceRefresh = false) {
-  const config = await getFirestoreWorkspaceConfig(forceRefresh);
+  const config = await getFirestoreWorkspaceConfig(false);
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
       "SPREADSHEET_NOT_CONFIGURED",
@@ -2045,14 +2950,14 @@ async function fetchLiveSheetViaGas(sheetName, forceRefresh = false) {
     )}${freshSuffix}`;
     let gasRes;
     try {
-      gasRes = await fetchWithTimeout(
+      gasRes = await fetchWithRetry(
         targetUrl,
         {
           method: "GET",
           headers: { Accept: "application/json" },
           redirect: "follow"
         },
-        GAS_FETCH_TIMEOUT_MS
+        { timeoutMs: GAS_FETCH_TIMEOUT_MS, retries: 2, baseDelayMs: 300 }
       );
     } catch (err) {
       if (err instanceof PortalConfigError) throw err;
@@ -2091,7 +2996,7 @@ async function fetchLiveSheetViaGas(sheetName, forceRefresh = false) {
   }
 }
 async function fetchBatchSheetsViaGas(sheetNames, optionalSheets = /* @__PURE__ */ new Set(), forceRefresh = false) {
-  const config = await getFirestoreWorkspaceConfig(forceRefresh);
+  const config = await getFirestoreWorkspaceConfig(false);
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
       "SPREADSHEET_NOT_CONFIGURED",
@@ -2161,14 +3066,14 @@ async function fetchBatchSheetsViaGas(sheetNames, optionalSheets = /* @__PURE__ 
       )}&year=${encodeURIComponent(config.activeYear)}&spreadsheetId=${encodeURIComponent(
         config.spreadsheetId
       )}${freshSuffix}`;
-      const gasRes = await fetchWithTimeout(
+      const gasRes = await fetchWithRetry(
         batchUrl,
         {
           method: "GET",
           headers: { Accept: "application/json" },
           redirect: "follow"
         },
-        GAS_FETCH_TIMEOUT_MS
+        { timeoutMs: GAS_FETCH_TIMEOUT_MS, retries: 2, baseDelayMs: 300 }
       );
       if (gasRes.ok) {
         const rawText = await gasRes.text();
@@ -2223,7 +3128,7 @@ async function fetchMasterSiswaRows(forceRefresh = false) {
     throw err;
   }
 }
-async function writeLiveSheetViaGas(sheetName, action, payload) {
+async function writeLiveSheetViaGas(sheetName, action, payload, options) {
   const config = await getFirestoreWorkspaceConfig();
   if (!config.spreadsheetId) {
     throw new PortalConfigError(
@@ -2231,7 +3136,6 @@ async function writeLiveSheetViaGas(sheetName, action, payload) {
       "ID Database Cloud Server belum dikonfigurasi oleh Admin Hubin."
     );
   }
-  const gasUrl = validateGasUrl(config.gasDeployUrl);
   const rawId = payload && typeof payload === "object" && !Array.isArray(payload) ? payload.id || payload.deletedRow?.id || payload.updatedRow?.id || "" : "";
   const hashMatch = String(rawId || "").trim().match(/^(.*)#r(\d+)$/);
   const cleanId = hashMatch ? hashMatch[1].trim() : String(rawId || "").trim();
@@ -2240,58 +3144,105 @@ async function writeLiveSheetViaGas(sheetName, action, payload) {
   ) : 0) || (hashMatch ? Number(hashMatch[2]) : 0);
   const sheetSvc = GoogleDriveSheetService.getInstance();
   let sanitizedPayload = payload;
-  if ((action === "CREATE" || action === "UPDATE") && payload && typeof payload === "object" && !Array.isArray(payload)) {
-    sanitizedPayload = sheetSvc.stripFormulaManagedFields(sheetName, payload);
-  } else if ((action === "BULK_UPDATE" || action === "IMPORT") && Array.isArray(payload)) {
-    sanitizedPayload = payload.map(
-      (item) => item && typeof item === "object" ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
-    );
-  } else if (action === "BULK_UPDATE" && payload && typeof payload === "object" && (Array.isArray(payload.updatedRows) || Array.isArray(payload.rows))) {
-    sanitizedPayload = {
-      ...payload,
-      ...Array.isArray(payload.updatedRows) ? {
-        updatedRows: payload.updatedRows.map(
-          (item) => item && typeof item === "object" ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
-        )
-      } : {},
-      ...Array.isArray(payload.rows) ? {
-        rows: payload.rows.map(
-          (item) => item && typeof item === "object" ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
-        )
-      } : {}
-    };
+  if (!options?.preserveDisplayColumnsForNonFormula) {
+    if ((action === "CREATE" || action === "UPDATE") && payload && typeof payload === "object" && !Array.isArray(payload)) {
+      sanitizedPayload = sheetSvc.stripFormulaManagedFields(sheetName, payload);
+    } else if ((action === "BULK_UPDATE" || action === "IMPORT") && Array.isArray(payload)) {
+      sanitizedPayload = payload.map(
+        (item) => item && typeof item === "object" ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
+      );
+    } else if (action === "BULK_UPDATE" && payload && typeof payload === "object" && (Array.isArray(payload.updatedRows) || Array.isArray(payload.rows))) {
+      sanitizedPayload = {
+        ...payload,
+        ...Array.isArray(payload.updatedRows) ? {
+          updatedRows: payload.updatedRows.map(
+            (item) => item && typeof item === "object" ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
+          )
+        } : {},
+        ...Array.isArray(payload.rows) ? {
+          rows: payload.rows.map(
+            (item) => item && typeof item === "object" ? sheetSvc.stripFormulaManagedFields(sheetName, item) : item
+          )
+        } : {}
+      };
+    }
   }
+  const apiV4WriteReceipt = await tryWriteSheetViaApiV4(
+    config.spreadsheetId,
+    sheetName,
+    action,
+    sanitizedPayload,
+    { respectActualFormulasOnly: Boolean(options?.preserveDisplayColumnsForNonFormula) }
+  );
+  if (apiV4WriteReceipt) {
+    invalidateSheetCacheEntry(config.spreadsheetId, sheetName);
+    if (sheetName === "Master_Siswa_XI" || sheetName === "Master_Siswa") {
+      siswaIndexCache.delete(config.spreadsheetId);
+      invalidateSheetCacheEntry(config.spreadsheetId, "Master_Siswa_XI");
+      invalidateSheetCacheEntry(config.spreadsheetId, "Master_Siswa");
+    }
+    for (const dep of getDependentSheets(sheetName)) {
+      invalidateSheetCacheEntry(config.spreadsheetId, dep);
+    }
+    return apiV4WriteReceipt;
+  }
+  const gasUrl = validateGasUrl(config.gasDeployUrl);
+  const postBody = JSON.stringify({
+    action,
+    sheetName,
+    year: config.activeYear,
+    spreadsheetId: config.spreadsheetId,
+    id: cleanId || rawId,
+    sheetRowNumber: sheetRowNumber >= 2 ? sheetRowNumber : void 0,
+    data: sanitizedPayload,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
   let gasRes;
-  try {
-    gasRes = await fetchWithTimeout(
-      gasUrl,
-      {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        redirect: "follow",
-        body: JSON.stringify({
-          action,
-          sheetName,
-          year: config.activeYear,
-          spreadsheetId: config.spreadsheetId,
-          id: cleanId || rawId,
-          sheetRowNumber: sheetRowNumber >= 2 ? sheetRowNumber : void 0,
-          data: sanitizedPayload,
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        })
-      },
-      2e4
-    );
-  } catch (err) {
-    if (err instanceof PortalConfigError) throw err;
-    throw new PortalConfigError(
-      "GAS_WRITE_FAILED",
-      `Server gagal mengirim data ke Endpoint Cloud Server (${err?.message || "network error"}). Periksa konfigurasi URL "/exec".`,
-      502
-    );
+  let rawText = "";
+  let json = {};
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      gasRes = await fetchWithTimeout(
+        gasUrl,
+        {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          redirect: "follow",
+          body: postBody
+        },
+        2e4
+      );
+    } catch (err) {
+      if (err instanceof PortalConfigError) {
+        if (err.code === "GAS_TIMEOUT" && attempt < 2) {
+          const jitter = 350 + Math.floor(Math.random() * 750);
+          await new Promise((r) => setTimeout(r, jitter));
+          continue;
+        }
+        throw err;
+      }
+      if (attempt < 2) {
+        const jitter = 350 + Math.floor(Math.random() * 750);
+        await new Promise((r) => setTimeout(r, jitter));
+        continue;
+      }
+      throw new PortalConfigError(
+        "GAS_WRITE_FAILED",
+        `Server gagal mengirim data ke Endpoint Cloud Server (${err?.message || "network error"}). Periksa konfigurasi URL "/exec".`,
+        502
+      );
+    }
+    rawText = await gasRes.text();
+    json = parseGasJsonSafely(rawText, sheetName, gasRes.status);
+    const errMsgLower = String(json?.error || "").toLowerCase();
+    const isTransientGasLock = gasRes.status === 429 || gasRes.status === 502 || gasRes.status === 503 || errMsgLower.includes("lock") || errMsgLower.includes("terlalu banyak") || errMsgLower.includes("exceeded maximum execution time");
+    if (isTransientGasLock && attempt < 2) {
+      const jitter = 400 + Math.floor(Math.random() * 850);
+      await new Promise((r) => setTimeout(r, jitter));
+      continue;
+    }
+    break;
   }
-  const rawText = await gasRes.text();
-  const json = parseGasJsonSafely(rawText, sheetName, gasRes.status);
   if (!gasRes.ok) {
     throw new PortalConfigError(
       "GAS_WRITE_FAILED",
@@ -2552,15 +3503,34 @@ async function requireAdminAuth(req) {
   if (!firebaseCfg.apiKey || !firebaseCfg.projectId) {
     throw new PortalConfigError("UNAUTHORIZED", "Token sesi tidak valid atau kedaluwarsa.", 401);
   }
-  const lookupRes = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseCfg.apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken: token })
-    }
-  );
+  let lookupRes;
+  try {
+    lookupRes = await fetchWithRetry(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseCfg.apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: token })
+      },
+      { timeoutMs: 8e3, retries: 2, baseDelayMs: 250 }
+    );
+  } catch (err) {
+    if (err instanceof PortalConfigError) throw err;
+    throw new PortalConfigError(
+      "GOOGLE_AUTH_UNAVAILABLE",
+      "Layanan autentikasi Google sedang mengalami gangguan sementara. Silakan coba lagi.",
+      503
+    );
+  }
   if (!lookupRes.ok) {
+    await lookupRes.text().catch(() => "");
+    if (lookupRes.status >= 500 || lookupRes.status === 429) {
+      throw new PortalConfigError(
+        "GOOGLE_AUTH_UNAVAILABLE",
+        "Layanan autentikasi Google sedang mengalami gangguan sementara. Silakan coba lagi.",
+        503
+      );
+    }
     throw new PortalConfigError("UNAUTHORIZED", "Sesi login telah berakhir. Silakan masuk ulang.", 401);
   }
   const lookupJson = await lookupRes.json();
@@ -2577,13 +3547,35 @@ async function requireAdminAuth(req) {
   const adminDocUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
     firebaseCfg.projectId
   )}/databases/${encodeURIComponent(firebaseCfg.firestoreDatabaseId)}/documents/admins/${encodeURIComponent(uid)}`;
-  const adminRes = await fetch(adminDocUrl, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json"
-    }
-  });
+  let adminRes;
+  try {
+    adminRes = await fetchWithRetry(
+      adminDocUrl,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json"
+        }
+      },
+      { timeoutMs: 8e3, retries: 2, baseDelayMs: 250 }
+    );
+  } catch (err) {
+    if (err instanceof PortalConfigError) throw err;
+    throw new PortalConfigError(
+      "FIRESTORE_UNAVAILABLE",
+      "Layanan verifikasi admin Cloud sedang mengalami gangguan sementara. Silakan coba lagi.",
+      503
+    );
+  }
   if (!adminRes.ok) {
+    await adminRes.text().catch(() => "");
+    if (adminRes.status >= 500 || adminRes.status === 429) {
+      throw new PortalConfigError(
+        "FIRESTORE_UNAVAILABLE",
+        "Layanan verifikasi admin Cloud sedang mengalami gangguan sementara. Silakan coba lagi.",
+        503
+      );
+    }
     throw new PortalConfigError(
       "FORBIDDEN",
       `Akun (${email}) tidak terdaftar sebagai Admin Hubin terotorisasi.`,
@@ -2942,8 +3934,14 @@ function registerAdminRoutes(app2) {
           message: "Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk SuperAdmin atau Admin Hubin."
         });
       }
-      await writeLiveSheetViaGas(targetSheet, normalizedAction, data);
-      res.json({ success: true });
+      const receipt = await writeLiveSheetViaGas(targetSheet, normalizedAction, data);
+      res.json({
+        success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt
+      });
     } catch (err) {
       handlePortalError(res, err);
     }
@@ -3027,9 +4025,40 @@ function registerAdminRoutes(app2) {
 }
 
 // server/services/relationRecalculator.ts
-async function recalculateAllRelations(scopeParam = "all", forceRefresh = false) {
-  const scope = String(scopeParam || "all").toLowerCase();
-  const neededTables = [
+function getTablesForRelationScope(scope) {
+  if (scope === "guru") {
+    return [
+      "Master_Guru_Pendamping",
+      "Master_Jurusan",
+      "Master_DUDI",
+      "Data_Pengajuan_PKL",
+      "Plotting_Pemberangkatan",
+      "Monitoring_5_Tahap",
+      "Log_Penerbitan_Surat"
+    ];
+  }
+  if (scope === "jurusan") {
+    return [
+      "Master_Jurusan",
+      "Master_Guru_Pendamping",
+      "Master_Kelas_Walas",
+      "Master_Siswa_XI",
+      "Plotting_Pemberangkatan"
+    ];
+  }
+  if (scope === "dudi") {
+    return [
+      "Master_DUDI",
+      "Master_Guru_Pendamping",
+      "Data_Pengajuan_PKL",
+      "Data_Perizinan_PKL",
+      "Plotting_Pemberangkatan",
+      "Monitoring_5_Tahap",
+      "Nilai_Dan_Sertifikat",
+      "Log_Penerbitan_Surat"
+    ];
+  }
+  return [
     "Master_Siswa_XI",
     "Master_DUDI",
     "Master_Guru_Pendamping",
@@ -3039,8 +4068,13 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
     "Data_Perizinan_PKL",
     "Plotting_Pemberangkatan",
     "Monitoring_5_Tahap",
-    "Nilai_Dan_Sertifikat"
+    "Nilai_Dan_Sertifikat",
+    "Log_Penerbitan_Surat"
   ];
+}
+async function recalculateAllRelations(scopeParam = "all", forceRefresh = false, mutationHint) {
+  const scope = String(scopeParam || "all").toLowerCase();
+  const neededTables = getTablesForRelationScope(scope);
   const { sheets } = await fetchBatchSheetsViaGas(
     neededTables,
     /* @__PURE__ */ new Set([
@@ -3062,7 +4096,10 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
   const placements = sheets["Plotting_Pemberangkatan"] || [];
   const monitoringList = sheets["Monitoring_5_Tahap"] || [];
   const sertifikatList = sheets["Nilai_Dan_Sertifikat"] || [];
+  const logSuratList = sheets["Log_Penerbitan_Surat"] || [];
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const hintedId = String(mutationHint?.mutatedId || "").trim();
+  const hintedPrevNorm = norm(mutationHint?.previousName);
   const jurCodeByKey = /* @__PURE__ */ new Map();
   for (const j of jurusanList) {
     const nama = pickField(j, "Nama_Jurusan", "namaJurusan", "nama");
@@ -3085,6 +4122,15 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
     if (id) dudiById.set(id, d);
     if (nama) dudiByName.set(norm(nama), d);
   }
+  const resolveDudiRecord = (idVal, namaVal) => {
+    if (idVal && dudiById.has(idVal)) return dudiById.get(idVal);
+    const nk = namaVal ? norm(namaVal) : "";
+    if (nk && hintedId && hintedPrevNorm && nk === hintedPrevNorm && dudiById.has(hintedId)) {
+      return dudiById.get(hintedId);
+    }
+    if (nk && dudiByName.has(nk)) return dudiByName.get(nk);
+    return void 0;
+  };
   const guruById = /* @__PURE__ */ new Map();
   const guruNameCount = /* @__PURE__ */ new Map();
   const guruByName = /* @__PURE__ */ new Map();
@@ -3098,14 +4144,16 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
       guruByName.set(nk, g);
     }
   }
-  const resolveCanonicalGuruId = (idVal, namaVal) => {
-    if (idVal && guruById.has(idVal)) return idVal;
+  const resolveGuruRecord = (idVal, namaVal) => {
+    if (idVal && guruById.has(idVal)) return guruById.get(idVal);
     const nk = namaVal ? norm(namaVal) : "";
-    if (nk && guruNameCount.get(nk) === 1) {
-      const matched = guruByName.get(nk);
-      return pickField(matched, "ID", "ID_Guru", "idGuru", "id");
+    if (nk && hintedId && hintedPrevNorm && nk === hintedPrevNorm && guruById.has(hintedId)) {
+      return guruById.get(hintedId);
     }
-    return "";
+    if (nk && guruNameCount.get(nk) === 1) {
+      return guruByName.get(nk);
+    }
+    return void 0;
   };
   const placementByNis = /* @__PURE__ */ new Map();
   const activePlacementNis = /* @__PURE__ */ new Set();
@@ -3124,25 +4172,58 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
       placementByNis.set(pNis, p);
     }
   }
+  const pengajuanByNis = /* @__PURE__ */ new Map();
+  for (const pq of pengajuanList) {
+    const sk = norm(pickField(pq, "Status_Kakomli", "statusKakomli"));
+    const sh = norm(pickField(pq, "Status_Hubin", "statusHubin"));
+    if (sk === "ditolak" || sh === "batal") continue;
+    const pNis = stripNisSymbols(pickField(pq, "NIS", "nis"));
+    if (!pNis) continue;
+    const rank = sh === "terjadwal" || sh === "siap diberangkatkan" ? 3 : sk === "disetujui" ? 2 : 1;
+    const prev = pengajuanByNis.get(pNis);
+    if (!prev || rank >= prev.rank) {
+      const matchedDudi = resolveDudiRecord(
+        pickField(pq, "ID_DUDI", "idDudi"),
+        pickField(pq, "DUDI_Tujuan", "dudiTujuan")
+      );
+      const matchedGuru = resolveGuruRecord(
+        pickField(pq, "ID_Guru_Pendamping", "idGuruPendamping"),
+        pickField(pq, "Guru_Pendamping", "guruPendamping")
+      );
+      pengajuanByNis.set(pNis, {
+        idDudi: matchedDudi ? pickField(matchedDudi, "ID", "id") : pickField(pq, "ID_DUDI", "idDudi"),
+        dudiTujuan: matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : pickField(pq, "DUDI_Tujuan", "dudiTujuan"),
+        idGuru: matchedGuru ? pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id") : pickField(pq, "ID_Guru_Pendamping", "idGuruPendamping"),
+        guruPendamping: matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : pickField(pq, "Guru_Pendamping", "guruPendamping"),
+        rank
+      });
+    }
+  }
   const flushBulkUpdates = async (sheetName, rows) => {
     if (!rows.length) return 0;
     const CHUNK = 150;
     let applied = 0;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK);
-      const res = await writeLiveSheetViaGas(sheetName, "BULK_UPDATE", {
-        ids: chunk.map((r) => r.id),
-        updatedRows: chunk
-      }).then(() => true).catch(() => false);
+      const res = await writeLiveSheetViaGas(
+        sheetName,
+        "BULK_UPDATE",
+        {
+          ids: chunk.map((r) => r.id),
+          updatedRows: chunk
+        },
+        { preserveDisplayColumnsForNonFormula: true }
+      ).then(() => true).catch(() => false);
       if (res) applied += chunk.length;
     }
     return applied;
   };
   let updatedPlacements = 0;
   let updatedDudi = 0;
-  const updatedGuru = 0;
+  let updatedGuru = 0;
   let updatedJurusan = 0;
   let updatedKelas = 0;
+  const jurusanUpdates = [];
   const dudiUpdates = [];
   const kelasUpdates = [];
   const siswaUpdates = [];
@@ -3151,22 +4232,56 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
   const placementUpdates = [];
   const monitoringUpdates = [];
   const sertifikatUpdates = [];
+  const logSuratUpdates = [];
   if (scope === "all" || scope === "guru" || scope === "dudi") {
     for (const d of dudiList) {
       const dId = pickField(d, "ID", "ID_DUDI", "idDudi", "id");
       if (!dId) continue;
       const dGuruId = pickField(d, "ID_Guru_Pendamping", "idGuruPendamping");
       const dGuruName = pickField(d, "Guru_Pendamping", "guruPendamping");
-      const resolvedGuruId = resolveCanonicalGuruId(dGuruId, dGuruName);
-      if (resolvedGuruId && resolvedGuruId !== dGuruId) {
+      const matchedGuru = resolveGuruRecord(dGuruId, dGuruName);
+      if (!matchedGuru) continue;
+      const nextGuruId = pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id");
+      const nextGuruName = pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama");
+      const needsIdFix = Boolean(nextGuruId && nextGuruId !== dGuruId);
+      const needsNameSync = Boolean(nextGuruName && nextGuruName !== dGuruName);
+      if (needsIdFix || needsNameSync) {
         dudiUpdates.push({
           id: dId,
           ID: dId,
           _sheetRowNumber: d._sheetRowNumber,
-          ID_Guru_Pendamping: resolvedGuruId,
-          idGuruPendamping: resolvedGuruId
+          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
+          ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
         });
-        d.ID_Guru_Pendamping = resolvedGuruId;
+        if (nextGuruId) d.ID_Guru_Pendamping = nextGuruId;
+        if (nextGuruName) d.Guru_Pendamping = nextGuruName;
+      }
+    }
+  }
+  if (scope === "all" || scope === "guru" || scope === "jurusan") {
+    for (const j of jurusanList) {
+      const jId = pickField(j, "ID", "Kode", "id") || pickField(j, "Kode_Jurusan", "kode");
+      if (!jId) continue;
+      const jKakomliId = pickField(j, "ID_Kakomli", "idKakomli");
+      const jKakomliName = pickField(j, "Nama_Kakomli", "namaKakomli");
+      const jKakomliNip = pickField(j, "NIP_Kakomli", "nipKakomli");
+      const matchedGuru = resolveGuruRecord(jKakomliId, jKakomliName);
+      if (!matchedGuru) continue;
+      const nextKakomliId = pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id");
+      const nextKakomliName = pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama");
+      const nextKakomliNip = pickField(matchedGuru, "NIP", "nip");
+      const needsIdFix = Boolean(nextKakomliId && nextKakomliId !== jKakomliId);
+      const needsNameSync = Boolean(nextKakomliName && nextKakomliName !== jKakomliName);
+      const needsNipFill = Boolean(nextKakomliNip && (!jKakomliNip || jKakomliNip === "-"));
+      if (needsIdFix || needsNameSync || needsNipFill) {
+        jurusanUpdates.push({
+          id: jId,
+          ID: jId,
+          _sheetRowNumber: j._sheetRowNumber,
+          ...nextKakomliId ? { ID_Kakomli: nextKakomliId, idKakomli: nextKakomliId } : {},
+          ...nextKakomliName ? { Nama_Kakomli: nextKakomliName, namaKakomli: nextKakomliName } : {},
+          ...needsNipFill ? { NIP_Kakomli: nextKakomliNip, nipKakomli: nextKakomliNip } : {}
+        });
       }
     }
   }
@@ -3196,10 +4311,12 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
       const currStatus = pickField(s, "Status_PKL", "statusPKL");
       let nextStatus = currStatus;
       if (nisDigits) {
-        if (activePlacementNis.has(nisDigits) && ["belum daftar", "diajukan", "menunggu acc", ""].includes(norm(currStatus))) {
-          nextStatus = "Aktif PKL";
+        if (activePlacementNis.has(nisDigits) && ["belum daftar", "diajukan", "diterima dudi", "menunggu acc", "aktif pkl", ""].includes(norm(currStatus))) {
+          nextStatus = "Sedang PKL";
         } else if (!activePlacementNis.has(nisDigits) && completedPlacementNis.has(nisDigits) && norm(currStatus) !== "selesai pkl") {
           nextStatus = "Selesai PKL";
+        } else if (!activePlacementNis.has(nisDigits) && pengajuanByNis.has(nisDigits) && ["", "belum daftar"].includes(norm(currStatus))) {
+          nextStatus = "Diajukan";
         }
       }
       const needsJurFix = Boolean(canonicalJur && canonicalJur !== currJur);
@@ -3215,24 +4332,36 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
       }
     }
   }
-  if (scope === "all" || scope === "placements" || scope === "siswa_pkl" || scope === "pengajuan" || scope === "perizinan") {
+  if (scope === "all" || scope === "guru" || scope === "dudi" || scope === "placements" || scope === "siswa_pkl" || scope === "pengajuan" || scope === "perizinan") {
     for (const pq of pengajuanList) {
       const pqId = pickField(pq, "No_Pengajuan", "noPengajuan", "id");
       if (!pqId) continue;
       const currDudiId = pickField(pq, "ID_DUDI", "idDudi");
-      const dudiName = pickField(pq, "DUDI_Tujuan", "dudiTujuan");
-      const matchedDudi = currDudiId && dudiById.get(currDudiId) || dudiName && dudiByName.get(norm(dudiName));
+      const currDudiName = pickField(pq, "DUDI_Tujuan", "dudiTujuan");
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
+      const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
+      const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, "Alamat", "alamat") : "";
       const currGuruId = pickField(pq, "ID_Guru_Pendamping", "idGuruPendamping");
-      const guruName = pickField(pq, "Guru_Pendamping", "guruPendamping");
-      const nextGuruId = resolveCanonicalGuruId(currGuruId, guruName) || (matchedDudi ? pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping") : "");
-      if (nextDudiId && nextDudiId !== currDudiId || nextGuruId && nextGuruId !== currGuruId) {
+      const currGuruName = pickField(pq, "Guru_Pendamping", "guruPendamping");
+      const matchedGuru = resolveGuruRecord(currGuruId, currGuruName) || (matchedDudi ? resolveGuruRecord(
+        pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping"),
+        pickField(matchedDudi, "Guru_Pendamping", "guruPendamping")
+      ) : void 0);
+      const nextGuruId = matchedGuru ? pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id") : "";
+      const nextGuruName = matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : "";
+      const needsDudiUpdate = Boolean(nextDudiId && nextDudiId !== currDudiId) || Boolean(nextDudiName && nextDudiName !== currDudiName);
+      const needsGuruUpdate = Boolean(nextGuruId && nextGuruId !== currGuruId) || Boolean(nextGuruName && nextGuruName !== currGuruName);
+      if (needsDudiUpdate || needsGuruUpdate) {
         pengajuanUpdates.push({
           id: pqId,
           No_Pengajuan: pqId,
           _sheetRowNumber: pq._sheetRowNumber,
           ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
-          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}
+          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {},
+          ...nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {},
+          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
+          ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
         });
       }
     }
@@ -3240,100 +4369,209 @@ async function recalculateAllRelations(scopeParam = "all", forceRefresh = false)
       const izId = pickField(iz, "ID_Perizinan", "noPerizinan", "id");
       if (!izId) continue;
       const currDudiId = pickField(iz, "ID_DUDI", "idDudi");
-      const dudiName = pickField(iz, "DUDI_Tujuan", "dudiTujuan");
-      const matchedDudi = !currDudiId && dudiName ? dudiByName.get(norm(dudiName)) : void 0;
-      const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : "";
-      if (nextDudiId && nextDudiId !== currDudiId) {
+      const currDudiName = pickField(iz, "DUDI_Tujuan", "dudiTujuan");
+      const currAlamat = pickField(iz, "Alamat_DUDI", "alamatDudi");
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
+      if (!matchedDudi) continue;
+      const nextDudiId = pickField(matchedDudi, "ID", "id");
+      const nextDudiName = pickField(matchedDudi, "Nama_DUDI", "namaDudi");
+      const nextAlamat = pickField(matchedDudi, "Alamat", "alamat");
+      if (nextDudiId && nextDudiId !== currDudiId || nextDudiName && nextDudiName !== currDudiName || nextAlamat && nextAlamat !== currAlamat) {
         perizinanUpdates.push({
           id: izId,
           ID_Perizinan: izId,
           _sheetRowNumber: iz._sheetRowNumber,
-          ID_DUDI: nextDudiId,
-          idDudi: nextDudiId
+          ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
+          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {},
+          ...nextAlamat ? { Alamat_DUDI: nextAlamat, alamatDudi: nextAlamat } : {}
         });
       }
     }
     for (const p of placements) {
       const pId = pickField(p, "ID_Penempatan", "idPenempatan", "id");
       if (!pId) continue;
+      const nisDigits = stripNisSymbols(pickField(p, "NIS", "nis"));
+      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : void 0;
       const currDudiId = pickField(p, "ID_DUDI", "idDudi");
-      const dudiName = pickField(p, "Nama_DUDI", "namaDudi", "DUDI_Tujuan");
-      const matchedDudi = currDudiId && dudiById.get(currDudiId) || dudiName && dudiByName.get(norm(dudiName));
+      const currDudiName = pickField(p, "Nama_DUDI", "namaDudi", "DUDI_Tujuan");
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName) || (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : void 0);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
+      const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
       const currGuruId = pickField(p, "ID_Guru_Pendamping", "idGuruPendamping");
-      const guruName = pickField(p, "Guru_Pendamping", "guruPendamping");
-      const nextGuruId = resolveCanonicalGuruId(currGuruId, guruName) || (matchedDudi ? pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping") : "");
-      if (nextDudiId && nextDudiId !== currDudiId || nextGuruId && nextGuruId !== currGuruId) {
+      const currGuruName = pickField(p, "Guru_Pendamping", "guruPendamping");
+      const matchedGuru = resolveGuruRecord(currGuruId, currGuruName) || (matchedDudi ? resolveGuruRecord(
+        pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping"),
+        pickField(matchedDudi, "Guru_Pendamping", "guruPendamping")
+      ) : void 0) || (reqRef ? resolveGuruRecord(reqRef.idGuru, reqRef.guruPendamping) : void 0);
+      const nextGuruId = matchedGuru ? pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id") : "";
+      const nextGuruName = matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : "";
+      const needsDudiUpdate = Boolean(nextDudiId && nextDudiId !== currDudiId) || Boolean(nextDudiName && nextDudiName !== currDudiName);
+      const needsGuruUpdate = Boolean(nextGuruId && nextGuruId !== currGuruId) || Boolean(nextGuruName && nextGuruName !== currGuruName);
+      if (needsDudiUpdate || needsGuruUpdate) {
         placementUpdates.push({
           id: pId,
           ID_Penempatan: pId,
           _sheetRowNumber: p._sheetRowNumber,
           ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
-          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}
+          ...nextDudiName ? { Nama_DUDI: nextDudiName, namaDudi: nextDudiName } : {},
+          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
+          ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
         });
+        if (nextDudiId) p.ID_DUDI = nextDudiId;
+        if (nextGuruId) p.ID_Guru_Pendamping = nextGuruId;
       }
     }
   }
-  if (scope === "all" || scope === "monitoring" || scope === "sertifikat") {
+  if (scope === "all" || scope === "guru" || scope === "dudi" || scope === "monitoring" || scope === "sertifikat") {
     for (const m of monitoringList) {
       const mId = pickField(m, "ID_Monitoring", "idMonitoring", "id");
       if (!mId) continue;
       const nisDigits = stripNisSymbols(pickField(m, "NIS", "nis"));
       const plt = nisDigits ? placementByNis.get(nisDigits) : void 0;
+      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : void 0;
       const currPltId = pickField(m, "ID_Penempatan", "idPenempatan");
-      const nextPltId = currPltId || (plt ? pickField(plt, "ID_Penempatan", "idPenempatan", "id") : "");
+      const pltCanonicalId = plt ? pickField(plt, "ID_Penempatan", "idPenempatan", "id") : "";
+      const nextPltId = pltCanonicalId && (!currPltId || currPltId.startsWith("PLT-2")) ? pltCanonicalId : currPltId;
+      const currNisRaw = pickField(m, "NIS", "nis");
+      const nextNis = currNisRaw || (plt ? stripNisSymbols(pickField(plt, "NIS", "nis")) : "");
       const currDudiId = pickField(m, "ID_DUDI", "idDudi");
-      const dudiName = pickField(m, "DUDI_Tujuan", "dudiTujuan");
-      const matchedDudi = currDudiId && dudiById.get(currDudiId) || dudiName && dudiByName.get(norm(dudiName));
-      const nextDudiId = (matchedDudi ? pickField(matchedDudi, "ID", "id") : "") || (plt ? pickField(plt, "ID_DUDI", "idDudi") : "") || currDudiId;
+      const currDudiName = pickField(m, "DUDI_Tujuan", "dudiTujuan");
+      const currDudiAlamat = pickField(m, "Alamat_DUDI", "alamatDudi");
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName) || (plt ? resolveDudiRecord(
+        pickField(plt, "ID_DUDI", "idDudi"),
+        pickField(plt, "Nama_DUDI", "namaDudi", "DUDI_Tujuan")
+      ) : void 0) || (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : void 0);
+      const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
+      const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
+      const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, "Alamat", "alamat") : "";
       const currGuruId = pickField(m, "ID_Guru_Pendamping", "idGuruPendamping");
-      const guruName = pickField(m, "Guru_Pendamping", "guruPendamping");
-      const nextGuruId = resolveCanonicalGuruId(currGuruId, guruName) || (plt ? pickField(plt, "ID_Guru_Pendamping", "idGuruPendamping") : "") || (matchedDudi ? pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping") : "");
-      if (nextPltId && nextPltId !== currPltId || nextDudiId && nextDudiId !== currDudiId || nextGuruId && nextGuruId !== currGuruId) {
+      const currGuruName = pickField(m, "Guru_Pendamping", "guruPendamping");
+      const matchedGuru = resolveGuruRecord(currGuruId, currGuruName) || (plt ? resolveGuruRecord(
+        pickField(plt, "ID_Guru_Pendamping", "idGuruPendamping"),
+        pickField(plt, "Guru_Pendamping", "guruPendamping")
+      ) : void 0) || (matchedDudi ? resolveGuruRecord(
+        pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping"),
+        pickField(matchedDudi, "Guru_Pendamping", "guruPendamping")
+      ) : void 0) || (reqRef ? resolveGuruRecord(reqRef.idGuru, reqRef.guruPendamping) : void 0);
+      const nextGuruId = matchedGuru ? pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id") : "";
+      const nextGuruName = matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : "";
+      const needsPltUpdate = Boolean(nextPltId && nextPltId !== currPltId);
+      const needsNisUpdate = Boolean(nextNis && !currNisRaw);
+      const needsDudiUpdate = Boolean(nextDudiId && nextDudiId !== currDudiId) || Boolean(nextDudiName && nextDudiName !== currDudiName) || Boolean(nextDudiAlamat && nextDudiAlamat !== currDudiAlamat);
+      const needsGuruUpdate = Boolean(nextGuruId && nextGuruId !== currGuruId) || Boolean(nextGuruName && nextGuruName !== currGuruName);
+      if (needsPltUpdate || needsNisUpdate || needsDudiUpdate || needsGuruUpdate) {
         monitoringUpdates.push({
           id: mId,
           ID_Monitoring: mId,
           _sheetRowNumber: m._sheetRowNumber,
           ...nextPltId ? { ID_Penempatan: nextPltId, idPenempatan: nextPltId } : {},
+          ...needsNisUpdate ? { NIS: nextNis, nis: nextNis } : {},
           ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
-          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}
+          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {},
+          ...nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {},
+          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
+          ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
         });
       }
     }
     for (const sr of sertifikatList) {
       const srId = pickField(sr, "ID_Penempatan", "idPenempatan", "id");
-      if (!srId) continue;
       const nisDigits = stripNisSymbols(pickField(sr, "NIS", "nis"));
+      if (!srId && !nisDigits) continue;
       const plt = nisDigits ? placementByNis.get(nisDigits) : void 0;
+      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : void 0;
+      const pltCanonicalId = plt ? pickField(plt, "ID_Penempatan", "idPenempatan", "id") : "";
+      const nextPltId = pltCanonicalId && (!srId || srId.startsWith("PLT-2")) ? pltCanonicalId : srId;
       const currDudiId = pickField(sr, "ID_DUDI", "idDudi");
-      const dudiName = pickField(sr, "DUDI_Tujuan", "dudiTujuan");
-      const matchedDudi = currDudiId && dudiById.get(currDudiId) || dudiName && dudiByName.get(norm(dudiName));
-      const nextDudiId = (matchedDudi ? pickField(matchedDudi, "ID", "id") : "") || (plt ? pickField(plt, "ID_DUDI", "idDudi") : "") || currDudiId;
-      if (nextDudiId && nextDudiId !== currDudiId) {
+      const currDudiName = pickField(sr, "DUDI_Tujuan", "dudiTujuan");
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName) || (plt ? resolveDudiRecord(
+        pickField(plt, "ID_DUDI", "idDudi"),
+        pickField(plt, "Nama_DUDI", "namaDudi", "DUDI_Tujuan")
+      ) : void 0) || (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : void 0);
+      const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
+      const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
+      if (nextPltId && nextPltId !== srId || nextDudiId && nextDudiId !== currDudiId || nextDudiName && nextDudiName !== currDudiName) {
         sertifikatUpdates.push({
-          id: srId,
-          ID_Penempatan: srId,
+          id: srId || nisDigits,
+          NIS: nisDigits || void 0,
           _sheetRowNumber: sr._sheetRowNumber,
-          ID_DUDI: nextDudiId,
-          idDudi: nextDudiId
+          ...nextPltId ? { ID_Penempatan: nextPltId, idPenempatan: nextPltId } : {},
+          ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
+          ...nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}
         });
       }
     }
   }
-  updatedDudi = await flushBulkUpdates("Master_DUDI", dudiUpdates);
-  updatedKelas = await flushBulkUpdates("Master_Kelas_Walas", kelasUpdates);
-  updatedJurusan = await flushBulkUpdates("Master_Siswa_XI", siswaUpdates);
-  await flushBulkUpdates("Data_Pengajuan_PKL", pengajuanUpdates);
-  await flushBulkUpdates("Data_Perizinan_PKL", perizinanUpdates);
-  updatedPlacements = await flushBulkUpdates("Plotting_Pemberangkatan", placementUpdates);
-  await flushBulkUpdates("Monitoring_5_Tahap", monitoringUpdates);
-  await flushBulkUpdates("Nilai_Dan_Sertifikat", sertifikatUpdates);
+  if (scope === "all" || scope === "guru" || scope === "dudi") {
+    for (const ls of logSuratList) {
+      const lsId = pickField(ls, "ID_Terbit", "idTerbit", "id");
+      if (!lsId) continue;
+      const currDudiId = pickField(ls, "ID_DUDI", "idDudi");
+      const currDudiName = pickField(ls, "Nama_DUDI", "namaDudi");
+      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
+      const nextDudiId = matchedDudi ? pickField(matchedDudi, "ID", "id") : currDudiId;
+      const nextDudiName = matchedDudi ? pickField(matchedDudi, "Nama_DUDI", "namaDudi") : "";
+      const currGuruId = pickField(ls, "ID_Guru_Pendamping", "idGuruPendamping");
+      const currGuruName = pickField(ls, "Guru_Pendamping", "guruPendamping");
+      const matchedGuru = resolveGuruRecord(currGuruId, currGuruName) || (matchedDudi ? resolveGuruRecord(
+        pickField(matchedDudi, "ID_Guru_Pendamping", "idGuruPendamping"),
+        pickField(matchedDudi, "Guru_Pendamping", "guruPendamping")
+      ) : void 0);
+      const nextGuruId = matchedGuru ? pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id") : "";
+      const nextGuruName = matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : "";
+      const needsDudiUpdate = Boolean(nextDudiId && nextDudiId !== currDudiId) || Boolean(nextDudiName && nextDudiName !== currDudiName);
+      const needsGuruUpdate = Boolean(nextGuruId && nextGuruId !== currGuruId) || Boolean(nextGuruName && nextGuruName !== currGuruName);
+      if (needsDudiUpdate || needsGuruUpdate) {
+        logSuratUpdates.push({
+          id: lsId,
+          ID_Terbit: lsId,
+          _sheetRowNumber: ls._sheetRowNumber,
+          ...nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {},
+          ...nextDudiName ? { Nama_DUDI: nextDudiName, namaDudi: nextDudiName } : {},
+          ...nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {},
+          ...nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}
+        });
+      }
+    }
+  }
+  const [
+    flushedJurusan,
+    flushedDudi,
+    flushedKelas,
+    flushedSiswa,
+    flushedPengajuan,
+    ,
+    flushedPlacements,
+    flushedMonitoring,
+    ,
+    flushedLogSurat
+  ] = await Promise.all([
+    flushBulkUpdates("Master_Jurusan", jurusanUpdates),
+    flushBulkUpdates("Master_DUDI", dudiUpdates),
+    flushBulkUpdates("Master_Kelas_Walas", kelasUpdates),
+    flushBulkUpdates("Master_Siswa_XI", siswaUpdates),
+    flushBulkUpdates("Data_Pengajuan_PKL", pengajuanUpdates),
+    flushBulkUpdates("Data_Perizinan_PKL", perizinanUpdates),
+    flushBulkUpdates("Plotting_Pemberangkatan", placementUpdates),
+    flushBulkUpdates("Monitoring_5_Tahap", monitoringUpdates),
+    flushBulkUpdates("Nilai_Dan_Sertifikat", sertifikatUpdates),
+    flushBulkUpdates("Log_Penerbitan_Surat", logSuratUpdates)
+  ]);
+  updatedDudi = flushedDudi;
+  updatedKelas = flushedKelas;
+  updatedJurusan = flushedJurusan + flushedSiswa;
+  updatedPlacements = flushedPlacements;
+  if (scope === "guru") {
+    updatedGuru = flushedJurusan + flushedDudi + flushedPengajuan + flushedPlacements + flushedMonitoring + flushedLogSurat;
+  }
   let formulasApplied = false;
   if (scope === "all") {
     const migRes = await callGasCustomAction("MIGRATE_RELATIONAL_FORMULAS").catch(() => null);
-    formulasApplied = Boolean(migRes?.data?.status === "success");
+    formulasApplied = Boolean(migRes?.data?.status === "success" || migRes?.data?.success === true);
   }
-  await invalidateServerCaches();
+  if (scope === "all") {
+    await invalidateServerCaches();
+  }
   return {
     updatedPlacements,
     updatedDudi,
@@ -3457,7 +4695,13 @@ function registerRestApiRoutes(app2) {
       }
       const scope = String(req.body?.scope || "all");
       const forceRefresh = Boolean(req.body?.forceRefresh);
-      const summary = await recalculateAllRelations(scope, forceRefresh);
+      const rawHint = req.body?.mutationHint;
+      const mutationHint = rawHint && typeof rawHint === "object" ? {
+        mutatedId: typeof rawHint.mutatedId === "string" ? rawHint.mutatedId : void 0,
+        previousName: typeof rawHint.previousName === "string" ? rawHint.previousName : void 0,
+        nextName: typeof rawHint.nextName === "string" ? rawHint.nextName : void 0
+      } : void 0;
+      const summary = await recalculateAllRelations(scope, forceRefresh, mutationHint);
       return res.json({ success: true, summary });
     } catch (err) {
       handlePortalError(res, err);
@@ -3623,12 +4867,16 @@ function registerRestApiRoutes(app2) {
         return;
       }
       const payload = req.body && typeof req.body === "object" ? req.body : {};
-      await writeLiveSheetViaGas(tableName, "CREATE", payload);
+      const receipt = await writeLiveSheetViaGas(tableName, "CREATE", payload);
       return res.status(201).json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
-        data: payload
+        data: receipt.sheetRowNumber && !payload._sheetRowNumber ? { ...payload, _sheetRowNumber: receipt.sheetRowNumber } : payload
       });
     } catch (err) {
       handlePortalError(res, err);
@@ -3665,9 +4913,13 @@ function registerRestApiRoutes(app2) {
           message: "Operasi sinkronisasi penuh (SYNC_ALL) hanya diperbolehkan untuk SuperAdmin, Hubin, atau Pokja."
         });
       }
-      await writeLiveSheetViaGas(tableName, normalizedAction, data);
+      const receipt = await writeLiveSheetViaGas(tableName, normalizedAction, data);
       return res.json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
         action: normalizedAction
@@ -3692,13 +4944,17 @@ function registerRestApiRoutes(app2) {
       const id = String(req.params.id || "").trim();
       const body = req.body && typeof req.body === "object" ? req.body : {};
       const payload = { ...body, id: body.id || id };
-      await writeLiveSheetViaGas(tableName, "UPDATE", payload);
+      const receipt = await writeLiveSheetViaGas(tableName, "UPDATE", payload);
       return res.json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
         id,
-        data: payload
+        data: receipt.sheetRowNumber && !payload._sheetRowNumber ? { ...payload, _sheetRowNumber: receipt.sheetRowNumber } : payload
       });
     } catch (err) {
       handlePortalError(res, err);
@@ -3721,13 +4977,17 @@ function registerRestApiRoutes(app2) {
       }
       const id = String(req.params.id || "").trim();
       const body = req.body && typeof req.body === "object" ? req.body : {};
-      await writeLiveSheetViaGas(tableName, "DELETE", {
+      const receipt = await writeLiveSheetViaGas(tableName, "DELETE", {
         id,
         rawId: body.rawId || id,
         deletedRow: body.deletedRow
       });
       return res.json({
         success: true,
+        verified: receipt.verified,
+        savedId: receipt.savedId,
+        sheetRowNumber: receipt.sheetRowNumber,
+        savedAt: receipt.savedAt,
         resource: req.params.resource,
         tableName,
         id
@@ -3829,7 +5089,27 @@ function validateGoogleMapsUrl(rawInput) {
   };
 }
 
+// src/core/utils/jurusanHelpers.ts
+function matchJurusanItem(rawJurusan, jur) {
+  const target = String(rawJurusan || "").trim().toLowerCase();
+  if (!target || target === "-") return false;
+  const idVal = String(jur.id || "").trim().toLowerCase();
+  const kode = String(jur.kode || "").trim().toLowerCase();
+  const nama = String(jur.nama || "").trim().toLowerCase();
+  return idVal !== "" && target === idVal || kode !== "" && target === kode || nama !== "" && target === nama || kode.length >= 2 && (target.startsWith(`${kode} `) || target.includes(`(${kode})`) || new RegExp(`\\b${kode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(target)) || nama.length >= 4 && (target.includes(nama) || nama.includes(target));
+}
+
 // src/core/utils/monitoringHelpers.ts
+function normalizeMonitoringVerificationStatus(statusRaw) {
+  const low = String(statusRaw ?? "").trim().toLowerCase();
+  if (!low || low.includes("belum")) return "Belum Terlaksana";
+  if (low.includes("hubin")) return "Tervalidasi Hubin";
+  if (low.includes("kakomli")) return "Tervalidasi Kakomli";
+  return "Terlaksana";
+}
+function isStageFullyVerified(statusRaw) {
+  return normalizeMonitoringVerificationStatus(statusRaw) === "Tervalidasi Hubin";
+}
 function extractStageNumber(tahapRaw) {
   const s = String(tahapRaw ?? "").trim();
   if (!s) return 0;
@@ -4260,8 +5540,11 @@ function buildStudentMonitoringSummary(student, monitoringRows, nilaiRows, looku
     }
   }
   const completedStages = Array.from(completedSet).sort((a, b) => a - b);
+  const pendingVerificationStages = completedStages.filter(
+    (st) => !isStageFullyVerified(stageLogs[st]?.status)
+  );
   const maxCompleted = completedStages.length > 0 ? completedStages[completedStages.length - 1] : 0;
-  const recommendedStage = Math.min(maxCompleted + 1, 8);
+  const recommendedStage = pendingVerificationStages.length > 0 ? pendingVerificationStages[pendingVerificationStages.length - 1] : Math.min(maxCompleted + 1, 8);
   return {
     completedStages,
     recommendedStage,
@@ -4328,33 +5611,134 @@ function resolveIssuedStagesForDudi(logRows, dudiId, namaDudi) {
   }
   return { issuedStages, issuedStageDetails };
 }
-function pickRecommendedStageForControl(completedStages, control, issuedStages) {
-  const unlocked = Array.isArray(control?.unlockedStages) ? Array.from(
+function sanitizeStageList(raw, fallback) {
+  if (!Array.isArray(raw)) return [...fallback];
+  return Array.from(
     new Set(
-      control.unlockedStages.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
+      raw.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 1 && n <= 8)
     )
-  ).sort((a, b) => a - b) : [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages];
+  ).sort((a, b) => a - b);
+}
+function deriveAcronymCode(rawName) {
+  const words = rawName.trim().replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 0 && !/^(dan|atau|di|ke|xi|xii|x)$/i.test(w));
+  if (words.length < 2) return "";
+  return words.map((w) => w[0].toUpperCase()).join("");
+}
+function getPreviousEnabledStage(enabledStages, stageNum) {
+  const idx = enabledStages.indexOf(stageNum);
+  if (idx <= 0) return null;
+  return enabledStages[idx - 1];
+}
+function resolveMonitoringStagePolicy(control, jurusanRaw, jurusanCatalog) {
+  const allDefault = [1, 2, 3, 4, 5, 6, 7, 8];
+  const globalUnlocked = sanitizeStageList(
+    control?.unlockedStages,
+    DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages
+  );
   const requireSequential = typeof control?.requireSequential === "boolean" ? control.requireSequential : DEFAULT_MONITORING_STAGE_CONTROL.requireSequential;
   const requireIssuedLetter = typeof control?.requireIssuedLetter === "boolean" ? control.requireIssuedLetter : DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true;
-  const completed = Array.isArray(completedStages) ? completedStages : [];
+  const lockedReason = String(control?.lockedReason ?? "").trim();
+  const rawGlobalGrade = Number(control?.gradeStage);
+  const globalGradeStage = Number.isInteger(rawGlobalGrade) && rawGlobalGrade >= 2 && rawGlobalGrade <= 8 ? rawGlobalGrade : 5;
+  const perJurusanMap = control?.perJurusan && typeof control.perJurusan === "object" ? control.perJurusan : {};
+  let matchedKey = "";
+  const cleanJurRaw = String(jurusanRaw || "").trim();
+  if (cleanJurRaw && cleanJurRaw !== "-" && Object.keys(perJurusanMap).length > 0) {
+    const upperRaw = cleanJurRaw.toUpperCase();
+    if (perJurusanMap[upperRaw]) {
+      matchedKey = upperRaw;
+    }
+    if (!matchedKey && Array.isArray(jurusanCatalog) && jurusanCatalog.length > 0) {
+      const catItem = jurusanCatalog.find((j) => matchJurusanItem(cleanJurRaw, j));
+      if (catItem) {
+        const catKode = String(catItem.kode || "").trim().toUpperCase();
+        if (catKode && perJurusanMap[catKode]) {
+          matchedKey = catKode;
+        }
+      }
+    }
+    if (!matchedKey) {
+      for (const candidateKey of Object.keys(perJurusanMap)) {
+        const escaped = candidateKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (new RegExp(`(?:^|[^A-Z0-9])${escaped}(?:$|[^A-Z0-9])`, "i").test(upperRaw)) {
+          matchedKey = candidateKey;
+          break;
+        }
+      }
+    }
+    if (!matchedKey) {
+      const acronym = deriveAcronymCode(cleanJurRaw);
+      if (acronym && perJurusanMap[acronym]) {
+        matchedKey = acronym;
+      }
+    }
+  }
+  const override = matchedKey ? perJurusanMap[matchedKey] : void 0;
+  const enabledStages = override ? sanitizeStageList(override.enabledStages, allDefault) : [...allDefault];
+  const unlockedStages = enabledStages.filter((num) => globalUnlocked.includes(num));
+  let gradeStage = globalGradeStage;
+  const rawJurGrade = Number(override?.gradeStage);
+  if (Number.isInteger(rawJurGrade) && rawJurGrade >= 2 && rawJurGrade <= 8) {
+    gradeStage = rawJurGrade;
+  } else if (!enabledStages.includes(gradeStage)) {
+    const monitoringStagesOnly = enabledStages.filter((n) => n >= 2 && n < 8);
+    if (monitoringStagesOnly.length > 0) {
+      gradeStage = monitoringStagesOnly[monitoringStagesOnly.length - 1];
+    } else {
+      const ge2 = enabledStages.filter((n) => n >= 2);
+      if (ge2.length > 0) gradeStage = ge2[ge2.length - 1];
+    }
+  }
+  return {
+    jurusanCode: matchedKey || cleanJurRaw.toUpperCase(),
+    isCustomJurusanPolicy: Boolean(override),
+    enabledStages,
+    unlockedStages,
+    gradeStage,
+    totalStages: enabledStages.length,
+    requireSequential,
+    requireIssuedLetter,
+    lockedReason
+  };
+}
+function pickRecommendedStageForControl(completedStages, control, issuedStages, stageLogs, studentJurusan, jurusanCatalog) {
+  const policy = resolveMonitoringStagePolicy(control, studentJurusan, jurusanCatalog);
+  const { enabledStages, unlockedStages: unlocked, requireSequential, requireIssuedLetter } = policy;
+  const completed = sanitizeStageList(completedStages, []);
+  if (stageLogs && typeof stageLogs === "object" && completed.length > 0) {
+    const pendingVerificationStages = completed.filter(
+      (num) => enabledStages.includes(num) && !isStageFullyVerified(stageLogs[num]?.status)
+    );
+    if (pendingVerificationStages.length > 0) {
+      return pendingVerificationStages[pendingVerificationStages.length - 1];
+    }
+  }
+  const uncompleted = enabledStages.filter((num) => !completed.includes(num));
+  if (uncompleted.length === 0) {
+    return enabledStages[enabledStages.length - 1] ?? 8;
+  }
   const issuedSet = Array.isArray(issuedStages) ? new Set(issuedStages) : null;
   const isEligibleOpenStage = (num) => unlocked.includes(num) && (!requireIssuedLetter || !issuedSet || issuedSet.has(num));
   const eligibleOpenStages = unlocked.filter((num) => isEligibleOpenStage(num));
-  if (eligibleOpenStages.length > 0) {
-    if (requireSequential) {
-      const nextSequential = eligibleOpenStages.find(
-        (num) => !completed.includes(num) && (num === 1 || completed.includes(num - 1))
-      );
-      if (nextSequential !== void 0) return nextSequential;
-    }
-    const firstEligiblePending = eligibleOpenStages.find((num) => !completed.includes(num));
-    if (firstEligiblePending !== void 0) return firstEligiblePending;
-    return eligibleOpenStages[0];
+  if (requireSequential) {
+    const nextEligibleSequential = eligibleOpenStages.find((num) => {
+      if (completed.includes(num)) return false;
+      const prevStage = getPreviousEnabledStage(enabledStages, num);
+      return prevStage === null || completed.includes(prevStage);
+    });
+    if (nextEligibleSequential !== void 0) return nextEligibleSequential;
+    const nextLogicalSequential = uncompleted.find((num) => {
+      const prevStage = getPreviousEnabledStage(enabledStages, num);
+      return prevStage === null || completed.includes(prevStage);
+    });
+    if (nextLogicalSequential !== void 0) return nextLogicalSequential;
+    return uncompleted[0];
   }
-  if (completed.length > 0) {
-    return completed[completed.length - 1];
-  }
-  return unlocked[0] ?? 1;
+  const firstEligiblePending = eligibleOpenStages.find((num) => !completed.includes(num));
+  if (firstEligiblePending !== void 0) return firstEligiblePending;
+  const maxCompleted = completed.length > 0 ? completed[completed.length - 1] : 0;
+  const nextAfterMax = uncompleted.find((num) => num > maxCompleted);
+  return nextAfterMax ?? uncompleted[0];
 }
 
 // src/core/portal/portalTransformers.ts
@@ -4469,44 +5853,72 @@ function aggregatePetugasDudiGroups(params) {
   }
   const grouped = /* @__PURE__ */ new Map();
   const targetNamaNorm = normalizeStr(petugasNama);
-  const isTeacherMatch = (row) => {
+  const matchesTeacherFields = (guruIdRaw, guruNamaRaw) => {
+    const rowGuruId = String(guruIdRaw || "").trim();
+    const rowGuruNama = normalizeStr(guruNamaRaw);
+    return Boolean(
+      petugasId && rowGuruId && rowGuruId === petugasId || targetNamaNorm && rowGuruNama && (rowGuruNama === targetNamaNorm || rowGuruNama.includes(targetNamaNorm) || targetNamaNorm.includes(rowGuruNama))
+    );
+  };
+  const matchesRowOrMasterTeacher = (row, master) => {
     const rowGuruId = pickField(row, "ID_Guru_Pendamping", "idGuruPendamping");
-    const rowGuruNama = normalizeStr(pickField(row, "Guru_Pendamping", "guruPendamping"));
-    return petugasId && rowGuruId && rowGuruId === petugasId || targetNamaNorm && rowGuruNama && (rowGuruNama === targetNamaNorm || rowGuruNama.includes(targetNamaNorm) || targetNamaNorm.includes(rowGuruNama));
+    const rowGuruNama = pickField(row, "Guru_Pendamping", "guruPendamping");
+    if (rowGuruId) {
+      if (petugasId) {
+        return rowGuruId === petugasId;
+      }
+      return matchesTeacherFields(rowGuruId, rowGuruNama);
+    }
+    if (rowGuruNama) {
+      if (matchesTeacherFields("", rowGuruNama)) return true;
+      if (master && petugasId) {
+        const masterGuruId = pickField(master, "ID_Guru_Pendamping", "idGuruPendamping");
+        if (masterGuruId && masterGuruId === petugasId) return true;
+      }
+      return false;
+    }
+    if (master) {
+      const masterGuruId = pickField(master, "ID_Guru_Pendamping", "idGuruPendamping");
+      const masterGuruNama = pickField(master, "Guru_Pendamping", "guruPendamping");
+      return matchesTeacherFields(masterGuruId, masterGuruNama);
+    }
+    return false;
+  };
+  const ensureDudiGroup = (key, master, fallbackId, resolvedName, fallbackRow) => {
+    if (grouped.has(key)) return;
+    const masterId = pickField(master || {}, "ID", "id") || fallbackId || key;
+    const resolvedKontak = pickField(master || {}, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") || (fallbackRow ? pickField(fallbackRow, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") : "") || "-";
+    const resolvedMaps = pickField(master || {}, "Link_Maps", "linkMaps", "link_maps") || (fallbackRow ? pickField(fallbackRow, "Link_Maps", "linkMaps", "link_maps") : "") || pengajuanMapsByDudi.get(masterId) || pengajuanMapsByDudi.get(key) || "";
+    const resolvedHari = pickField(master || {}, "Hari_Kerja", "hariKerja", "hari_kerja") || (fallbackRow ? pickField(fallbackRow, "Hari_Kerja", "hariKerja", "hari_kerja") : "") || pengajuanHariByDudi.get(masterId) || pengajuanHariByDudi.get(key) || "";
+    const resolvedJam = pickField(master || {}, "Jam_Kerja", "jamKerja", "jam_kerja") || (fallbackRow ? pickField(fallbackRow, "Jam_Kerja", "jamKerja", "jam_kerja") : "") || pengajuanJamByDudi.get(masterId) || pengajuanJamByDudi.get(key) || "";
+    grouped.set(key, {
+      dudi: {
+        id: masterId,
+        nama: resolvedName,
+        alamat: pickField(master || {}, "Alamat", "alamat") || (fallbackRow ? pickField(fallbackRow, "Alamat_DUDI", "alamatDudi") : "") || "-",
+        bidang: pickField(master || {}, "Bidang_Keahlian", "bidangKeahlian") || (fallbackRow ? pickField(fallbackRow, "Bidang_Pekerjaan", "bidangPekerjaan") : "") || "-",
+        namaPemimpin: pickField(master || {}, "Nama_Pemimpin", "namaPemimpin") || (fallbackRow ? pickField(fallbackRow, "Nama_Pemimpin", "namaPemimpin") : "") || "",
+        pic: pickField(master || {}, "Nama_PIC", "namaPic") || (fallbackRow ? pickField(fallbackRow, "Nama_PIC", "namaPic") : "") || "-",
+        kontak: resolvedKontak,
+        hariKerja: resolvedHari,
+        jamKerja: resolvedJam,
+        linkMaps: resolvedMaps,
+        kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0)
+      },
+      studentNisSet: /* @__PURE__ */ new Set()
+    });
   };
   for (const p of plottingRows) {
     const statusPlt = normalizeStr(pickField(p, "Status_Penempatan", "statusPenempatan"));
     if (statusPlt === "dibatalkan" || statusPlt === "batal" || statusPlt === "pindah dudi") continue;
-    if (!isTeacherMatch(p)) continue;
     const dudiId = pickField(p, "ID_DUDI", "idDudi");
     const dudiNamaRaw = pickField(p, "Nama_DUDI", "namaDudi");
     const master = dudiId && dudiMapById.get(dudiId) || dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw));
+    if (!matchesRowOrMasterTeacher(p, master)) continue;
     const resolvedName = pickField(master || {}, "Nama_DUDI", "namaDudi") || dudiNamaRaw;
     if (!resolvedName) continue;
     const key = normalizeStr(resolvedName);
-    if (!grouped.has(key)) {
-      const masterId = pickField(master || {}, "ID", "id") || dudiId || key;
-      const resolvedKontak = pickField(master || {}, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") || "-";
-      const resolvedMaps = pickField(master || {}, "Link_Maps", "linkMaps", "link_maps") || pengajuanMapsByDudi.get(masterId) || pengajuanMapsByDudi.get(key) || "";
-      const resolvedHari = pickField(master || {}, "Hari_Kerja", "hariKerja", "hari_kerja") || pengajuanHariByDudi.get(masterId) || pengajuanHariByDudi.get(key) || "";
-      const resolvedJam = pickField(master || {}, "Jam_Kerja", "jamKerja", "jam_kerja") || pengajuanJamByDudi.get(masterId) || pengajuanJamByDudi.get(key) || "";
-      grouped.set(key, {
-        dudi: {
-          id: masterId,
-          nama: resolvedName,
-          alamat: pickField(master || {}, "Alamat", "alamat") || "-",
-          bidang: pickField(master || {}, "Bidang_Keahlian", "bidangKeahlian") || "-",
-          namaPemimpin: pickField(master || {}, "Nama_Pemimpin", "namaPemimpin") || "",
-          pic: pickField(master || {}, "Nama_PIC", "namaPic") || "-",
-          kontak: resolvedKontak,
-          hariKerja: resolvedHari,
-          jamKerja: resolvedJam,
-          linkMaps: resolvedMaps,
-          kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0)
-        },
-        studentNisSet: /* @__PURE__ */ new Set()
-      });
-    }
+    ensureDudiGroup(key, master, dudiId, resolvedName);
     const rawNis = pickField(p, "NIS", "nis");
     const canonicalStudentKey = stripNisSymbols(rawNis) || normalizeStr(pickField(p, "Nama_Siswa", "namaSiswa"));
     if (canonicalStudentKey) grouped.get(key).studentNisSet.add(canonicalStudentKey);
@@ -4515,39 +5927,28 @@ function aggregatePetugasDudiGroups(params) {
     const statusHubin = normalizeStr(pickField(reqRow, "Status_Hubin", "statusHubin"));
     const statusKakomli = normalizeStr(pickField(reqRow, "Status_Kakomli", "statusKakomli"));
     if (statusHubin === "batal" || statusKakomli === "ditolak") continue;
-    if (!isTeacherMatch(reqRow)) continue;
     const dudiId = pickField(reqRow, "ID_DUDI", "idDudi");
     const dudiNamaRaw = pickField(reqRow, "DUDI_Tujuan", "dudiTujuan");
-    if (!dudiNamaRaw) continue;
-    const master = dudiId && dudiMapById.get(dudiId) || dudiMapByName.get(normalizeStr(dudiNamaRaw));
+    if (!dudiNamaRaw && !dudiId) continue;
+    const master = dudiId && dudiMapById.get(dudiId) || dudiNamaRaw && dudiMapByName.get(normalizeStr(dudiNamaRaw));
+    if (!matchesRowOrMasterTeacher(reqRow, master)) continue;
     const resolvedName = pickField(master || {}, "Nama_DUDI", "namaDudi") || dudiNamaRaw;
+    if (!resolvedName) continue;
     const key = normalizeStr(resolvedName);
-    if (!grouped.has(key)) {
-      const masterId = pickField(master || {}, "ID", "id") || dudiId || key;
-      const resolvedKontak = pickField(master || {}, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") || pickField(reqRow, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") || "-";
-      const resolvedMaps = pickField(master || {}, "Link_Maps", "linkMaps", "link_maps") || pickField(reqRow, "Link_Maps", "linkMaps", "link_maps") || pengajuanMapsByDudi.get(masterId) || pengajuanMapsByDudi.get(key) || "";
-      const resolvedHari = pickField(master || {}, "Hari_Kerja", "hariKerja", "hari_kerja") || pickField(reqRow, "Hari_Kerja", "hariKerja", "hari_kerja") || pengajuanHariByDudi.get(masterId) || pengajuanHariByDudi.get(key) || "";
-      const resolvedJam = pickField(master || {}, "Jam_Kerja", "jamKerja", "jam_kerja") || pickField(reqRow, "Jam_Kerja", "jamKerja", "jam_kerja") || pengajuanJamByDudi.get(masterId) || pengajuanJamByDudi.get(key) || "";
-      grouped.set(key, {
-        dudi: {
-          id: masterId,
-          nama: resolvedName,
-          alamat: pickField(master || {}, "Alamat", "alamat") || pickField(reqRow, "Alamat_DUDI", "alamatDudi") || "-",
-          bidang: pickField(master || {}, "Bidang_Keahlian", "bidangKeahlian") || pickField(reqRow, "Bidang_Pekerjaan", "bidangPekerjaan") || "-",
-          namaPemimpin: pickField(master || {}, "Nama_Pemimpin", "namaPemimpin") || pickField(reqRow, "Nama_Pemimpin", "namaPemimpin") || "",
-          pic: pickField(master || {}, "Nama_PIC", "namaPic") || pickField(reqRow, "Nama_PIC", "namaPic") || "-",
-          kontak: resolvedKontak,
-          hariKerja: resolvedHari,
-          jamKerja: resolvedJam,
-          linkMaps: resolvedMaps,
-          kuota: Number(master?.Kuota_Maksimal ?? master?.kuotaMaksimal ?? 0)
-        },
-        studentNisSet: /* @__PURE__ */ new Set()
-      });
-    }
+    ensureDudiGroup(key, master, dudiId, resolvedName, reqRow);
     const rawNis = pickField(reqRow, "NIS", "nis");
     const canonicalStudentKey = stripNisSymbols(rawNis) || normalizeStr(pickField(reqRow, "Nama_Siswa", "namaSiswa"));
     if (canonicalStudentKey) grouped.get(key).studentNisSet.add(canonicalStudentKey);
+  }
+  for (const master of dudiRows) {
+    const masterName = pickField(master, "Nama_DUDI", "namaDudi", "nama_dudi");
+    if (!masterName) continue;
+    const masterGuruId = pickField(master, "ID_Guru_Pendamping", "idGuruPendamping");
+    const masterGuruNama = pickField(master, "Guru_Pendamping", "guruPendamping");
+    if (!matchesTeacherFields(masterGuruId, masterGuruNama)) continue;
+    const key = normalizeStr(masterName);
+    const masterId = pickField(master, "ID", "id") || key;
+    ensureDudiGroup(key, master, masterId, masterName);
   }
   return Array.from(grouped.values()).map((entry) => ({
     ...entry.dudi,
@@ -4559,14 +5960,26 @@ function buildDudiStudentsWithSummary(params) {
     dudiNama,
     dudiId,
     petugasNama,
+    petugasId = "",
+    dudiRows = [],
     plottingRows,
     pengajuanRows,
     siswaRows,
     monitoringRows,
     nilaiRows,
+    jurusanRows = [],
     stageControl,
     issuedStages
   } = params;
+  const jurusanCatalog = jurusanRows.map((j) => ({
+    id: pickField(j, "ID", "id"),
+    kode: pickField(j, "Kode_Jurusan", "Kode", "kode", "kodeJurusan"),
+    nama: pickField(j, "Nama_Jurusan", "Nama", "nama", "namaJurusan"),
+    namaKakomli: pickField(j, "Nama_Kakomli", "namaKakomli"),
+    kontakWA: pickField(j, "Kontak_WA", "kontakWA"),
+    kuotaSiswa: Number(j.Kuota_Siswa ?? j.kuotaSiswa ?? 0),
+    totalTerdaftar: Number(j.Total_Terdaftar ?? j.totalTerdaftar ?? 0)
+  }));
   const siswaByNis = /* @__PURE__ */ new Map();
   for (const s of siswaRows) {
     const nis = pickField(s, "NIS", "nis");
@@ -4574,8 +5987,15 @@ function buildDudiStudentsWithSummary(params) {
     if (nisDigits) siswaByNis.set(nisDigits, s);
     if (nis) siswaByNis.set(nis, s);
   }
-  const studentsMap = /* @__PURE__ */ new Map();
   const targetDudiNorm = normalizeStr(dudiNama);
+  const masterDudiRow = dudiRows.find((d) => {
+    const id = pickField(d, "ID", "id");
+    const nama = normalizeStr(pickField(d, "Nama_DUDI", "namaDudi", "nama_dudi"));
+    return dudiId && id && id === dudiId || targetDudiNorm && nama === targetDudiNorm;
+  });
+  const masterGuruId = masterDudiRow ? pickField(masterDudiRow, "ID_Guru_Pendamping", "idGuruPendamping") : "";
+  const masterGuruNorm = masterDudiRow ? normalizeStr(pickField(masterDudiRow, "Guru_Pendamping", "guruPendamping")) : "";
+  const studentsMap = /* @__PURE__ */ new Map();
   const targetPetugasNorm = normalizeStr(petugasNama);
   const checkDudiAndPetugasMatch = (row, rowDudiNameField) => {
     const rowDudiId = pickField(row, "ID_DUDI", "idDudi");
@@ -4584,10 +6004,21 @@ function buildDudiStudentsWithSummary(params) {
     );
     const dudiMatches = dudiId && rowDudiId && rowDudiId === dudiId || targetDudiNorm && rowDudiNama && (rowDudiNama === targetDudiNorm || rowDudiNama.includes(targetDudiNorm));
     if (!dudiMatches) return false;
-    if (targetPetugasNorm) {
+    if (targetPetugasNorm || petugasId) {
+      const rowGuruId = pickField(row, "ID_Guru_Pendamping", "idGuruPendamping");
       const rowGuru = normalizeStr(pickField(row, "Guru_Pendamping", "guruPendamping"));
-      if (rowGuru && !rowGuru.includes(targetPetugasNorm) && !targetPetugasNorm.includes(rowGuru)) {
-        return false;
+      if (rowGuruId) {
+        if (petugasId) return rowGuruId === petugasId;
+      }
+      if (rowGuru) {
+        const directTextMatch = targetPetugasNorm && (rowGuru.includes(targetPetugasNorm) || targetPetugasNorm.includes(rowGuru));
+        const masterIdMatch = Boolean(petugasId && masterGuruId && masterGuruId === petugasId);
+        const masterTextMatch = Boolean(
+          targetPetugasNorm && masterGuruNorm && (masterGuruNorm.includes(targetPetugasNorm) || targetPetugasNorm.includes(masterGuruNorm))
+        );
+        if (!directTextMatch && !masterIdMatch && !masterTextMatch) {
+          return false;
+        }
       }
     }
     return true;
@@ -4641,13 +6072,18 @@ function buildDudiStudentsWithSummary(params) {
   }
   return Array.from(studentsMap.values()).map((stu) => {
     const summary = buildStudentMonitoringSummary(stu, monitoringRows, nilaiRows);
+    const stagePolicy = resolveMonitoringStagePolicy(stageControl, stu.jurusan, jurusanCatalog);
     return {
       ...stu,
       ...summary,
+      stagePolicy,
       recommendedStage: pickRecommendedStageForControl(
         summary.completedStages,
         stageControl,
-        issuedStages
+        issuedStages,
+        summary.stageLogs,
+        stu.jurusan,
+        jurusanCatalog
       )
     };
   });
@@ -4658,6 +6094,7 @@ function registerPublicStudentRoutes(app2) {
   app2.get("/api/public/config-summary", async (_req, res) => {
     try {
       const cfg = await getFirestoreWorkspaceConfig();
+      setPublicSwrCacheHeaders(res, false, 15, 60);
       res.json({
         success: true,
         activeYear: cfg.activeYear,
@@ -4702,6 +6139,7 @@ function registerPublicStudentRoutes(app2) {
       const mapped = mapPublicDudiRows(rows);
       const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: "public_dudi", mapped });
       res.setHeader("ETag", etag);
+      setPublicSwrCacheHeaders(res, fresh, 15, 60);
       if (!fresh && isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -4894,6 +6332,7 @@ function registerPublicStudentRoutes(app2) {
         sheetRow
       );
       const writeReceipt = await writeLiveSheetViaGas("Data_Pengajuan_PKL", "CREATE", persistedPengajuan);
+      const backfillTasks = [];
       if (matchedStudent) {
         const siswaId = pickField(matchedStudent, "ID", "id", "NIS", "nis");
         if (siswaId) {
@@ -4915,13 +6354,15 @@ function registerPublicStudentRoutes(app2) {
             studentUpdates.Status_PKL = "Diajukan";
           }
           if (Object.keys(studentUpdates).length > 0) {
-            await writeLiveSheetViaGas("Master_Siswa_XI", "UPDATE", {
-              id: siswaId,
-              ID: siswaId,
-              _sheetRowNumber: matchedStudent._sheetRowNumber,
-              ...studentUpdates
-            }).catch(() => {
-            });
+            backfillTasks.push(
+              writeLiveSheetViaGas("Master_Siswa_XI", "UPDATE", {
+                id: siswaId,
+                ID: siswaId,
+                _sheetRowNumber: matchedStudent._sheetRowNumber,
+                ...studentUpdates
+              }).catch(() => {
+              })
+            );
           }
         }
       }
@@ -4942,19 +6383,22 @@ function registerPublicStudentRoutes(app2) {
           dudiUpdates.jamKerja = inputJam;
         }
         if (Object.keys(dudiUpdates).length > 0) {
-          try {
-            const targetDudiId = pickField(matchedDudiRow, "ID", "id");
-            if (targetDudiId) {
-              await writeLiveSheetViaGas("Master_DUDI", "UPDATE", {
+          const targetDudiId = pickField(matchedDudiRow, "ID", "id");
+          if (targetDudiId) {
+            backfillTasks.push(
+              writeLiveSheetViaGas("Master_DUDI", "UPDATE", {
                 id: targetDudiId,
                 ID: targetDudiId,
                 _sheetRowNumber: matchedDudiRow._sheetRowNumber,
                 ...dudiUpdates
-              });
-            }
-          } catch {
+              }).catch(() => {
+              })
+            );
           }
         }
+      }
+      if (backfillTasks.length > 0) {
+        await Promise.allSettled(backfillTasks);
       }
       res.json({
         success: true,
@@ -4987,7 +6431,7 @@ async function syncDudiContactToMasterAndPengajuan(input) {
   if (!inputPemimpin && !inputPic && !inputTelpDudi && !inputHariKerja && !inputJamKerja) {
     return false;
   }
-  const dudiRes = await fetchLiveSheetViaGas("Master_DUDI", true).catch(() => ({ rows: [] }));
+  const dudiRes = await fetchLiveSheetViaGas("Master_DUDI", false).catch(() => ({ rows: [] }));
   const existingDudi = dudiRes.rows.find((d) => {
     const dId = pickField(d, "ID", "id");
     const dNama = normalizeStr(pickField(d, "Nama_DUDI", "namaDudi"));
@@ -4996,29 +6440,37 @@ async function syncDudiContactToMasterAndPengajuan(input) {
   let synced = false;
   if (existingDudi) {
     const resolvedId = pickField(existingDudi, "ID", "id") || targetDudiId;
-    const nextPemimpin = overwrite ? inputPemimpin || pickField(existingDudi, "Nama_Pemimpin", "namaPemimpin") : pickField(existingDudi, "Nama_Pemimpin", "namaPemimpin") || inputPemimpin;
-    const nextPic = overwrite ? inputPic || pickField(existingDudi, "Nama_PIC", "namaPic") : pickField(existingDudi, "Nama_PIC", "namaPic") || inputPic;
-    const nextTelp = overwrite ? inputTelpDudi || pickField(existingDudi, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") : pickField(existingDudi, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic") || inputTelpDudi;
-    const nextHariKerja = overwrite ? inputHariKerja || pickField(existingDudi, "Hari_Kerja", "hariKerja") : pickField(existingDudi, "Hari_Kerja", "hariKerja") || inputHariKerja;
-    const nextJamKerja = overwrite ? inputJamKerja || pickField(existingDudi, "Jam_Kerja", "jamKerja") : pickField(existingDudi, "Jam_Kerja", "jamKerja") || inputJamKerja;
-    await writeLiveSheetViaGas("Master_DUDI", "UPDATE", {
-      ...existingDudi,
-      id: resolvedId,
-      ID: resolvedId,
-      Nama_Pemimpin: nextPemimpin,
-      namaPemimpin: nextPemimpin,
-      Nama_PIC: nextPic,
-      namaPic: nextPic,
-      Kontak_PIC: nextTelp,
-      kontakPic: nextTelp,
-      No_Telp_DUDI: nextTelp,
-      noTelpDudi: nextTelp,
-      Hari_Kerja: nextHariKerja,
-      hariKerja: nextHariKerja,
-      Jam_Kerja: nextJamKerja,
-      jamKerja: nextJamKerja
-    });
-    synced = true;
+    const currPemimpin = pickField(existingDudi, "Nama_Pemimpin", "namaPemimpin");
+    const currPic = pickField(existingDudi, "Nama_PIC", "namaPic");
+    const currTelp = pickField(existingDudi, "No_Telp_DUDI", "noTelpDudi", "Kontak_PIC", "kontakPic");
+    const currHariKerja = pickField(existingDudi, "Hari_Kerja", "hariKerja");
+    const currJamKerja = pickField(existingDudi, "Jam_Kerja", "jamKerja");
+    const nextPemimpin = overwrite ? inputPemimpin || currPemimpin : currPemimpin || inputPemimpin;
+    const nextPic = overwrite ? inputPic || currPic : currPic || inputPic;
+    const nextTelp = overwrite ? inputTelpDudi || currTelp : currTelp || inputTelpDudi;
+    const nextHariKerja = overwrite ? inputHariKerja || currHariKerja : currHariKerja || inputHariKerja;
+    const nextJamKerja = overwrite ? inputJamKerja || currJamKerja : currJamKerja || inputJamKerja;
+    const hasChanges = nextPemimpin !== currPemimpin || nextPic !== currPic || nextTelp !== currTelp || nextHariKerja !== currHariKerja || nextJamKerja !== currJamKerja;
+    if (hasChanges) {
+      await writeLiveSheetViaGas("Master_DUDI", "UPDATE", {
+        ...existingDudi,
+        id: resolvedId,
+        ID: resolvedId,
+        Nama_Pemimpin: nextPemimpin,
+        namaPemimpin: nextPemimpin,
+        Nama_PIC: nextPic,
+        namaPic: nextPic,
+        Kontak_PIC: nextTelp,
+        kontakPic: nextTelp,
+        No_Telp_DUDI: nextTelp,
+        noTelpDudi: nextTelp,
+        Hari_Kerja: nextHariKerja,
+        hariKerja: nextHariKerja,
+        Jam_Kerja: nextJamKerja,
+        jamKerja: nextJamKerja
+      });
+      synced = true;
+    }
   } else if (input.createIfMissing !== false && targetDudiNameRaw) {
     const newDudiId = targetDudiId && !targetDudiId.includes("::") ? targetDudiId : `DUD-${Date.now().toString(36).toUpperCase()}`;
     await writeLiveSheetViaGas("Master_DUDI", "CREATE", {
@@ -5149,6 +6601,7 @@ function mapRawIssuedLetterRow(row, idx) {
     nomorSurat: pickField(row, "Nomor_Surat", "nomorSurat"),
     tanggalTerbit: pickField(row, "Tanggal_Terbit", "tanggalTerbit"),
     diterbitkanOleh: pickField(row, "Diterbitkan_Oleh", "diterbitkanOleh"),
+    idGuruPendamping: pickField(row, "ID_Guru_Pendamping", "idGuruPendamping"),
     guruPendamping: pickField(row, "Guru_Pendamping", "guruPendamping"),
     linkPdf: pickField(row, "Link_PDF", "linkPdf"),
     updatedAt: pickField(row, "Updated_At", "updatedAt"),
@@ -5165,12 +6618,14 @@ async function fetchIssuedLettersList(forceRefresh = false) {
 }
 async function recordIssuedLetters(items, actorName) {
   if (!Array.isArray(items) || items.length === 0) return [];
-  const [existingRes, dudiRes] = await Promise.all([
+  const [existingRes, dudiRes, guruRes] = await Promise.all([
     fetchLiveSheetViaGas("Log_Penerbitan_Surat", true).catch(() => ({ rows: [] })),
-    fetchLiveSheetViaGas("Master_DUDI", false).catch(() => ({ rows: [] }))
+    fetchLiveSheetViaGas("Master_DUDI", false).catch(() => ({ rows: [] })),
+    fetchLiveSheetViaGas("Master_Guru_Pendamping", false).catch(() => ({ rows: [] }))
   ]);
   const existingRows = Array.isArray(existingRes.rows) ? [...existingRes.rows] : [];
   const dudiRows = Array.isArray(dudiRes.rows) ? dudiRes.rows : [];
+  const guruRows = Array.isArray(guruRes.rows) ? guruRes.rows : [];
   const todayIso = getTodayWibIsoDate();
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const results = [];
@@ -5203,6 +6658,16 @@ async function recordIssuedLetters(items, actorName) {
     const existingRow = existingIdx >= 0 ? existingRows[existingIdx] : null;
     const existingIdTerbit = existingRow ? pickField(existingRow, "ID_Terbit", "idTerbit", "id") : "";
     const idTerbit = existingIdTerbit || `TRB-${(resolvedDudiId || "DUDI").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}-T${tahap}-${Date.now().toString(36).slice(-4)}${i}`;
+    const candidateGuruId = String(rawItem.idGuruPendamping || "").trim().slice(0, 80) || pickField(existingRow || {}, "ID_Guru_Pendamping", "idGuruPendamping") || pickField(matchedDudi || {}, "ID_Guru_Pendamping", "idGuruPendamping");
+    const candidateGuruNama = String(rawItem.guruPendamping || "").trim().slice(0, 120) || pickField(existingRow || {}, "Guru_Pendamping", "guruPendamping") || pickField(matchedDudi || {}, "Guru_Pendamping", "guruPendamping");
+    const candidateGuruNorm = normalizeStr(candidateGuruNama);
+    const matchedGuru = guruRows.find((g) => {
+      const gId = pickField(g, "ID", "ID_Guru", "idGuru", "id");
+      const gNama = normalizeStr(pickField(g, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama"));
+      return candidateGuruId && gId === candidateGuruId || candidateGuruNorm && gNama === candidateGuruNorm;
+    });
+    const resolvedGuruId = (matchedGuru ? pickField(matchedGuru, "ID", "ID_Guru", "idGuru", "id") : "") || candidateGuruId;
+    const resolvedGuruNama = (matchedGuru ? pickField(matchedGuru, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama") : "") || candidateGuruNama;
     const recordPayload = {
       id: idTerbit,
       ID_Terbit: idTerbit,
@@ -5225,8 +6690,10 @@ async function recordIssuedLetters(items, actorName) {
       tanggalTerbit: String(rawItem.tanggalTerbit || "").trim().slice(0, 40) || todayIso,
       Diterbitkan_Oleh: String(rawItem.diterbitkanOleh || actorName || "Admin Hubin").trim().slice(0, 120),
       diterbitkanOleh: String(rawItem.diterbitkanOleh || actorName || "Admin Hubin").trim().slice(0, 120),
-      Guru_Pendamping: String(rawItem.guruPendamping || "").trim().slice(0, 120) || pickField(existingRow || {}, "Guru_Pendamping", "guruPendamping"),
-      guruPendamping: String(rawItem.guruPendamping || "").trim().slice(0, 120) || pickField(existingRow || {}, "Guru_Pendamping", "guruPendamping"),
+      ID_Guru_Pendamping: resolvedGuruId,
+      idGuruPendamping: resolvedGuruId,
+      Guru_Pendamping: resolvedGuruNama,
+      guruPendamping: resolvedGuruNama,
       Link_PDF: String(rawItem.linkPdf || "").trim().slice(0, 500) || pickField(existingRow || {}, "Link_PDF", "linkPdf"),
       linkPdf: String(rawItem.linkPdf || "").trim().slice(0, 500) || pickField(existingRow || {}, "Link_PDF", "linkPdf"),
       Updated_At: nowIso,
@@ -5322,6 +6789,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
       }
       const etag = computeWeakEtag({ s: config.spreadsheetId, y: config.activeYear, k: "public_petugas", mapped });
       res.setHeader("ETag", etag);
+      setPublicSwrCacheHeaders(res, fresh, 15, 60);
       if (!fresh && isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -5347,8 +6815,8 @@ function registerPublicTeacherMonitoringRoutes(app2) {
     try {
       const { petugas_id, nama_petugas, pin } = req.body || {};
       const enteredPin = String(pin || "").trim();
-      if (!enteredPin || enteredPin.length < 4) {
-        return res.status(400).json({ success: false, message: "PIN Petugas 4 digit wajib diisi." });
+      if (!enteredPin) {
+        return res.status(400).json({ success: false, message: "Password Petugas wajib diisi." });
       }
       const { rows } = await fetchLiveSheetViaGas("Master_Guru_Pendamping");
       const teacher = rows.find((g) => {
@@ -5363,7 +6831,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           message: "Data petugas tidak ditemukan di Database Cloud Server."
         });
       }
-      const explicitPin = pickField(teacher, "PIN", "pin", "Pin");
+      const explicitPin = pickField(teacher, "PIN", "pin", "Pin", "Password", "password");
       const nipDigits = pickField(teacher, "NIP", "nip").replace(/\D/g, "");
       const waDigits = pickField(teacher, "Kontak_WA", "kontakWA", "kontakWa", "No_WA", "noWa", "No_HP").replace(/\D/g, "");
       const validPins = [];
@@ -5373,14 +6841,14 @@ function registerPublicTeacherMonitoringRoutes(app2) {
       if (validPins.length === 0) {
         return res.status(400).json({
           success: false,
-          message: "Petugas belum memiliki PIN atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi."
+          message: "Petugas belum memiliki password atau No. WhatsApp terdaftar di Cloud Server untuk verifikasi."
         });
       }
       const pinMatched = validPins.some((candidate) => constantTimeMatch(candidate, enteredPin));
       if (!pinMatched) {
         return res.status(401).json({
           success: false,
-          message: "PIN Petugas tidak cocok. Gunakan PIN atau 4 digit terakhir NIP / No. WhatsApp terdaftar."
+          message: "Password Petugas tidak cocok. Gunakan password atau 4 digit terakhir NIP / No. WhatsApp terdaftar."
         });
       }
       const resolvedName = pickField(teacher, "Nama_Lengkap", "Nama_Guru", "namaGuru", "nama", "Nama");
@@ -5419,6 +6887,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
       });
       const etag = computeWeakEtag({ k: "petugas_dudi", petugasNama, petugasId, result });
       res.setHeader("ETag", etag);
+      setPublicSwrCacheHeaders(res, String(req.query.fresh || "") === "1", 15, 60);
       if (isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -5432,11 +6901,14 @@ function registerPublicTeacherMonitoringRoutes(app2) {
       const dudiNama = String(req.query.dudiNama || "").trim();
       const dudiId = String(req.query.dudiId || "").trim();
       const petugasNama = String(req.query.petugasNama || "").trim();
+      const petugasId = String(req.query.petugasId || "").trim();
       if (!dudiNama && !dudiId) {
         return res.status(400).json({ success: false, message: "Parameter dudiNama atau dudiId wajib diisi." });
       }
       const { sheets } = await fetchBatchSheetsViaGas(
         [
+          "Master_DUDI",
+          "Master_Jurusan",
           "Plotting_Pemberangkatan",
           "Data_Pengajuan_PKL",
           "Master_Siswa_XI",
@@ -5469,11 +6941,14 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         dudiNama,
         dudiId,
         petugasNama,
+        petugasId,
+        dudiRows: sheets["Master_DUDI"] || [],
         plottingRows: sheets["Plotting_Pemberangkatan"] || [],
         pengajuanRows: sheets["Data_Pengajuan_PKL"] || [],
         siswaRows,
         monitoringRows: sheets["Monitoring_5_Tahap"] || [],
         nilaiRows: sheets["Nilai_Dan_Sertifikat"] || [],
+        jurusanRows: sheets["Master_Jurusan"] || [],
         stageControl,
         issuedStages
       });
@@ -5487,6 +6962,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         result
       });
       res.setHeader("ETag", etag);
+      setPublicSwrCacheHeaders(res, String(req.query.fresh || "") === "1", 10, 45);
       if (String(req.query.fresh || "") !== "1" && isEtagMatched(req, etag)) {
         return res.status(304).end();
       }
@@ -5603,9 +7079,43 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           message: "Tahap Monitoring tidak valid (harus Tahap 1 sampai Tahap 8)."
         });
       }
-      const wsConfig = await getFirestoreWorkspaceConfig(true);
+      const wsConfig = await getFirestoreWorkspaceConfig(false);
       const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
-      if (!stageControl.unlockedStages.includes(stageNum)) {
+      const hasPerJurusan = Boolean(
+        stageControl.perJurusan && Object.keys(stageControl.perJurusan).length > 0
+      );
+      const sheetsToFetch = [
+        ...stageControl.requireIssuedLetter !== false ? ["Log_Penerbitan_Surat"] : [],
+        ...hasPerJurusan ? ["Master_Jurusan"] : [],
+        "Monitoring_5_Tahap"
+      ];
+      const { sheets: precheckSheets } = await fetchBatchSheetsViaGas(
+        sheetsToFetch,
+        /* @__PURE__ */ new Set(["Log_Penerbitan_Surat", "Monitoring_5_Tahap"]),
+        true
+      ).catch(() => ({ sheets: {} }));
+      const jurusanCatalog = (precheckSheets["Master_Jurusan"] || []).map((j) => ({
+        id: pickField(j, "ID", "id"),
+        kode: pickField(j, "Kode_Jurusan", "Kode", "kode", "kodeJurusan"),
+        nama: pickField(j, "Nama_Jurusan", "Nama", "nama", "namaJurusan"),
+        namaKakomli: "",
+        kontakWA: "",
+        kuotaSiswa: 0,
+        totalTerdaftar: 0
+      }));
+      const studentPolicy = resolveMonitoringStagePolicy(
+        stageControl,
+        String(payload.jurusan || ""),
+        jurusanCatalog
+      );
+      if (!studentPolicy.enabledStages.includes(stageNum)) {
+        return res.status(403).json({
+          success: false,
+          code: "STAGE_DISABLED_FOR_JURUSAN",
+          message: `${stageStr} tidak termasuk tahapan monitoring aktif untuk jurusan ${studentPolicy.jurusanCode || String(payload.jurusan || "ini")}.`
+        });
+      }
+      if (!studentPolicy.unlockedStages.includes(stageNum)) {
         return res.status(403).json({
           success: false,
           code: "STAGE_GLOBALLY_LOCKED",
@@ -5613,11 +7123,8 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         });
       }
       if (stageControl.requireIssuedLetter !== false) {
-        const logRes = await fetchLiveSheetViaGas("Log_Penerbitan_Surat", true).catch(() => ({
-          rows: []
-        }));
         const { issuedStages } = resolveIssuedStagesForDudi(
-          logRes.rows,
+          precheckSheets["Log_Penerbitan_Surat"] || [],
           String(payload.dudi_id || ""),
           String(payload.nama_dudi || "")
         );
@@ -5629,10 +7136,9 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           });
         }
       }
-      const monRes = await fetchLiveSheetViaGas("Monitoring_5_Tahap", true).catch(() => ({
-        rows: []
-      }));
-      if (stageControl.requireSequential && stageNum >= 2) {
+      const monRes = { rows: precheckSheets["Monitoring_5_Tahap"] || [] };
+      const prevEnabledStage = getPreviousEnabledStage(studentPolicy.enabledStages, stageNum);
+      if (studentPolicy.requireSequential && prevEnabledStage !== null) {
         const summary = buildStudentMonitoringSummary(
           {
             nis: cleanNis,
@@ -5643,8 +7149,8 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           monRes.rows,
           []
         );
-        if (!summary.completedStages.includes(stageNum - 1)) {
-          const prevStageLabel = getStageValueByNumber(stageNum - 1);
+        if (!summary.completedStages.includes(prevEnabledStage)) {
+          const prevStageLabel = getStageValueByNumber(prevEnabledStage);
           return res.status(400).json({
             success: false,
             code: "STAGE_LOCKED",
@@ -5786,8 +7292,8 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         fotoBuktiUrl: "",
         Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? "Ya" : "Belum",
         nilaiDudiTerkumpul: nilaiMuncul && avgScore > 0,
-        Blangko_Sertifikat_Bawa: stageNum >= 5 ? "Ya" : "Belum",
-        blangkoSertifikatBawa: stageNum >= 5,
+        Blangko_Sertifikat_Bawa: stageNum >= studentPolicy.gradeStage ? "Ya" : "Belum",
+        blangkoSertifikatBawa: stageNum >= studentPolicy.gradeStage,
         Status_Tahap: "Terlaksana",
         statusTahap: "Terlaksana"
       };
@@ -5801,9 +7307,11 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         persistedMonitoring
       );
       let dudiContactSynced = false;
+      let gradeSynced = false;
+      const postSyncTasks = [];
       if (inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja) {
-        try {
-          dudiContactSynced = await syncDudiContactToMasterAndPengajuan({
+        postSyncTasks.push(
+          syncDudiContactToMasterAndPengajuan({
             dudiId: resolvedDudiId || payload.dudi_id,
             namaDudi: payload.nama_dudi,
             alamatDudi: payload.alamat_dudi,
@@ -5814,15 +7322,16 @@ function registerPublicTeacherMonitoringRoutes(app2) {
             jamKerja: inputJamKerja || void 0,
             createIfMissing: true,
             overwriteExisting: true
-          });
-        } catch (dudiErr) {
-          console.warn("[submit-monitoring] Sync DUDI contact warning:", dudiErr);
-        }
+          }).then((synced) => {
+            dudiContactSynced = synced;
+          }).catch((dudiErr) => {
+            console.warn("[submit-monitoring] Sync DUDI contact warning:", dudiErr);
+          })
+        );
       }
-      let gradeSynced = false;
       if (nilaiMuncul && avgScore > 0) {
-        try {
-          await upsertNilaiDanSertifikat({
+        postSyncTasks.push(
+          upsertNilaiDanSertifikat({
             nis: cleanNis,
             idPenempatan: String(payload.id_penempatan || `PLT-${cleanNis}`),
             idDudi: resolvedDudiId,
@@ -5836,11 +7345,15 @@ function registerPublicTeacherMonitoringRoutes(app2) {
             alurBisnis,
             avgScore,
             tglTerbit: tglVal
-          });
-          gradeSynced = true;
-        } catch (gradeErr) {
-          console.warn("[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:", gradeErr);
-        }
+          }).then(() => {
+            gradeSynced = true;
+          }).catch((gradeErr) => {
+            console.warn("[submit-monitoring] Sync to Nilai_Dan_Sertifikat warning:", gradeErr);
+          })
+        );
+      }
+      if (postSyncTasks.length > 0) {
+        await Promise.all(postSyncTasks);
       }
       res.json({
         success: true,
@@ -5925,7 +7438,7 @@ function registerPublicTeacherMonitoringRoutes(app2) {
         }
       }
       const stageStr = getStageValueByNumber(1);
-      const wsConfig = await getFirestoreWorkspaceConfig(true);
+      const wsConfig = await getFirestoreWorkspaceConfig(false);
       const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
       if (!stageControl.unlockedStages.includes(1)) {
         return res.status(403).json({
@@ -5934,11 +7447,18 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           message: stageControl.lockedReason ? `${stageStr} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).` : `${stageStr} sedang dikunci sementara oleh SuperAdmin.`
         });
       }
+      const deliveryBatchSheets = stageControl.requireIssuedLetter !== false ? ["Log_Penerbitan_Surat", "Monitoring_5_Tahap"] : ["Monitoring_5_Tahap"];
+      const { sheets: deliverySheets } = await fetchBatchSheetsViaGas(
+        deliveryBatchSheets,
+        new Set(deliveryBatchSheets),
+        true
+      ).catch(() => ({ sheets: {} }));
       if (stageControl.requireIssuedLetter !== false) {
-        const logRes = await fetchLiveSheetViaGas("Log_Penerbitan_Surat", true).catch(() => ({
-          rows: []
-        }));
-        const { issuedStages } = resolveIssuedStagesForDudi(logRes.rows, targetDudiId, targetDudiNama);
+        const { issuedStages } = resolveIssuedStagesForDudi(
+          deliverySheets["Log_Penerbitan_Surat"] || [],
+          targetDudiId,
+          targetDudiNama
+        );
         if (!issuedStages.includes(1)) {
           return res.status(403).json({
             success: false,
@@ -5960,26 +7480,11 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           resolvedDudiId = pickField(matchedDudi, "ID", "id");
         }
       }
-      const dudiContactSynced = await syncDudiContactToMasterAndPengajuan({
-        dudiId: resolvedDudiId || targetDudiId,
-        namaDudi: targetDudiNama,
-        alamatDudi: payload.alamat_dudi,
-        namaPemimpin: inputPemimpin,
-        namaPic: inputPic,
-        noTelpDudi: inputTelpDudi,
-        hariKerja: inputHariKerja,
-        jamKerja: inputJamKerja,
-        createIfMissing: true,
-        overwriteExisting: true
-      });
-      const monRes = await fetchLiveSheetViaGas("Monitoring_5_Tahap", true).catch(() => ({
-        rows: []
-      }));
+      const monRes = { rows: deliverySheets["Monitoring_5_Tahap"] || [] };
       const sheetService = GoogleDriveSheetService.getInstance();
       const results = [];
-      let lastWriteReceipt = {
-        verified: false
-      };
+      const rowsToCreate = [];
+      const rowsToUpdate = [];
       for (const stu of validStudents) {
         const cleanNis = stripNisSymbols(stu.nis) || String(stu.nis || "").trim();
         const inputIdPenempatan = String(stu.id_penempatan || `PLT-${cleanNis}`).trim();
@@ -6060,11 +7565,11 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           "Monitoring_5_Tahap",
           matchedExistingRow?._sheetRowNumber ? { ...sheetRow, _sheetRowNumber: matchedExistingRow._sheetRowNumber } : sheetRow
         );
-        lastWriteReceipt = await writeLiveSheetViaGas(
-          "Monitoring_5_Tahap",
-          isUpdate ? "UPDATE" : "CREATE",
-          persistedRow
-        );
+        if (isUpdate) {
+          rowsToUpdate.push(persistedRow);
+        } else {
+          rowsToCreate.push(persistedRow);
+        }
         results.push({
           nis: cleanNis,
           namaSiswa: String(stu.nama_siswa || ""),
@@ -6074,9 +7579,40 @@ function registerPublicTeacherMonitoringRoutes(app2) {
           ttdSiswa: safeStuTtd,
           catatan: cleanNote,
           status: "Terlaksana",
-          sheetRowNumber: lastWriteReceipt.sheetRowNumber
+          sheetRowNumber: matchedExistingRow?._sheetRowNumber
         });
       }
+      let lastWriteReceipt = {
+        verified: false
+      };
+      let dudiContactSynced = false;
+      const writeMonBatch = async () => {
+        if (rowsToUpdate.length > 0) {
+          lastWriteReceipt = await writeLiveSheetViaGas("Monitoring_5_Tahap", "BULK_UPDATE", {
+            ids: rowsToUpdate.map((r) => r.id),
+            updatedRows: rowsToUpdate
+          });
+        }
+        if (rowsToCreate.length > 0) {
+          lastWriteReceipt = await writeLiveSheetViaGas("Monitoring_5_Tahap", "IMPORT", rowsToCreate);
+        }
+      };
+      const [, syncedDudiResult] = await Promise.all([
+        writeMonBatch(),
+        syncDudiContactToMasterAndPengajuan({
+          dudiId: resolvedDudiId || targetDudiId,
+          namaDudi: targetDudiNama,
+          alamatDudi: payload.alamat_dudi,
+          namaPemimpin: inputPemimpin,
+          namaPic: inputPic,
+          noTelpDudi: inputTelpDudi,
+          hariKerja: inputHariKerja,
+          jamKerja: inputJamKerja,
+          createIfMissing: true,
+          overwriteExisting: true
+        }).catch(() => false)
+      ]);
+      dudiContactSynced = Boolean(syncedDudiResult);
       res.json({
         success: true,
         verifiedInSpreadsheet: lastWriteReceipt.verified,
@@ -6361,12 +7897,34 @@ function registerDocumentRoutes(app2) {
           return rid === perizinanId;
         });
       }
+      const nisClean = stripNisSymbols(
+        String(body.nis || "").trim() || pickField(existingRow || {}, "NIS", "nis")
+      );
+      let namaSiswa = String(body.namaSiswa || "").trim() || pickField(existingRow || {}, "Nama_Siswa", "namaSiswa");
+      let kelas = String(body.kelas || "").trim() || pickField(existingRow || {}, "Kelas", "kelas");
+      let jurusan = String(body.jurusan || "").trim() || pickField(existingRow || {}, "Jurusan", "jurusan");
+      if (nisClean && (!namaSiswa || !kelas || kelas === "-" || !jurusan || jurusan === "-")) {
+        const siswaRes = await fetchLiveSheetViaGas("Master_Siswa_XI", false).catch(() => ({
+          rows: []
+        }));
+        const matchedSiswa = siswaRes.rows.find(
+          (s) => stripNisSymbols(pickField(s, "NIS", "nis")) === nisClean
+        );
+        if (matchedSiswa) {
+          if (!namaSiswa) namaSiswa = pickField(matchedSiswa, "Nama_Lengkap", "namaLengkap", "nama");
+          if (!kelas || kelas === "-") kelas = pickField(matchedSiswa, "Kelas", "kelas") || kelas;
+          if (!jurusan || jurusan === "-") {
+            jurusan = pickField(matchedSiswa, "Jurusan", "jurusan", "ID_Jurusan", "idJurusan") || jurusan;
+          }
+        }
+      }
       const dudiTujuan = String(body.dudiTujuan || "").trim() || pickField(existingRow || {}, "DUDI_Tujuan", "dudiTujuan") || "Mitra DUDI";
       let alamatDudi = String(body.alamatDudi || "").trim() || pickField(existingRow || {}, "Alamat_DUDI", "alamatDudi");
       if (!alamatDudi || alamatDudi === "-") {
+        const existingDudiId = pickField(existingRow || {}, "ID_DUDI", "idDudi");
         const dudiRes = await fetchLiveSheetViaGas("Master_DUDI", false).catch(() => ({ rows: [] }));
         const matchedDudi = dudiRes.rows.find(
-          (d) => normalizeStr(pickField(d, "Nama_DUDI", "namaDudi")) === normalizeStr(dudiTujuan)
+          (d) => existingDudiId && pickField(d, "ID", "id") === existingDudiId || normalizeStr(pickField(d, "Nama_DUDI", "namaDudi")) === normalizeStr(dudiTujuan)
         );
         if (matchedDudi) {
           alamatDudi = pickField(matchedDudi, "Alamat", "alamat") || alamatDudi;
@@ -6376,12 +7934,10 @@ function registerDocumentRoutes(app2) {
         perizinanId: perizinanId || `IZN-${Date.now()}`,
         noPerizinan: String(body.noPerizinan || "").trim() || pickField(existingRow || {}, "ID_Perizinan", "idPerizinan", "id") || perizinanId,
         noSuratPermohonan: String(body.noSuratPermohonan || "").trim() || pickField(existingRow || {}, "No_Surat_Permohonan", "noSuratPermohonan") || `421.5 / ___ / Hubin / SMK.PGRI2 / ${(/* @__PURE__ */ new Date()).getFullYear()}`,
-        namaSiswa: String(body.namaSiswa || "").trim() || pickField(existingRow || {}, "Nama_Siswa", "namaSiswa") || "-",
-        nis: stripNisSymbols(
-          String(body.nis || "").trim() || pickField(existingRow || {}, "NIS", "nis")
-        ),
-        kelas: String(body.kelas || "").trim() || pickField(existingRow || {}, "Kelas", "kelas") || "-",
-        jurusan: String(body.jurusan || "").trim() || pickField(existingRow || {}, "Jurusan", "jurusan") || "-",
+        namaSiswa: namaSiswa || "-",
+        nis: nisClean,
+        kelas: kelas || "-",
+        jurusan: jurusan || "-",
         dudiTujuan,
         alamatDudi: alamatDudi || "Di Tempat",
         tanggalSurat: String(body.tanggalSurat || "").trim() || getTodayWibIsoDate(),
@@ -6461,6 +8017,7 @@ function registerDocumentRoutes(app2) {
           nomorSurat: String(metaObj.nomorSurat || "").trim(),
           tanggalTerbit: String(metaObj.tanggalSurat || "").trim(),
           diterbitkanOleh: actor.name || actor.username || "Admin Hubin",
+          idGuruPendamping: String(b.guruId || b.idGuru || b.idGuruPendamping || "").trim(),
           guruPendamping: String(b.namaGuru || "").trim(),
           linkPdf: pdfUrl
         }));
@@ -6525,6 +8082,7 @@ function registerDocumentRoutes(app2) {
         diterbitkanOleh: String(
           it?.diterbitkanOleh || actor.name || actor.username || "Admin Hubin"
         ).trim().slice(0, 120),
+        idGuruPendamping: String(it?.idGuruPendamping || it?.idGuru || it?.guruId || "").trim().slice(0, 80),
         guruPendamping: String(it?.guruPendamping || "").trim().slice(0, 120),
         linkPdf: String(it?.linkPdf || "").trim().slice(0, 500)
       })).filter(
@@ -6654,7 +8212,7 @@ app.use((err, _req, res, _next) => {
   res.status(err?.status || 500).json({
     success: false,
     code: err?.code || "INTERNAL_SERVER_ERROR",
-    message: err?.message || "Terjadi kesalahan internal pada server."
+    message: sanitizeServerErrorMessage(err?.message || "Terjadi kesalahan internal pada server.")
   });
 });
 async function startServer() {

@@ -50,6 +50,12 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
     }
   }, [isOpen]);
 
+  const totalSheetsCount = HUBIN_SHEETS_BLUEPRINT.length;
+  const gasScriptCode = useMemo(
+    () => buildAutoGenerateSheetsFormScript(config.activeYear || '2026/2027'),
+    [config.activeYear]
+  );
+
   if (!isOpen) return null;
 
   // Extract clean ID from full Google Spreadsheet URL or raw ID
@@ -112,12 +118,6 @@ export const SetupWizardModal: React.FC<SetupWizardModalProps> = ({
       setIsProcessing(false);
     }
   };
-
-  const totalSheetsCount = HUBIN_SHEETS_BLUEPRINT.length;
-  const gasScriptCode = useMemo(
-    () => buildAutoGenerateSheetsFormScript(config.activeYear || '2026/2027'),
-    [config.activeYear]
-  );
 
   const copyScript = () => {
     navigator.clipboard.writeText(gasScriptCode);

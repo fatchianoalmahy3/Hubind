@@ -226,10 +226,10 @@ export const BulkActionModal: React.FC<BulkActionModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="text-xs font-bold text-slate-900">
-                Ekspor Data Terpilih (CSV)
+                Ekspor Data Terpilih (.xlsx)
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-                Unduh {selectedCount} baris dalam format CSV Excel
+                Unduh {selectedCount} baris dalam format Excel (.xlsx)
               </div>
             </div>
           </button>

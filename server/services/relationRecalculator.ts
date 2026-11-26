@@ -190,6 +190,43 @@ export async function recalculateAllRelations(
     }
   }
 
+  const pengajuanByNis = new Map<
+    string,
+    { idDudi: string; dudiTujuan: string; idGuru: string; guruPendamping: string; rank: number }
+  >();
+  for (const pq of pengajuanList) {
+    const sk = norm(pickField(pq, 'Status_Kakomli', 'statusKakomli'));
+    const sh = norm(pickField(pq, 'Status_Hubin', 'statusHubin'));
+    if (sk === 'ditolak' || sh === 'batal') continue;
+    const pNis = stripNisSymbols(pickField(pq, 'NIS', 'nis'));
+    if (!pNis) continue;
+    const rank = sh === 'terjadwal' || sh === 'siap diberangkatkan' ? 3 : sk === 'disetujui' ? 2 : 1;
+    const prev = pengajuanByNis.get(pNis);
+    if (!prev || rank >= prev.rank) {
+      const matchedDudi = resolveDudiRecord(
+        pickField(pq, 'ID_DUDI', 'idDudi'),
+        pickField(pq, 'DUDI_Tujuan', 'dudiTujuan')
+      );
+      const matchedGuru = resolveGuruRecord(
+        pickField(pq, 'ID_Guru_Pendamping', 'idGuruPendamping'),
+        pickField(pq, 'Guru_Pendamping', 'guruPendamping')
+      );
+      pengajuanByNis.set(pNis, {
+        idDudi: matchedDudi ? pickField(matchedDudi, 'ID', 'id') : pickField(pq, 'ID_DUDI', 'idDudi'),
+        dudiTujuan: matchedDudi
+          ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi')
+          : pickField(pq, 'DUDI_Tujuan', 'dudiTujuan'),
+        idGuru: matchedGuru
+          ? pickField(matchedGuru, 'ID', 'ID_Guru', 'idGuru', 'id')
+          : pickField(pq, 'ID_Guru_Pendamping', 'idGuruPendamping'),
+        guruPendamping: matchedGuru
+          ? pickField(matchedGuru, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama')
+          : pickField(pq, 'Guru_Pendamping', 'guruPendamping'),
+        rank,
+      });
+    }
+  }
+
   const flushBulkUpdates = async (sheetName: string, rows: any[]): Promise<number> => {
     if (!rows.length) return 0;
     const CHUNK = 150;
@@ -316,10 +353,15 @@ export async function recalculateAllRelations(
       const currStatus = pickField(s, 'Status_PKL', 'statusPKL');
       let nextStatus = currStatus;
       if (nisDigits) {
-        if (activePlacementNis.has(nisDigits) && ['belum daftar', 'diajukan', 'menunggu acc', ''].includes(norm(currStatus))) {
-          nextStatus = 'Aktif PKL';
+        if (
+          activePlacementNis.has(nisDigits) &&
+          ['belum daftar', 'diajukan', 'diterima dudi', 'menunggu acc', 'aktif pkl', ''].includes(norm(currStatus))
+        ) {
+          nextStatus = 'Sedang PKL';
         } else if (!activePlacementNis.has(nisDigits) && completedPlacementNis.has(nisDigits) && norm(currStatus) !== 'selesai pkl') {
           nextStatus = 'Selesai PKL';
+        } else if (!activePlacementNis.has(nisDigits) && pengajuanByNis.has(nisDigits) && ['', 'belum daftar'].includes(norm(currStatus))) {
+          nextStatus = 'Diajukan';
         }
       }
       const needsJurFix = Boolean(canonicalJur && canonicalJur !== currJur);
@@ -421,9 +463,13 @@ export async function recalculateAllRelations(
     for (const p of placements) {
       const pId = pickField(p, 'ID_Penempatan', 'idPenempatan', 'id');
       if (!pId) continue;
+      const nisDigits = stripNisSymbols(pickField(p, 'NIS', 'nis'));
+      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
       const currDudiId = pickField(p, 'ID_DUDI', 'idDudi');
       const currDudiName = pickField(p, 'Nama_DUDI', 'namaDudi', 'DUDI_Tujuan');
-      const matchedDudi = resolveDudiRecord(currDudiId, currDudiName);
+      const matchedDudi =
+        resolveDudiRecord(currDudiId, currDudiName) ||
+        (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : undefined);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
 
@@ -436,7 +482,8 @@ export async function recalculateAllRelations(
               pickField(matchedDudi, 'ID_Guru_Pendamping', 'idGuruPendamping'),
               pickField(matchedDudi, 'Guru_Pendamping', 'guruPendamping')
             )
-          : undefined);
+          : undefined) ||
+        (reqRef ? resolveGuruRecord(reqRef.idGuru, reqRef.guruPendamping) : undefined);
       const nextGuruId = matchedGuru ? pickField(matchedGuru, 'ID', 'ID_Guru', 'idGuru', 'id') : '';
       const nextGuruName = matchedGuru ? pickField(matchedGuru, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama') : '';
 
@@ -457,6 +504,8 @@ export async function recalculateAllRelations(
           ...(nextGuruId ? { ID_Guru_Pendamping: nextGuruId, idGuruPendamping: nextGuruId } : {}),
           ...(nextGuruName ? { Guru_Pendamping: nextGuruName, guruPendamping: nextGuruName } : {}),
         });
+        if (nextDudiId) p.ID_DUDI = nextDudiId;
+        if (nextGuruId) p.ID_Guru_Pendamping = nextGuruId;
       }
     }
   }
@@ -468,8 +517,13 @@ export async function recalculateAllRelations(
       if (!mId) continue;
       const nisDigits = stripNisSymbols(pickField(m, 'NIS', 'nis'));
       const plt = nisDigits ? placementByNis.get(nisDigits) : undefined;
+      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
       const currPltId = pickField(m, 'ID_Penempatan', 'idPenempatan');
-      const nextPltId = currPltId || (plt ? pickField(plt, 'ID_Penempatan', 'idPenempatan', 'id') : '');
+      const pltCanonicalId = plt ? pickField(plt, 'ID_Penempatan', 'idPenempatan', 'id') : '';
+      const nextPltId =
+        pltCanonicalId && (!currPltId || currPltId.startsWith('PLT-2')) ? pltCanonicalId : currPltId;
+      const currNisRaw = pickField(m, 'NIS', 'nis');
+      const nextNis = currNisRaw || (plt ? stripNisSymbols(pickField(plt, 'NIS', 'nis')) : '');
 
       const currDudiId = pickField(m, 'ID_DUDI', 'idDudi');
       const currDudiName = pickField(m, 'DUDI_Tujuan', 'dudiTujuan');
@@ -481,7 +535,8 @@ export async function recalculateAllRelations(
               pickField(plt, 'ID_DUDI', 'idDudi'),
               pickField(plt, 'Nama_DUDI', 'namaDudi', 'DUDI_Tujuan')
             )
-          : undefined);
+          : undefined) ||
+        (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : undefined);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
       const nextDudiAlamat = matchedDudi ? pickField(matchedDudi, 'Alamat', 'alamat') : '';
@@ -501,11 +556,13 @@ export async function recalculateAllRelations(
               pickField(matchedDudi, 'ID_Guru_Pendamping', 'idGuruPendamping'),
               pickField(matchedDudi, 'Guru_Pendamping', 'guruPendamping')
             )
-          : undefined);
+          : undefined) ||
+        (reqRef ? resolveGuruRecord(reqRef.idGuru, reqRef.guruPendamping) : undefined);
       const nextGuruId = matchedGuru ? pickField(matchedGuru, 'ID', 'ID_Guru', 'idGuru', 'id') : '';
       const nextGuruName = matchedGuru ? pickField(matchedGuru, 'Nama_Lengkap', 'Nama_Guru', 'namaGuru', 'nama') : '';
 
       const needsPltUpdate = Boolean(nextPltId && nextPltId !== currPltId);
+      const needsNisUpdate = Boolean(nextNis && !currNisRaw);
       const needsDudiUpdate =
         Boolean(nextDudiId && nextDudiId !== currDudiId) ||
         Boolean(nextDudiName && nextDudiName !== currDudiName) ||
@@ -514,12 +571,13 @@ export async function recalculateAllRelations(
         Boolean(nextGuruId && nextGuruId !== currGuruId) ||
         Boolean(nextGuruName && nextGuruName !== currGuruName);
 
-      if (needsPltUpdate || needsDudiUpdate || needsGuruUpdate) {
+      if (needsPltUpdate || needsNisUpdate || needsDudiUpdate || needsGuruUpdate) {
         monitoringUpdates.push({
           id: mId,
           ID_Monitoring: mId,
           _sheetRowNumber: m._sheetRowNumber,
           ...(nextPltId ? { ID_Penempatan: nextPltId, idPenempatan: nextPltId } : {}),
+          ...(needsNisUpdate ? { NIS: nextNis, nis: nextNis } : {}),
           ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
           ...(nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}),
           ...(nextDudiAlamat ? { Alamat_DUDI: nextDudiAlamat, alamatDudi: nextDudiAlamat } : {}),
@@ -531,9 +589,13 @@ export async function recalculateAllRelations(
 
     for (const sr of sertifikatList) {
       const srId = pickField(sr, 'ID_Penempatan', 'idPenempatan', 'id');
-      if (!srId) continue;
       const nisDigits = stripNisSymbols(pickField(sr, 'NIS', 'nis'));
+      if (!srId && !nisDigits) continue;
       const plt = nisDigits ? placementByNis.get(nisDigits) : undefined;
+      const reqRef = nisDigits ? pengajuanByNis.get(nisDigits) : undefined;
+      const pltCanonicalId = plt ? pickField(plt, 'ID_Penempatan', 'idPenempatan', 'id') : '';
+      const nextPltId =
+        pltCanonicalId && (!srId || srId.startsWith('PLT-2')) ? pltCanonicalId : srId;
       const currDudiId = pickField(sr, 'ID_DUDI', 'idDudi');
       const currDudiName = pickField(sr, 'DUDI_Tujuan', 'dudiTujuan');
       const matchedDudi =
@@ -543,18 +605,21 @@ export async function recalculateAllRelations(
               pickField(plt, 'ID_DUDI', 'idDudi'),
               pickField(plt, 'Nama_DUDI', 'namaDudi', 'DUDI_Tujuan')
             )
-          : undefined);
+          : undefined) ||
+        (reqRef ? resolveDudiRecord(reqRef.idDudi, reqRef.dudiTujuan) : undefined);
       const nextDudiId = matchedDudi ? pickField(matchedDudi, 'ID', 'id') : currDudiId;
       const nextDudiName = matchedDudi ? pickField(matchedDudi, 'Nama_DUDI', 'namaDudi') : '';
 
       if (
+        (nextPltId && nextPltId !== srId) ||
         (nextDudiId && nextDudiId !== currDudiId) ||
         (nextDudiName && nextDudiName !== currDudiName)
       ) {
         sertifikatUpdates.push({
-          id: srId,
-          ID_Penempatan: srId,
+          id: srId || nisDigits,
+          NIS: nisDigits || undefined,
           _sheetRowNumber: sr._sheetRowNumber,
+          ...(nextPltId ? { ID_Penempatan: nextPltId, idPenempatan: nextPltId } : {}),
           ...(nextDudiId ? { ID_DUDI: nextDudiId, idDudi: nextDudiId } : {}),
           ...(nextDudiName ? { DUDI_Tujuan: nextDudiName, dudiTujuan: nextDudiName } : {}),
         });
@@ -651,7 +716,7 @@ export async function recalculateAllRelations(
   let formulasApplied = false;
   if (scope === 'all') {
     const migRes = await callGasCustomAction('MIGRATE_RELATIONAL_FORMULAS').catch(() => null);
-    formulasApplied = Boolean(migRes?.data?.status === 'success');
+    formulasApplied = Boolean(migRes?.data?.status === 'success' || migRes?.data?.success === true);
   }
 
   if (scope === 'all') {

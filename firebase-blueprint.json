@@ -48,7 +48,7 @@
         },
         "monitoringStageControl": {
           "type": "object",
-          "description": "Global monitoring stage lock settings controlled by SuperAdmin (requireSequential, requireIssuedLetter, unlockedStages 1..8, lockedReason)"
+          "description": "Global and per-jurusan monitoring stage policy controlled by SuperAdmin (requireSequential, requireIssuedLetter, unlockedStages 1..8, gradeStage 2..8, perJurusan map, lockedReason)"
         },
         "updatedBy": {
           "type": "string",

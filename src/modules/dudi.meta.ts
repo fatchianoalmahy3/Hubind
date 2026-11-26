@@ -118,16 +118,8 @@ export const DudiMetadata: ModuleMetadata<Dudi> = {
       placeholder: 'Nama pembimbing lapangan / HRD',
     },
     {
-      key: 'kontakPic',
-      label: 'No. WA PIC',
-      type: 'text',
-      isTableColumn: true,
-      isFormInput: true,
-      placeholder: '0812xxxxxxxx',
-    },
-    {
       key: 'noTelpDudi',
-      label: 'No. Telp DUDI',
+      label: 'No. Telp / WA DUDI',
       type: 'text',
       isTableColumn: true,
       isFormInput: true,

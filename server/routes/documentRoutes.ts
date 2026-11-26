@@ -127,6 +127,36 @@ export function registerDocumentRoutes(app: Express): void {
         });
       }
 
+      const nisClean = stripNisSymbols(
+        String(body.nis || '').trim() || pickField(existingRow || {}, 'NIS', 'nis')
+      );
+      let namaSiswa =
+        String(body.namaSiswa || '').trim() ||
+        pickField(existingRow || {}, 'Nama_Siswa', 'namaSiswa');
+      let kelas =
+        String(body.kelas || '').trim() ||
+        pickField(existingRow || {}, 'Kelas', 'kelas');
+      let jurusan =
+        String(body.jurusan || '').trim() ||
+        pickField(existingRow || {}, 'Jurusan', 'jurusan');
+
+      if (nisClean && (!namaSiswa || !kelas || kelas === '-' || !jurusan || jurusan === '-')) {
+        const siswaRes = await fetchLiveSheetViaGas('Master_Siswa_XI', false).catch(() => ({
+          rows: [] as any[],
+        }));
+        const matchedSiswa = siswaRes.rows.find(
+          (s: any) => stripNisSymbols(pickField(s, 'NIS', 'nis')) === nisClean
+        );
+        if (matchedSiswa) {
+          if (!namaSiswa) namaSiswa = pickField(matchedSiswa, 'Nama_Lengkap', 'namaLengkap', 'nama');
+          if (!kelas || kelas === '-') kelas = pickField(matchedSiswa, 'Kelas', 'kelas') || kelas;
+          if (!jurusan || jurusan === '-') {
+            jurusan =
+              pickField(matchedSiswa, 'Jurusan', 'jurusan', 'ID_Jurusan', 'idJurusan') || jurusan;
+          }
+        }
+      }
+
       const dudiTujuan =
         String(body.dudiTujuan || '').trim() ||
         pickField(existingRow || {}, 'DUDI_Tujuan', 'dudiTujuan') ||
@@ -137,9 +167,12 @@ export function registerDocumentRoutes(app: Express): void {
         pickField(existingRow || {}, 'Alamat_DUDI', 'alamatDudi');
 
       if (!alamatDudi || alamatDudi === '-') {
+        const existingDudiId = pickField(existingRow || {}, 'ID_DUDI', 'idDudi');
         const dudiRes = await fetchLiveSheetViaGas('Master_DUDI', false).catch(() => ({ rows: [] as any[] }));
         const matchedDudi = dudiRes.rows.find(
-          (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === normalizeStr(dudiTujuan)
+          (d: any) =>
+            (existingDudiId && pickField(d, 'ID', 'id') === existingDudiId) ||
+            normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === normalizeStr(dudiTujuan)
         );
         if (matchedDudi) {
           alamatDudi = pickField(matchedDudi, 'Alamat', 'alamat') || alamatDudi;
@@ -156,21 +189,10 @@ export function registerDocumentRoutes(app: Express): void {
           String(body.noSuratPermohonan || '').trim() ||
           pickField(existingRow || {}, 'No_Surat_Permohonan', 'noSuratPermohonan') ||
           `421.5 / ___ / Hubin / SMK.PGRI2 / ${new Date().getFullYear()}`,
-        namaSiswa:
-          String(body.namaSiswa || '').trim() ||
-          pickField(existingRow || {}, 'Nama_Siswa', 'namaSiswa') ||
-          '-',
-        nis: stripNisSymbols(
-          String(body.nis || '').trim() || pickField(existingRow || {}, 'NIS', 'nis')
-        ),
-        kelas:
-          String(body.kelas || '').trim() ||
-          pickField(existingRow || {}, 'Kelas', 'kelas') ||
-          '-',
-        jurusan:
-          String(body.jurusan || '').trim() ||
-          pickField(existingRow || {}, 'Jurusan', 'jurusan') ||
-          '-',
+        namaSiswa: namaSiswa || '-',
+        nis: nisClean,
+        kelas: kelas || '-',
+        jurusan: jurusan || '-',
         dudiTujuan,
         alamatDudi: alamatDudi || 'Di Tempat',
         tanggalSurat: String(body.tanggalSurat || '').trim() || getTodayWibIsoDate(),

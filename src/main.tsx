@@ -1,5 +1,6 @@
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import {ErrorBoundary} from './ui/ErrorBoundary.tsx';
 import './index.css';
 
 if (import.meta.env.DEV && typeof window !== 'undefined') {
@@ -16,4 +17,8 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
   });
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

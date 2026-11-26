@@ -9,22 +9,29 @@ import {
   ClipboardCheck,
   Clock,
   Eye,
+  GraduationCap,
   Loader2,
+  Lock,
   MapPin,
   RefreshCw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   UserCheck,
   Users,
   X,
 } from 'lucide-react';
 import type { AdminSessionUser } from '../core/auth/LocalAccountAuthService';
+import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import {
+  DEFAULT_MONITORING_STAGE_CONTROL,
   Dudi,
   Guru,
   Jurusan,
+  Kelas,
   MONITORING_STAGES,
   Monitoring,
+  MonitoringStageControl,
   PenempatanPKL,
   Sertifikat,
   Siswa,
@@ -38,17 +45,20 @@ import {
   resolveKakomliJurusans,
 } from '../core/utils/jurusanHelpers';
 import {
+  ResolvedMonitoringStagePolicy,
   StageLogEntry,
   buildMonitoringLookupIndex,
   buildStudentMonitoringSummary,
   getStageValueByNumber,
   normalizeMonitoringVerificationStatus,
+  resolveMonitoringStagePolicy,
 } from '../core/utils/monitoringHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { isActivePlacementStatus, normalizeRelationText } from '../core/utils/relationHelpers';
 import { DudiService } from '../services/DudiService';
 import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
+import { KelasService } from '../services/KelasService';
 import { MonitoringService } from '../services/MonitoringService';
 import { SertifikatService } from '../services/SertifikatService';
 import { SiswaPklService } from '../services/SiswaPklService';
@@ -63,6 +73,7 @@ interface DudiMonitoringRecapPageProps {
 }
 
 type VerificationStatus = Monitoring['statusTahap'];
+type RecapViewMode = 'DUDI' | 'KELAS';
 
 interface StudentMatrixRow {
   placementId: string;
@@ -73,6 +84,8 @@ interface StudentMatrixRow {
   namaDudi: string;
   idDudi: string;
   guruPendamping: string;
+  isPlotted: boolean;
+  stagePolicy: ResolvedMonitoringStagePolicy;
   stageLogs: Record<number, StageLogEntry>;
   completedStages: number[];
   highestStage: number;
@@ -80,14 +93,16 @@ interface StudentMatrixRow {
   rataRataNilai: number | null;
 }
 
-interface DudiRecapGroup {
+interface RecapGroup {
   key: string;
-  idDudi: string;
-  namaDudi: string;
-  alamat: string;
-  guruPendamping: string;
+  mode: RecapViewMode;
+  title: string;
+  subtitle: string;
+  secondaryLabel: string;
   jurusanList: string[];
   students: StudentMatrixRow[];
+  plottedCount: number;
+  unplottedCount: number;
   totalLogs: number;
   pendingKakomliCount: number;
   pendingHubinCount: number;
@@ -113,16 +128,21 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   const [penempatanList, setPenempatanList] = useState<PenempatanPKL[]>([]);
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
   const [jurusanList, setJurusanList] = useState<Jurusan[]>([]);
+  const [kelasList, setKelasList] = useState<Kelas[]>([]);
   const [guruList, setGuruList] = useState<Guru[]>([]);
   const [monitoringList, setMonitoringList] = useState<Monitoring[]>([]);
   const [sertifikatList, setSertifikatList] = useState<Sertifikat[]>([]);
+  const [stageControl, setStageControl] = useState<MonitoringStageControl>(
+    DEFAULT_MONITORING_STAGE_CONTROL
+  );
 
+  const [viewMode, setViewMode] = useState<RecapViewMode>('DUDI');
   const [search, setSearch] = useState('');
   const [selectedJurusanKey, setSelectedJurusanKey] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<
     'ALL' | 'PENDING_KAKOMLI' | 'PENDING_HUBIN' | 'ALL_VERIFIED'
   >('ALL');
-  const [selectedDudiKey, setSelectedDudiKey] = useState<string | null>(null);
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
   const [selectedStageNum, setSelectedStageNum] = useState<number>(1);
   const [inspectTarget, setInspectTarget] = useState<{
     student: StudentMatrixRow;
@@ -145,39 +165,48 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   });
   const [confirmLoading, setConfirmLoading] = useState(false);
 
-  const canVerifyKakomli = userRole === 'Kakomli' || userRole === 'SuperAdmin';
-  const canVerifyHubin = userRole === 'Waka' || userRole === 'Hubin' || userRole === 'SuperAdmin';
   const isKakomliRole = userRole === 'Kakomli';
+  const isSuperAdmin = userRole === 'SuperAdmin';
+  const canVerifyKakomli = isKakomliRole || isSuperAdmin;
+  const canVerifyHubin = userRole === 'Waka' || userRole === 'Hubin' || isSuperAdmin;
+  const isStrictHubinWaitingKakomli = canVerifyHubin && !isSuperAdmin;
 
   const loadAllData = useCallback(async (forceReload = false) => {
     if (forceReload) setRevalidating(true);
     else setLoading(true);
     try {
+      const sheetClient = GoogleSheetClient.getInstance();
       const dSvc = DudiService.getInstance();
       const pSvc = SiswaPklService.getInstance();
       const sSvc = SiswaService.getInstance();
       const jSvc = JurusanService.getInstance();
+      const kSvc = KelasService.getInstance();
       const gSvc = GuruService.getInstance();
       const mSvc = MonitoringService.getInstance();
       const cSvc = SertifikatService.getInstance();
 
       if (forceReload) {
         await Promise.all([
+          sheetClient.initFromFirestore().catch(() => {}),
           dSvc.reloadFromSpreadsheet().catch(() => []),
           pSvc.reloadFromSpreadsheet().catch(() => []),
           sSvc.reloadFromSpreadsheet().catch(() => []),
           jSvc.reloadFromSpreadsheet().catch(() => []),
+          kSvc.reloadFromSpreadsheet().catch(() => []),
           gSvc.reloadFromSpreadsheet().catch(() => []),
           mSvc.reloadFromSpreadsheet().catch(() => []),
           cSvc.reloadFromSpreadsheet().catch(() => []),
         ]);
+      } else {
+        await sheetClient.initFromFirestore().catch(() => {});
       }
 
-      const [dRows, pRows, sRows, jRows, gRows, mRows, cRows] = await Promise.all([
+      const [dRows, pRows, sRows, jRows, kRows, gRows, mRows, cRows] = await Promise.all([
         dSvc.getAll(),
         pSvc.getAll(),
         sSvc.getAll(),
         jSvc.getAll(),
+        kSvc.getAll().catch(() => [] as Kelas[]),
         gSvc.getAll().catch(() => [] as Guru[]),
         mSvc.getAll(),
         cSvc.getAll(),
@@ -187,12 +216,14 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       setPenempatanList(pRows);
       setSiswaList(sRows);
       setJurusanList(jRows);
+      setKelasList(kRows);
       setGuruList(gRows);
       setMonitoringList(mRows);
       setSertifikatList(cRows);
+      setStageControl(sheetClient.getMonitoringStageControl());
     } catch (err: any) {
       ToastManager.getInstance().show(
-        'Gagal Memuat Rekap DUDI',
+        'Gagal Memuat Rekap Monitoring',
         'error',
         err?.message || 'Periksa koneksi Cloud Server lalu segarkan kembali.'
       );
@@ -206,7 +237,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     loadAllData(false);
   }, [loadAllData, refreshSignal]);
 
-  // Auto-resolve ALL Jurusans managed by the logged-in Kakomli (supports 1 Kakomli -> N Jurusan)
+  // Auto-resolve ALL Jurusans managed by the logged-in Kakomli
   const matchedKakomliJurusans = useMemo(() => {
     if (!isKakomliRole) return [];
     return resolveKakomliJurusans(currentUser, jurusanList, guruList);
@@ -251,8 +282,28 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     );
   }, [isKakomliRole, matchedKakomliJurusans, jurusanList, selectedJurusanKey]);
 
-  // Build Student Matrix Rows & Group by DUDI
-  const dudiGroups = useMemo<DudiRecapGroup[]>(() => {
+  const matchesActiveJurusanFilter = useCallback(
+    (resolvedJurusan: string) => {
+      if (
+        isKakomliRole &&
+        matchedKakomliJurusans.length > 0 &&
+        selectedJurusanKey === 'ALL_ASSIGNED'
+      ) {
+        return matchAnyJurusanItem(resolvedJurusan, matchedKakomliJurusans);
+      }
+      if (activeJurusanObj) {
+        return matchJurusanItem(resolvedJurusan, activeJurusanObj);
+      }
+      return true;
+    },
+    [isKakomliRole, matchedKakomliJurusans, selectedJurusanKey, activeJurusanObj]
+  );
+
+  // Build Student Matrix Rows & Group by DUDI AND Kelas
+  const { dudiGroups, kelasGroups } = useMemo<{
+    dudiGroups: RecapGroup[];
+    kelasGroups: RecapGroup[];
+  }>(() => {
     const siswaByNis = new Map<string, Siswa>();
     for (const s of siswaList) {
       const clean = stripNisSymbols(s.nis);
@@ -268,12 +319,59 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       if (normName) dudiByNormName.set(normName, d);
     }
 
+    const kelasMetaByNorm = new Map<string, Kelas>();
+    for (const k of kelasList) {
+      const normK = normalizeRelationText(k.namaKelas);
+      if (normK) kelasMetaByNorm.set(normK, k);
+    }
+
     const monitoringIndex = buildMonitoringLookupIndex(monitoringList, sertifikatList);
     const activePlacements = penempatanList.filter((p) =>
       isActivePlacementStatus(p.statusPenempatan)
     );
 
-    const groupMap = new Map<string, DudiRecapGroup>();
+    const activePlacementByNis = new Map<string, PenempatanPKL>();
+    for (const p of activePlacements) {
+      const clean = stripNisSymbols(p.nis);
+      if (clean && !activePlacementByNis.has(clean)) activePlacementByNis.set(clean, p);
+      const raw = String(p.nis || '').trim();
+      if (raw && !activePlacementByNis.has(raw)) activePlacementByNis.set(raw, p);
+    }
+
+    const accumulateRowCounts = (group: RecapGroup, studentRow: StudentMatrixRow) => {
+      group.students.push(studentRow);
+      if (studentRow.isPlotted) group.plottedCount += 1;
+      else group.unplottedCount += 1;
+
+      if (
+        studentRow.jurusan &&
+        studentRow.jurusan !== '-' &&
+        !group.jurusanList.includes(studentRow.jurusan)
+      ) {
+        group.jurusanList.push(studentRow.jurusan);
+      }
+      if (studentRow.highestStage > group.highestStage) {
+        group.highestStage = studentRow.highestStage;
+      }
+
+      for (const stNum of studentRow.completedStages) {
+        const log = studentRow.stageLogs[stNum];
+        if (!log || !log.monitoringId) continue;
+        const stStatus = normalizeVerificationStatus(log.status);
+        group.totalLogs += 1;
+        if (stStatus === 'Terlaksana') {
+          group.pendingKakomliCount += 1;
+        } else if (stStatus === 'Tervalidasi Kakomli') {
+          group.pendingHubinCount += 1;
+        } else if (stStatus === 'Tervalidasi Hubin') {
+          group.verifiedHubinCount += 1;
+        }
+      }
+    };
+
+    // 1. DUDI Groups (from active placements)
+    const dudiMap = new Map<string, RecapGroup>();
+    const seenPlacementIdsInKelas = new Set<string>();
 
     for (const p of activePlacements) {
       const cleanNis = stripNisSymbols(p.nis);
@@ -286,18 +384,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       const resolvedJurusan = matchedSiswa?.jurusan || matchedMon?.jurusan || '-';
       const resolvedKelas = matchedSiswa?.kelas || '-';
 
-      // Filter by active Jurusan (enforced for single/multi-jurusan Kakomli or explicit admin selection)
-      if (
-        isKakomliRole &&
-        matchedKakomliJurusans.length > 0 &&
-        selectedJurusanKey === 'ALL_ASSIGNED'
-      ) {
-        if (!matchAnyJurusanItem(resolvedJurusan, matchedKakomliJurusans)) {
-          continue;
-        }
-      } else if (activeJurusanObj && !matchJurusanItem(resolvedJurusan, activeJurusanObj)) {
-        continue;
-      }
+      if (!matchesActiveJurusanFilter(resolvedJurusan)) continue;
 
       const dudiObj =
         (p.idDudi && dudiById.get(p.idDudi)) ||
@@ -331,6 +418,8 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         namaDudi: dudiName,
         idDudi: dudiObj?.id || p.idDudi || '',
         guruPendamping: p.guruPendamping || dudiObj?.guruPendamping || '-',
+        isPlotted: true,
+        stagePolicy: resolveMonitoringStagePolicy(stageControl, resolvedJurusan, jurusanList),
         stageLogs: summary.stageLogs,
         completedStages: summary.completedStages,
         highestStage,
@@ -338,71 +427,205 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         rataRataNilai: summary.submittedGradeSummary?.rataRata ?? null,
       };
 
-      let group = groupMap.get(dudiKey);
+      let group = dudiMap.get(dudiKey);
       if (!group) {
         group = {
           key: dudiKey,
-          idDudi: dudiObj?.id || p.idDudi || '',
-          namaDudi: dudiName,
-          alamat: dudiObj?.alamat || dudiObj?.wilayahKota || '-',
-          guruPendamping: p.guruPendamping || dudiObj?.guruPendamping || '-',
+          mode: 'DUDI',
+          title: dudiName,
+          subtitle: dudiObj?.alamat || dudiObj?.wilayahKota || '-',
+          secondaryLabel: `Pembimbing: ${p.guruPendamping || dudiObj?.guruPendamping || '-'}`,
           jurusanList: [],
           students: [],
+          plottedCount: 0,
+          unplottedCount: 0,
           totalLogs: 0,
           pendingKakomliCount: 0,
           pendingHubinCount: 0,
           verifiedHubinCount: 0,
           highestStage: 0,
         };
-        groupMap.set(dudiKey, group);
+        dudiMap.set(dudiKey, group);
       }
 
-      group.students.push(studentRow);
-      if (resolvedJurusan && resolvedJurusan !== '-' && !group.jurusanList.includes(resolvedJurusan)) {
-        group.jurusanList.push(resolvedJurusan);
-      }
-      if (highestStage > group.highestStage) group.highestStage = highestStage;
-
-      for (const stNum of summary.completedStages) {
-        const log = summary.stageLogs[stNum];
-        if (!log || !log.monitoringId) continue;
-        const stStatus = normalizeVerificationStatus(log.status);
-        group.totalLogs += 1;
-        if (stStatus === 'Terlaksana') {
-          group.pendingKakomliCount += 1;
-        } else if (stStatus === 'Tervalidasi Kakomli') {
-          group.pendingHubinCount += 1;
-        } else if (stStatus === 'Tervalidasi Hubin') {
-          group.verifiedHubinCount += 1;
-        }
-      }
+      accumulateRowCounts(group, studentRow);
     }
 
-    return Array.from(groupMap.values()).sort((a, b) =>
-      a.namaDudi.localeCompare(b.namaDudi, 'id')
-    );
+    // 2. Kelas Groups (from Master_Siswa_XI + fallback active placements not in Master_Siswa_XI)
+    const kelasMap = new Map<string, RecapGroup>();
+
+    const pushToKelasGroup = (studentRow: StudentMatrixRow) => {
+      const kelasLabel = String(studentRow.kelas || '').trim() || 'Tanpa Kelas';
+      const kelasKey = normalizeRelationText(kelasLabel) || 'tanpa_kelas';
+      const kelasMeta = kelasMetaByNorm.get(kelasKey);
+
+      let group = kelasMap.get(kelasKey);
+      if (!group) {
+        group = {
+          key: kelasKey,
+          mode: 'KELAS',
+          title: kelasMeta?.namaKelas || kelasLabel,
+          subtitle: kelasMeta?.waliKelas
+            ? `Wali Kelas: ${kelasMeta.waliKelas}`
+            : studentRow.jurusan && studentRow.jurusan !== '-'
+            ? `Jurusan: ${studentRow.jurusan}`
+            : 'Rombel Kelas XI',
+          secondaryLabel: kelasMeta?.jurusan
+            ? `Kompetensi: ${kelasMeta.jurusan}`
+            : studentRow.jurusan && studentRow.jurusan !== '-'
+            ? `Kompetensi: ${studentRow.jurusan}`
+            : 'Kelas PKL',
+          jurusanList: [],
+          students: [],
+          plottedCount: 0,
+          unplottedCount: 0,
+          totalLogs: 0,
+          pendingKakomliCount: 0,
+          pendingHubinCount: 0,
+          verifiedHubinCount: 0,
+          highestStage: 0,
+        };
+        kelasMap.set(kelasKey, group);
+      }
+      accumulateRowCounts(group, studentRow);
+    };
+
+    for (const s of siswaList) {
+      const cleanNis = stripNisSymbols(s.nis);
+      const p =
+        (cleanNis && activePlacementByNis.get(cleanNis)) ||
+        activePlacementByNis.get(String(s.nis || '').trim());
+      if (p) seenPlacementIdsInKelas.add(p.idPenempatan || p.id);
+
+      const resolvedJurusan = s.jurusan || '-';
+      if (!matchesActiveJurusanFilter(resolvedJurusan)) continue;
+
+      const dudiObj = p
+        ? (p.idDudi && dudiById.get(p.idDudi)) ||
+          dudiByNormName.get(normalizeRelationText(p.namaDudi))
+        : undefined;
+      const dudiName = p ? dudiObj?.namaDudi || p.namaDudi || 'Mitra DUDI' : 'Belum Terplotting';
+
+      const summary = buildStudentMonitoringSummary(
+        {
+          nis: s.nis,
+          nama: s.nama,
+          idPenempatan: p?.idPenempatan,
+          dudi_name: p ? dudiName : undefined,
+        },
+        monitoringList,
+        sertifikatList,
+        monitoringIndex
+      );
+
+      const highestStage =
+        summary.completedStages.length > 0
+          ? summary.completedStages[summary.completedStages.length - 1]
+          : 0;
+
+      pushToKelasGroup({
+        placementId: p?.idPenempatan || p?.id || `siswa_${s.id || cleanNis || s.nama}`,
+        nis: s.nis,
+        namaSiswa: s.nama,
+        kelas: s.kelas || 'Tanpa Kelas',
+        jurusan: resolvedJurusan,
+        namaDudi: dudiName,
+        idDudi: dudiObj?.id || p?.idDudi || '',
+        guruPendamping: p?.guruPendamping || dudiObj?.guruPendamping || '-',
+        isPlotted: Boolean(p),
+        stagePolicy: resolveMonitoringStagePolicy(stageControl, resolvedJurusan, jurusanList),
+        stageLogs: summary.stageLogs,
+        completedStages: summary.completedStages,
+        highestStage,
+        hasGrade: summary.hasSubmittedGrades,
+        rataRataNilai: summary.submittedGradeSummary?.rataRata ?? null,
+      });
+    }
+
+    // Fallback: include active placements whose student NIS isn't found in Master_Siswa_XI
+    for (const p of activePlacements) {
+      if (seenPlacementIdsInKelas.has(p.idPenempatan || p.id)) continue;
+      const cleanNis = stripNisSymbols(p.nis);
+      const matchedMon =
+        (cleanNis && monitoringIndex.monitoringByNisDigits.get(cleanNis)?.[0]) ||
+        (p.idPenempatan && monitoringIndex.monitoringByPlacement.get(p.idPenempatan)?.[0]) ||
+        undefined;
+      const resolvedJurusan = matchedMon?.jurusan || '-';
+      if (!matchesActiveJurusanFilter(resolvedJurusan)) continue;
+
+      const dudiObj =
+        (p.idDudi && dudiById.get(p.idDudi)) ||
+        dudiByNormName.get(normalizeRelationText(p.namaDudi));
+      const dudiName = dudiObj?.namaDudi || p.namaDudi || 'Mitra DUDI';
+
+      const summary = buildStudentMonitoringSummary(
+        {
+          nis: p.nis,
+          nama: p.namaSiswa,
+          idPenempatan: p.idPenempatan,
+          dudi_name: dudiName,
+        },
+        monitoringList,
+        sertifikatList,
+        monitoringIndex
+      );
+      const highestStage =
+        summary.completedStages.length > 0
+          ? summary.completedStages[summary.completedStages.length - 1]
+          : 0;
+
+      pushToKelasGroup({
+        placementId: p.idPenempatan || p.id,
+        nis: p.nis,
+        namaSiswa: p.namaSiswa,
+        kelas: 'Tanpa Kelas',
+        jurusan: resolvedJurusan,
+        namaDudi: dudiName,
+        idDudi: dudiObj?.id || p.idDudi || '',
+        guruPendamping: p.guruPendamping || dudiObj?.guruPendamping || '-',
+        isPlotted: true,
+        stagePolicy: resolveMonitoringStagePolicy(stageControl, resolvedJurusan, jurusanList),
+        stageLogs: summary.stageLogs,
+        completedStages: summary.completedStages,
+        highestStage,
+        hasGrade: summary.hasSubmittedGrades,
+        rataRataNilai: summary.submittedGradeSummary?.rataRata ?? null,
+      });
+    }
+
+    const sortedKelasGroups = Array.from(kelasMap.values()).map((g) => ({
+      ...g,
+      students: [...g.students].sort((a, b) => a.namaSiswa.localeCompare(b.namaSiswa, 'id')),
+    }));
+    sortedKelasGroups.sort((a, b) => a.title.localeCompare(b.title, 'id', { numeric: true }));
+
+    return {
+      dudiGroups: Array.from(dudiMap.values()).sort((a, b) =>
+        a.title.localeCompare(b.title, 'id')
+      ),
+      kelasGroups: sortedKelasGroups,
+    };
   }, [
     dudiList,
     penempatanList,
     siswaList,
+    kelasList,
+    jurusanList,
     monitoringList,
     sertifikatList,
-    activeJurusanObj,
-    isKakomliRole,
-    matchedKakomliJurusans,
-    selectedJurusanKey,
+    stageControl,
+    matchesActiveJurusanFilter,
   ]);
 
+  const activeModeGroups = viewMode === 'DUDI' ? dudiGroups : kelasGroups;
   const deferredSearch = useDeferredValue(search);
 
-  const filteredDudiGroups = useMemo(() => {
+  const filteredGroups = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase();
     const qDigits = !/[a-z]/i.test(deferredSearch) ? stripNisSymbols(deferredSearch) : '';
-    return dudiGroups.filter((g) => {
+    return activeModeGroups.filter((g) => {
       if (statusFilter === 'PENDING_KAKOMLI' && g.pendingKakomliCount === 0) return false;
-      if (statusFilter === 'PENDING_HUBIN' && g.pendingHubinCount === 0) {
-        return false;
-      }
+      if (statusFilter === 'PENDING_HUBIN' && g.pendingHubinCount === 0) return false;
       if (
         statusFilter === 'ALL_VERIFIED' &&
         (g.totalLogs === 0 || g.pendingKakomliCount > 0 || g.pendingHubinCount > 0)
@@ -412,9 +635,9 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       if (!q && qDigits.length < 3) return true;
       if (
         q &&
-        (g.namaDudi.toLowerCase().includes(q) ||
-          g.alamat.toLowerCase().includes(q) ||
-          g.guruPendamping.toLowerCase().includes(q))
+        (g.title.toLowerCase().includes(q) ||
+          g.subtitle.toLowerCase().includes(q) ||
+          g.secondaryLabel.toLowerCase().includes(q))
       ) {
         return true;
       }
@@ -423,44 +646,46 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           (q &&
             (s.namaSiswa.toLowerCase().includes(q) ||
               s.nis.toLowerCase().includes(q) ||
-              s.kelas.toLowerCase().includes(q))) ||
+              s.kelas.toLowerCase().includes(q) ||
+              s.namaDudi.toLowerCase().includes(q))) ||
           (qDigits.length >= 3 && stripNisSymbols(s.nis).includes(qDigits))
       );
     });
-  }, [dudiGroups, deferredSearch, statusFilter]);
+  }, [activeModeGroups, deferredSearch, statusFilter]);
 
-  const activeDudiGroup = useMemo(() => {
-    if (!selectedDudiKey) return null;
-    return dudiGroups.find((g) => g.key === selectedDudiKey) || null;
-  }, [dudiGroups, selectedDudiKey]);
+  const activeGroup = useMemo(() => {
+    if (!selectedGroupKey) return null;
+    return activeModeGroups.find((g) => g.key === selectedGroupKey) || null;
+  }, [activeModeGroups, selectedGroupKey]);
 
-  // Global summary metrics
   const overviewMetrics = useMemo(() => {
     let totalStudents = 0;
+    let plottedStudents = 0;
     let pendingKakomli = 0;
     let pendingHubin = 0;
     let verifiedHubin = 0;
-    for (const g of filteredDudiGroups) {
+    for (const g of filteredGroups) {
       totalStudents += g.students.length;
+      plottedStudents += g.plottedCount;
       pendingKakomli += g.pendingKakomliCount;
       pendingHubin += g.pendingHubinCount;
       verifiedHubin += g.verifiedHubinCount;
     }
     return {
-      totalDudi: filteredDudiGroups.length,
+      totalGroups: filteredGroups.length,
       totalStudents,
+      plottedStudents,
       pendingKakomli,
       pendingHubin,
       verifiedHubin,
     };
-  }, [filteredDudiGroups]);
+  }, [filteredGroups]);
 
-  // Auto-select latest stage waiting for verification when opening a DUDI
-  const handleSelectDudi = (group: DudiRecapGroup) => {
-    setSelectedDudiKey(group.key);
+  // Auto-select latest stage waiting for verification when opening a DUDI or Kelas
+  const handleSelectGroup = (group: RecapGroup) => {
+    setSelectedGroupKey(group.key);
     const stagesDesc = [...MONITORING_STAGES].reverse();
 
-    // 1. Prioritize latest stage directly actionable by the current verifier role
     for (const st of stagesDesc) {
       const hasPendingKakomli = group.students.some((s) => {
         const l = s.stageLogs[st.num];
@@ -477,17 +702,16 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         setSelectedStageNum(st.num);
         return;
       }
-      if (canVerifyHubin && !canVerifyKakomli && hasPendingHubin) {
+      if (canVerifyHubin && !isSuperAdmin && hasPendingHubin) {
         setSelectedStageNum(st.num);
         return;
       }
-      if (canVerifyKakomli && canVerifyHubin && (hasPendingHubin || hasPendingKakomli)) {
+      if (isSuperAdmin && (hasPendingHubin || hasPendingKakomli)) {
         setSelectedStageNum(st.num);
         return;
       }
     }
 
-    // 2. Fallback to latest stage still waiting either Kakomli or Hubin verification
     for (const st of stagesDesc) {
       const hasUnverified = group.students.some((s) => {
         const l = s.stageLogs[st.num];
@@ -559,27 +783,27 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     }
   };
 
-  // Persist batch verification for active DUDI + active Fase Supervisi
+  // Persist batch verification via single BULK_UPDATE request
   const handleBatchVerify = async (
     targets: Array<{ student: StudentMatrixRow; log: StageLogEntry }>,
     nextStatus: VerificationStatus
   ) => {
-    if (targets.length === 0) return;
+    const validTargets = targets.filter((item) => Boolean(item.log.monitoringId));
+    if (validTargets.length === 0) return;
     setBatchSaving(true);
     const toastId = ToastManager.getInstance().show(
-      `Memverifikasi ${targets.length} Siswa...`,
+      `Memverifikasi ${validTargets.length} Siswa...`,
       'pending',
       `Menyimpan status ${nextStatus} ke Cloud Server`
     );
 
     try {
       const monSvc = MonitoringService.getInstance();
-      let done = 0;
-      for (const item of targets) {
-        if (!item.log.monitoringId) continue;
-        await monSvc.update(item.log.monitoringId, { statusTahap: nextStatus });
-        done += 1;
-      }
+      const patches = validTargets.map((item) => ({
+        id: item.log.monitoringId!,
+        updates: { statusTahap: nextStatus } as Partial<Monitoring>,
+      }));
+      const done = await monSvc.bulkUpdateMany(patches);
       await monSvc.reloadFromSpreadsheet();
       const refreshed = await monSvc.getAll();
       setMonitoringList(refreshed);
@@ -603,10 +827,11 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     }
   };
 
-  // Stage-level eligible targets in active DUDI
+  // Stage-level eligible targets in active DUDI / Kelas
   const stageStats = useMemo(() => {
-    if (!activeDudiGroup) {
+    if (!activeGroup) {
       return {
+        disabledCount: 0,
         notFilled: 0,
         terlaksanaTargets: [] as Array<{ student: StudentMatrixRow; log: StageLogEntry }>,
         kakomliTargets: [] as Array<{ student: StudentMatrixRow; log: StageLogEntry }>,
@@ -614,20 +839,24 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       };
     }
 
+    let disabledCount = 0;
     let notFilled = 0;
     const terlaksanaTargets: Array<{ student: StudentMatrixRow; log: StageLogEntry }> = [];
     const kakomliTargets: Array<{ student: StudentMatrixRow; log: StageLogEntry }> = [];
     const hubinTargets: Array<{ student: StudentMatrixRow; log: StageLogEntry }> = [];
 
-    for (const student of activeDudiGroup.students) {
+    for (const student of activeGroup.students) {
       const log = student.stageLogs[selectedStageNum];
+      const isStageEnabled = student.stagePolicy.enabledStages.includes(selectedStageNum);
       if (!log || !log.monitoringId) {
-        notFilled += 1;
+        if (!isStageEnabled) disabledCount += 1;
+        else notFilled += 1;
         continue;
       }
       const st = normalizeVerificationStatus(log.status);
       if (st === 'Belum Terlaksana') {
-        notFilled += 1;
+        if (!isStageEnabled) disabledCount += 1;
+        else notFilled += 1;
       } else if (st === 'Terlaksana') {
         terlaksanaTargets.push({ student, log });
       } else if (st === 'Tervalidasi Kakomli') {
@@ -637,13 +866,24 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       }
     }
 
-    return { notFilled, terlaksanaTargets, kakomliTargets, hubinTargets };
-  }, [activeDudiGroup, selectedStageNum]);
+    return { disabledCount, notFilled, terlaksanaTargets, kakomliTargets, hubinTargets };
+  }, [activeGroup, selectedStageNum]);
 
-  const hubinEligibleTargets = useMemo(
-    () => stageStats.kakomliTargets,
-    [stageStats]
-  );
+  const hubinEligibleTargets = useMemo(() => stageStats.kakomliTargets, [stageStats]);
+
+  // Helper to prompt SuperAdmin explicit confirmation before bypassing Kakomli ACC
+  const confirmSuperAdminBypassSingle = (student: StudentMatrixRow, log: StageLogEntry) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Bypass Verifikasi Kakomli (SuperAdmin)?',
+      description: `Data ${getStageValueByNumber(log.stageNum)} untuk ${student.namaSiswa} saat ini masih menunggu ACC Kakomli. Sebagai SuperAdmin, Anda akan langsung memvalidasinya menjadi Tervalidasi Hubin tanpa menunggu Kakomli.`,
+      confirmText: 'Bypass & Validasi Final',
+      variant: 'danger',
+      onConfirm: async () => {
+        await handleUpdateSingleVerification(student, log, 'Tervalidasi Hubin');
+      },
+    });
+  };
 
   const renderStageCellBadge = (
     student: StudentMatrixRow,
@@ -651,7 +891,19 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     isActiveCol: boolean
   ) => {
     const log = student.stageLogs[stageNum];
+    const isStageEnabled = student.stagePolicy.enabledStages.includes(stageNum);
+
     if (!log || !log.monitoringId) {
+      if (!isStageEnabled) {
+        return (
+          <span
+            className="inline-flex items-center justify-center w-full py-1.5 text-[10px] font-medium text-slate-300 select-none"
+            title={`Tahap ${stageNum}: Tidak aktif untuk jurusan ${student.jurusan}`}
+          >
+            Nonaktif
+          </span>
+        );
+      }
       return (
         <span
           className={`inline-flex items-center justify-center w-full py-1.5 text-xs ${
@@ -701,12 +953,11 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       );
     }
 
-    // Status === 'Terlaksana' (Otomatis tercentang setelah guru pembimbing isi)
     return (
       <button
         type="button"
         onClick={() => setInspectTarget({ student, log })}
-        title={`Tahap ${stageNum}: Sudah Terlaksana oleh Guru (${log.tanggal || '-'}), siap verifikasi`}
+        title={`Tahap ${stageNum}: Sudah Terlaksana oleh Guru (${log.tanggal || '-'}), menunggu ACC Kakomli`}
         className="w-full min-h-[34px] px-1.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 inline-flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
       >
         <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -718,33 +969,79 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   return (
     <div className="space-y-4">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 pb-3 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-3 border-b border-slate-200">
         <div className="min-w-0">
           <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-snug">
-            Rekap Monitoring Per DUDI
+            Rekap &amp; Verifikasi Monitoring {viewMode === 'DUDI' ? 'Per DUDI' : 'Per Kelas'}
           </h1>
           <p className="text-xs text-slate-500 mt-1 leading-relaxed">
             {isKakomliRole
-              ? 'Daftar mitra DUDI dan verifikasi manual progres monitoring siswa per fase sesuai kompetensi keahlian.'
-              : canVerifyHubin
-              ? 'Monitoring progres 8 tahap per DUDI dan lakukan validasi Hubin secara manual per fase monitoring.'
-              : 'Ringkasan status pelaksanaan & verifikasi monitoring 8 tahap seluruh siswa per mitra DUDI.'}
+              ? `Verifikasi tahap monitoring terlaksana sesuai kebijakan jurusan (${viewMode === 'DUDI' ? 'dikelompokkan per mitra DUDI' : 'dikelompokkan per rombel kelas'}).`
+              : isStrictHubinWaitingKakomli
+              ? 'Validasi Hubin hanya terbuka setelah tahap disetujui (ACC) oleh Kakomli masing-masing jurusan.'
+              : isSuperAdmin
+              ? 'Pantau progres monitoring per DUDI maupun per Kelas, kelola validasi berjenjang, atau lakukan bypass Kakomli bila diperlukan.'
+              : 'Ringkasan status pelaksanaan & verifikasi monitoring PKL per DUDI dan per Kelas.'}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => loadAllData(true)}
-          disabled={loading || revalidating || batchSaving}
-          className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${
-              loading || revalidating ? 'animate-spin text-blue-600' : 'text-slate-500'
-            }`}
-          />
-          <span>{revalidating ? 'Menyegarkan...' : 'Segarkan Data'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto shrink-0">
+          {/* View Mode Segmented Switch: Per DUDI vs Per Kelas */}
+          <div
+            className="inline-flex p-0.5 rounded-lg bg-slate-100 border border-slate-200"
+            role="tablist"
+            aria-label="Mode Pengelompokan Rekap"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'DUDI'}
+              onClick={() => {
+                setViewMode('DUDI');
+                setSelectedGroupKey(null);
+              }}
+              className={`h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                viewMode === 'DUDI'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Per DUDI</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'KELAS'}
+              onClick={() => {
+                setViewMode('KELAS');
+                setSelectedGroupKey(null);
+              }}
+              className={`h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                viewMode === 'KELAS'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Per Kelas</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => loadAllData(true)}
+            disabled={loading || revalidating || batchSaving}
+            className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${
+                loading || revalidating ? 'animate-spin text-blue-600' : 'text-slate-500'
+              }`}
+            />
+            <span>{revalidating ? 'Menyegarkan...' : 'Segarkan Data'}</span>
+          </button>
+        </div>
       </div>
 
       <TopProgressBar
@@ -753,9 +1050,8 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         className="rounded-full"
       />
 
-      {/* Filter & Jurusan Context Bar (shown on Level 1 & shows Jurusan lock info on Level 2 too) */}
+      {/* Filter & Jurusan Context Bar */}
       <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col md:flex-row md:items-center gap-2.5">
-        {/* Jurusan Selector / Kakomli Lock (Single vs Multi-Jurusan vs Unrestricted) */}
         <div className="w-full md:w-80 shrink-0">
           {isKakomliRole && matchedKakomliJurusans.length === 1 ? (
             <div className="h-9 px-3 rounded-lg bg-indigo-50 border border-indigo-200 text-xs font-semibold text-indigo-900 flex items-center justify-between gap-2">
@@ -769,7 +1065,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
               value={selectedJurusanKey}
               onChange={(e) => {
                 setSelectedJurusanKey(e.target.value);
-                setSelectedDudiKey(null);
+                setSelectedGroupKey(null);
               }}
               aria-label="Filter Jurusan Ampuan Kakomli"
               className="w-full h-9 px-3 rounded-lg border border-indigo-200 bg-indigo-50/70 text-xs font-semibold text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:bg-white cursor-pointer"
@@ -789,7 +1085,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
               value={selectedJurusanKey}
               onChange={(e) => {
                 setSelectedJurusanKey(e.target.value);
-                setSelectedDudiKey(null);
+                setSelectedGroupKey(null);
               }}
               aria-label="Filter Kompetensi Keahlian"
               className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:bg-white cursor-pointer"
@@ -804,7 +1100,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           )}
         </div>
 
-        {!activeDudiGroup && (
+        {!activeGroup && (
           <>
             <div className="relative flex-1 min-w-[180px]">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -812,7 +1108,11 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari DUDI, pembimbing, atau nama/NIS siswa..."
+                placeholder={
+                  viewMode === 'DUDI'
+                    ? 'Cari DUDI, pembimbing, atau nama/NIS siswa...'
+                    : 'Cari kelas, wali kelas, DUDI, atau nama/NIS siswa...'
+                }
                 className="w-full h-9 pl-9 pr-8 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:bg-white"
               />
               {search && (
@@ -841,18 +1141,21 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           </>
         )}
 
-        {activeDudiGroup && (
+        {activeGroup && (
           <div className="flex-1 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => setSelectedDudiKey(null)}
+              onClick={() => setSelectedGroupKey(null)}
               className="h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-800 inline-flex items-center gap-1.5 cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Kembali ke Daftar DUDI</span>
+              <span>Kembali ke Daftar {viewMode === 'DUDI' ? 'DUDI' : 'Kelas'}</span>
             </button>
             <span className="text-xs font-medium text-slate-500 hidden sm:inline">
-              Menampilkan {activeDudiGroup.students.length} siswa aktif
+              Menampilkan {activeGroup.students.length} siswa
+              {viewMode === 'KELAS' && activeGroup.unplottedCount > 0
+                ? ` (${activeGroup.plottedCount} terplot · ${activeGroup.unplottedCount} belum terplot)`
+                : ''}
             </span>
           </div>
         )}
@@ -862,36 +1165,46 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       {loading ? (
         <div className="bg-white border border-slate-200 rounded-xl p-12 flex flex-col items-center justify-center gap-2.5 text-xs text-slate-500">
           <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-          <span>Memuat rekap monitoring per DUDI dari Cloud Server...</span>
+          <span>Memuat rekap monitoring dari Cloud Server...</span>
         </div>
-      ) : !activeDudiGroup ? (
-        /* LEVEL 1: DUDI LIST VIEW */
+      ) : !activeGroup ? (
+        /* LEVEL 1: DUDI OR KELAS CARD LIST VIEW */
         <div className="space-y-4">
           {/* 4 Summary Metrics */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
               <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">DUDI Aktif</span>
-                <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="leading-snug font-medium">
+                  {viewMode === 'DUDI' ? 'DUDI Aktif' : 'Rombel Kelas XI'}
+                </span>
+                {viewMode === 'DUDI' ? (
+                  <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+                ) : (
+                  <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
+                )}
               </div>
               <div className="text-2xl font-bold text-slate-900 tabular-nums leading-none">
-                {overviewMetrics.totalDudi}
+                {overviewMetrics.totalGroups}
               </div>
               <div className="text-[11px] text-slate-500 leading-snug">
-                Lokasi penempatan aktif
+                {viewMode === 'DUDI' ? 'Lokasi penempatan aktif' : 'Rombongan belajar terdaftar'}
               </div>
             </div>
 
             <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
               <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">Siswa Dimonitoring</span>
+                <span className="leading-snug font-medium">
+                  {viewMode === 'DUDI' ? 'Siswa Dimonitoring' : 'Siswa Terdaftar'}
+                </span>
                 <Users className="w-4 h-4 text-indigo-600 shrink-0" />
               </div>
               <div className="text-2xl font-bold text-slate-900 tabular-nums leading-none">
                 {overviewMetrics.totalStudents}
               </div>
               <div className="text-[11px] text-slate-500 leading-snug">
-                Siswa aktif PKL
+                {viewMode === 'DUDI'
+                  ? 'Siswa aktif PKL'
+                  : `${overviewMetrics.plottedStudents} terplot · ${overviewMetrics.totalStudents - overviewMetrics.plottedStudents} belum plot`}
               </div>
             </div>
 
@@ -922,11 +1235,15 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             </div>
           </div>
 
-          {filteredDudiGroups.length === 0 ? (
+          {filteredGroups.length === 0 ? (
             <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-2">
-              <Building2 className="w-9 h-9 text-slate-300 mx-auto" />
+              {viewMode === 'DUDI' ? (
+                <Building2 className="w-9 h-9 text-slate-300 mx-auto" />
+              ) : (
+                <GraduationCap className="w-9 h-9 text-slate-300 mx-auto" />
+              )}
               <div className="text-sm font-bold text-slate-800">
-                Belum ada data DUDI yang sesuai
+                Belum ada data {viewMode === 'DUDI' ? 'DUDI' : 'Kelas'} yang sesuai
               </div>
               <p className="text-xs text-slate-500">
                 Sesuaikan pencarian, pilihan kompetensi keahlian, atau filter status di atas.
@@ -934,12 +1251,12 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredDudiGroups.map((group) => {
+              {filteredGroups.map((group) => {
                 const needsAttention = isKakomliRole
                   ? group.pendingKakomliCount > 0
-                  : canVerifyHubin && !canVerifyKakomli
+                  : isStrictHubinWaitingKakomli
                   ? group.pendingHubinCount > 0
-                  : canVerifyHubin
+                  : isSuperAdmin
                   ? group.pendingKakomliCount > 0 || group.pendingHubinCount > 0
                   : false;
 
@@ -947,7 +1264,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                   <button
                     key={group.key}
                     type="button"
-                    onClick={() => handleSelectDudi(group)}
+                    onClick={() => handleSelectGroup(group)}
                     className={`text-left p-4 rounded-xl border bg-white hover:border-blue-400 hover:shadow-sm transition-all flex flex-col justify-between gap-3 cursor-pointer ${
                       needsAttention ? 'border-indigo-200 ring-1 ring-indigo-100' : 'border-slate-200'
                     }`}
@@ -956,11 +1273,15 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                            {group.namaDudi}
+                            {group.title}
                           </h3>
                           <p className="text-[11px] text-slate-500 mt-0.5 flex items-start gap-1 leading-snug">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
-                            <span>{group.alamat}</span>
+                            {viewMode === 'DUDI' ? (
+                              <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                            ) : (
+                              <UserCheck className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                            )}
+                            <span>{group.subtitle}</span>
                           </p>
                         </div>
                         <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-800 tabular-nums shrink-0">
@@ -968,11 +1289,19 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                         </span>
                       </div>
 
-                      <div className="text-[11px] text-slate-600 flex items-center gap-1.5">
-                        <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="leading-snug">
-                          Pembimbing: <strong className="text-slate-800">{group.guruPendamping}</strong>
-                        </span>
+                      <div className="text-[11px] text-slate-600 flex items-center justify-between gap-2">
+                        <span className="leading-snug truncate">{group.secondaryLabel}</span>
+                        {viewMode === 'KELAS' && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums shrink-0 ${
+                              group.unplottedCount > 0
+                                ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}
+                          >
+                            Plot {group.plottedCount}/{group.students.length}
+                          </span>
+                        )}
                       </div>
 
                       {group.jurusanList.length > 0 && (
@@ -1007,23 +1336,28 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           )}
         </div>
       ) : (
-        /* LEVEL 2: DUDI DETAIL — MATRIX TABLE & PER-PHASE VERIFICATION */
+        /* LEVEL 2: GROUP DETAIL — MATRIX TABLE & PER-PHASE VERIFICATION */
         <div className="space-y-4">
-          {/* Active DUDI Context Banner */}
+          {/* Active Group Context Banner */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="space-y-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900 leading-snug">
-                  {activeDudiGroup.namaDudi}
+                  {activeGroup.title}
                 </h2>
                 <span className="px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-[11px] font-bold text-blue-800 tabular-nums">
-                  {activeDudiGroup.students.length} Siswa
+                  {activeGroup.students.length} Siswa
                 </span>
+                {viewMode === 'KELAS' && activeGroup.unplottedCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 tabular-nums">
+                    {activeGroup.unplottedCount} Belum Terplotting
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                <span>Pembimbing: <strong className="text-slate-800">{activeDudiGroup.guruPendamping}</strong></span>
+                <span>{activeGroup.secondaryLabel}</span>
                 <span className="text-slate-300" aria-hidden="true">·</span>
-                <span>{activeDudiGroup.alamat}</span>
+                <span>{activeGroup.subtitle}</span>
               </div>
             </div>
 
@@ -1054,6 +1388,14 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                 <span className="text-slate-500">
                   Belum diisi: <strong className="text-slate-800">{stageStats.notFilled}</strong>
                 </span>
+                {stageStats.disabledCount > 0 && (
+                  <>
+                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-400">
+                      Nonaktif: <strong>{stageStats.disabledCount}</strong>
+                    </span>
+                  </>
+                )}
                 <span className="text-slate-300">·</span>
                 <span className="text-blue-700 font-semibold">
                   Menunggu Kakomli: {stageStats.terlaksanaTargets.length}
@@ -1072,10 +1414,14 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               {MONITORING_STAGES.map((st) => {
                 const isActive = selectedStageNum === st.num;
-                const filledCount = activeDudiGroup.students.filter((s) => {
+                const eligibleStudents = activeGroup.students.filter((s) =>
+                  s.stagePolicy.enabledStages.includes(st.num)
+                );
+                const filledCount = activeGroup.students.filter((s) => {
                   const l = s.stageLogs[st.num];
                   return l?.monitoringId && normalizeVerificationStatus(l.status) !== 'Belum Terlaksana';
                 }).length;
+                const allDisabled = eligibleStudents.length === 0 && filledCount === 0;
 
                 return (
                   <button
@@ -1085,6 +1431,8 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                     className={`min-h-[38px] px-3 py-1.5 rounded-lg border text-xs font-semibold shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
                       isActive
                         ? 'bg-slate-900 border-slate-900 text-white'
+                        : allDisabled
+                        ? 'bg-slate-50/60 border-slate-200/80 text-slate-400 hover:bg-slate-100'
                         : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                     }`}
                   >
@@ -1094,7 +1442,9 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                         isActive ? 'bg-white/20 text-white' : 'bg-white text-slate-600 border border-slate-200'
                       }`}
                     >
-                      {filledCount}/{activeDudiGroup.students.length}
+                      {allDisabled
+                        ? 'Nonaktif'
+                        : `${filledCount}/${eligibleStudents.length || activeGroup.students.length}`}
                     </span>
                   </button>
                 );
@@ -1105,8 +1455,16 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
             {(canVerifyKakomli || canVerifyHubin) && (
               <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] text-slate-500">
-                  Verifikasi wajib melalui persetujuan Kakomli lalu validasi Hubin secara berurutan pada{' '}
-                  <strong className="text-slate-700">{getStageValueByNumber(selectedStageNum)}</strong>.
+                  {isStrictHubinWaitingKakomli &&
+                  stageStats.terlaksanaTargets.length > 0 &&
+                  hubinEligibleTargets.length === 0
+                    ? `${stageStats.terlaksanaTargets.length} siswa pada ${getStageValueByNumber(selectedStageNum)} masih menunggu ACC Kakomli sebelum Validasi Hubin dapat dilakukan.`
+                    : (
+                      <>
+                        Verifikasi berjenjang (Kakomli lalu Hubin) pada{' '}
+                        <strong className="text-slate-700">{getStageValueByNumber(selectedStageNum)}</strong>.
+                      </>
+                    )}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -1121,7 +1479,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                           description: `Status tahap ${getStageValueByNumber(
                             selectedStageNum
                           )} untuk ${stageStats.terlaksanaTargets.length} siswa berstatus Terlaksana di ${
-                            activeDudiGroup.namaDudi
+                            activeGroup.title
                           } akan diverifikasi menjadi Tervalidasi Kakomli.`,
                           confirmText: 'Ya, Verifikasi Kakomli',
                           variant: 'primary',
@@ -1153,7 +1511,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                           description: `Status tahap ${getStageValueByNumber(
                             selectedStageNum
                           )} untuk ${hubinEligibleTargets.length} siswa di ${
-                            activeDudiGroup.namaDudi
+                            activeGroup.title
                           } akan divalidasi menjadi Tervalidasi Hubin.`,
                           confirmText: 'Ya, Validasi Hubin',
                           variant: 'success',
@@ -1170,22 +1528,53 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                       </span>
                     </button>
                   )}
+
+                  {isSuperAdmin && stageStats.terlaksanaTargets.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={batchSaving}
+                      onClick={() =>
+                        setConfirmModal({
+                          isOpen: true,
+                          title: `Bypass Kakomli & Validasi Hubin (${stageStats.terlaksanaTargets.length} Siswa)?`,
+                          description: `SuperAdmin Override: ${stageStats.terlaksanaTargets.length} siswa berstatus Terlaksana pada ${getStageValueByNumber(
+                            selectedStageNum
+                          )} di ${activeGroup.title} akan langsung divalidasi menjadi Tervalidasi Hubin tanpa menunggu ACC Kakomli.`,
+                          confirmText: 'Ya, Bypass ke Hubin',
+                          variant: 'danger',
+                          onConfirm: async () => {
+                            await handleBatchVerify(
+                              stageStats.terlaksanaTargets,
+                              'Tervalidasi Hubin'
+                            );
+                          },
+                        })
+                      }
+                      className="h-9 px-3.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>
+                        Bypass Kakomli → Hubin ({stageStats.terlaksanaTargets.length})
+                      </span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Matrix Table: Student x 8 Supervision Phases */}
+          {/* Matrix Table: Student x Monitoring Phases */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
-                    <th className="py-3 px-3.5 sticky left-0 z-10 bg-slate-50 border-r border-slate-200 min-w-[180px] sm:min-w-[220px]">
-                      Siswa &amp; Jurusan
+                    <th className="py-3 px-3.5 sticky left-0 z-10 bg-slate-50 border-r border-slate-200 min-w-[190px] sm:min-w-[235px]">
+                      {viewMode === 'DUDI' ? 'Siswa & Jurusan' : 'Siswa & Lokasi DUDI'}
                     </th>
                     {MONITORING_STAGES.map((st) => {
                       const isActiveCol = st.num === selectedStageNum;
+                      const headerLabel = st.num === 5 ? 'Mon 4' : st.shortLabel;
                       return (
                         <th
                           key={st.num}
@@ -1197,22 +1586,23 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                           }`}
                         >
                           <div className="font-mono text-[10px] text-slate-400">Tahap {st.num}</div>
-                          <div className="whitespace-nowrap">{st.shortLabel}</div>
+                          <div className="whitespace-nowrap">{headerLabel}</div>
                         </th>
                       );
                     })}
                     <th className="py-2.5 px-2.5 text-center min-w-[64px]">Nilai</th>
-                    <th className="py-2.5 px-3 text-right min-w-[130px]">
+                    <th className="py-2.5 px-3 text-right min-w-[155px]">
                       Aksi Tahap {selectedStageNum}
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {activeDudiGroup.students.map((student) => {
+                  {activeGroup.students.map((student) => {
                     const activeLog = student.stageLogs[selectedStageNum];
                     const activeStatus = activeLog?.monitoringId
                       ? normalizeVerificationStatus(activeLog.status)
                       : 'Belum Terlaksana';
+                    const isStageEnabled = student.stagePolicy.enabledStages.includes(selectedStageNum);
                     const isRowSaving = Boolean(
                       activeLog?.monitoringId && savingId === activeLog.monitoringId
                     );
@@ -1226,9 +1616,26 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                           <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
                             {formatNisVisual(student.nis)} · {student.kelas}
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            {student.jurusan}
-                          </div>
+                          {viewMode === 'KELAS' ? (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              {student.isPlotted ? (
+                                <span className="text-[11px] font-medium text-blue-700 leading-snug">
+                                  {student.namaDudi}
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold">
+                                  Belum Terplotting
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {student.jurusan}
+                              {student.stagePolicy.isCustomJurusanPolicy
+                                ? ` · ${student.stagePolicy.totalStages} tahap`
+                                : ''}
+                            </div>
+                          )}
                         </td>
 
                         {MONITORING_STAGES.map((st) => {
@@ -1255,7 +1662,9 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
 
                         <td className="py-2 px-3 text-right align-middle whitespace-nowrap">
                           {!activeLog || !activeLog.monitoringId || activeStatus === 'Belum Terlaksana' ? (
-                            <span className="text-[11px] text-slate-400">Belum ada data</span>
+                            <span className="text-[11px] text-slate-400">
+                              {isStageEnabled ? 'Belum ada data' : 'Nonaktif jurusan'}
+                            </span>
                           ) : (
                             <div className="inline-flex items-center justify-end gap-1.5">
                               {canVerifyKakomli && activeStatus === 'Terlaksana' && (
@@ -1280,36 +1689,50 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                                 </button>
                               )}
 
-                              {canVerifyHubin &&
-                                activeStatus === 'Tervalidasi Kakomli' && (
-                                  <button
-                                    type="button"
-                                    disabled={isRowSaving || batchSaving}
-                                    onClick={() =>
-                                      handleUpdateSingleVerification(
-                                        student,
-                                        activeLog,
-                                        'Tervalidasi Hubin'
-                                      )
-                                    }
-                                    className="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                  >
-                                    {isRowSaving ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <CheckCheck className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>Validasi Hubin</span>
-                                  </button>
-                                )}
+                              {isSuperAdmin && activeStatus === 'Terlaksana' && (
+                                <button
+                                  type="button"
+                                  disabled={isRowSaving || batchSaving}
+                                  onClick={() => confirmSuperAdminBypassSingle(student, activeLog)}
+                                  title="SuperAdmin Bypass: Validasi Hubin tanpa menunggu Kakomli"
+                                  className="h-8 px-2.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                >
+                                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Bypass</span>
+                                </button>
+                              )}
 
-                              {canVerifyHubin &&
-                                !canVerifyKakomli &&
-                                activeStatus === 'Terlaksana' && (
-                                  <span className="px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold">
-                                    Menunggu Kakomli
-                                  </span>
-                                )}
+                              {canVerifyHubin && activeStatus === 'Tervalidasi Kakomli' && (
+                                <button
+                                  type="button"
+                                  disabled={isRowSaving || batchSaving}
+                                  onClick={() =>
+                                    handleUpdateSingleVerification(
+                                      student,
+                                      activeLog,
+                                      'Tervalidasi Hubin'
+                                    )
+                                  }
+                                  className="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                >
+                                  {isRowSaving ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <CheckCheck className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Validasi Hubin</span>
+                                </button>
+                              )}
+
+                              {isStrictHubinWaitingKakomli && activeStatus === 'Terlaksana' && (
+                                <span
+                                  className="px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold inline-flex items-center gap-1"
+                                  title="Validasi Hubin wajib menunggu persetujuan Kakomli terlebih dahulu"
+                                >
+                                  <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                                  <span>Menunggu ACC Kakomli</span>
+                                </span>
+                              )}
 
                               <button
                                 type="button"
@@ -1349,7 +1772,8 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                   {inspectTarget.student.namaSiswa}
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {getStageValueByNumber(inspectTarget.log.stageNum)} · {inspectTarget.student.namaDudi}
+                  {getStageValueByNumber(inspectTarget.log.stageNum)} · {inspectTarget.student.kelas} ·{' '}
+                  {inspectTarget.student.namaDudi}
                 </p>
               </div>
               <button
@@ -1466,6 +1890,21 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                   </button>
                 )}
 
+              {isSuperAdmin &&
+                normalizeVerificationStatus(inspectTarget.log.status) === 'Terlaksana' && (
+                  <button
+                    type="button"
+                    disabled={savingId === inspectTarget.log.monitoringId}
+                    onClick={() =>
+                      confirmSuperAdminBypassSingle(inspectTarget.student, inspectTarget.log)
+                    }
+                    className="h-9 px-3.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Bypass Kakomli &amp; Validasi Hubin</span>
+                  </button>
+                )}
+
               {canVerifyHubin &&
                 normalizeVerificationStatus(inspectTarget.log.status) === 'Tervalidasi Kakomli' && (
                   <button
@@ -1493,11 +1932,11 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                   </button>
                 )}
 
-              {canVerifyHubin &&
-                !canVerifyKakomli &&
+              {isStrictHubinWaitingKakomli &&
                 normalizeVerificationStatus(inspectTarget.log.status) === 'Terlaksana' && (
-                  <span className="text-[11px] font-medium text-amber-700 mr-auto">
-                    Menunggu verifikasi Kakomli sebelum validasi Hubin.
+                  <span className="text-[11px] font-medium text-amber-800 inline-flex items-center gap-1 mr-auto">
+                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Menunggu ACC Kakomli sebelum validasi Hubin.</span>
                   </span>
                 )}
             </div>

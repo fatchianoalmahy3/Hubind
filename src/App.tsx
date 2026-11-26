@@ -707,7 +707,7 @@ export default function App() {
         <Suspense
           fallback={
             <div className="py-12 flex items-center justify-center text-xs text-slate-500">
-              Memuat Rekap Monitoring Per DUDI...
+              Memuat Rekap Monitoring DUDI &amp; Kelas...
             </div>
           }
         >
@@ -759,7 +759,7 @@ export default function App() {
 
   const moduleNames: Record<string, string> = {
     ...CRUD_MODULE_NAMES,
-    rekap_monitoring_dudi: 'Rekap Monitoring Per DUDI',
+    rekap_monitoring_dudi: 'Rekap Monitoring DUDI / Kelas',
     doc_paket_monitoring: 'Paket Cetak Monitoring (1-Langkah)',
     doc_mou: 'Dokumen MOU DUDI',
     doc_surat_tugas: 'Dokumen Surat Tugas',

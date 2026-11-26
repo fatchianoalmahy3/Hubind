@@ -9,6 +9,7 @@ import { registerAdminRoutes } from './server/routes/adminRoutes';
 import { registerRestApiRoutes } from './server/routes/restApiRoutes';
 import { registerPublicPortalRoutes } from './server/routes/publicPortalRoutes';
 import { registerDocumentRoutes } from './server/routes/documentRoutes';
+import { sanitizeServerErrorMessage } from './server/utils/httpHelpers';
 
 export type { WorkspaceConfig } from './server/types';
 
@@ -88,7 +89,7 @@ app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) =>
   res.status(err?.status || 500).json({
     success: false,
     code: err?.code || 'INTERNAL_SERVER_ERROR',
-    message: err?.message || 'Terjadi kesalahan internal pada server.',
+    message: sanitizeServerErrorMessage(err?.message || 'Terjadi kesalahan internal pada server.'),
   });
 });
 

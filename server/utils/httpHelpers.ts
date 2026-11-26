@@ -91,18 +91,33 @@ export function setPublicSwrCacheHeaders(
   );
 }
 
+export function sanitizeServerErrorMessage(rawMessage: unknown): string {
+  const msg = String(rawMessage || '').trim();
+  if (!msg) {
+    return 'Terjadi kesalahan pada server saat mengakses Database Cloud Server.';
+  }
+  if (
+    msg.includes('Internal error encountered') ||
+    /"status"\s*:\s*"INTERNAL"/i.test(msg) ||
+    (msg.includes('"error"') && msg.includes('"message"'))
+  ) {
+    return 'Layanan Cloud Server / Firestore sedang mengalami gangguan sementara. Silakan coba lagi beberapa saat.';
+  }
+  return msg;
+}
+
 export function handlePortalError(res: Response, err: any) {
   if (err instanceof PortalConfigError) {
     return res.status(err.status).json({
       success: false,
       code: err.code,
-      message: err.message,
+      message: sanitizeServerErrorMessage(err.message),
     });
   }
   return res.status(500).json({
     success: false,
     code: 'INTERNAL_ERROR',
-    message: err?.message || 'Terjadi kesalahan pada server saat mengakses Database Cloud Server.',
+    message: sanitizeServerErrorMessage(err?.message),
   });
 }
 

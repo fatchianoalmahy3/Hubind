@@ -7,10 +7,12 @@ import {
   calculateEqualWeightedAverage,
   extractStageNumber,
   getPredikatFromScore,
+  getPreviousEnabledStage,
   getStageValueByNumber,
   parseKompetensiList,
   parseKondisiBengkel,
   resolveIssuedStagesForDudi,
+  resolveMonitoringStagePolicy,
   serializeFormat0701Tag,
   serializeKompetensiList,
   serializeKondisiBengkel,
@@ -214,6 +216,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       const { sheets } = await fetchBatchSheetsViaGas(
         [
           'Master_DUDI',
+          'Master_Jurusan',
           'Plotting_Pemberangkatan',
           'Data_Pengajuan_PKL',
           'Master_Siswa_XI',
@@ -256,6 +259,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         siswaRows,
         monitoringRows: sheets['Monitoring_5_Tahap'] || [],
         nilaiRows: sheets['Nilai_Dan_Sertifikat'] || [],
+        jurusanRows: sheets['Master_Jurusan'] || [],
         stageControl,
         issuedStages,
       });
@@ -403,8 +407,45 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       const wsConfig = await getFirestoreWorkspaceConfig(false);
       const stageControl = normalizeServerMonitoringStageControl(wsConfig.monitoringStageControl);
+      const hasPerJurusan = Boolean(
+        stageControl.perJurusan && Object.keys(stageControl.perJurusan).length > 0
+      );
 
-      if (!stageControl.unlockedStages.includes(stageNum)) {
+      const sheetsToFetch = [
+        ...(stageControl.requireIssuedLetter !== false ? ['Log_Penerbitan_Surat'] : []),
+        ...(hasPerJurusan ? ['Master_Jurusan'] : []),
+        'Monitoring_5_Tahap',
+      ];
+      const { sheets: precheckSheets } = await fetchBatchSheetsViaGas(
+        sheetsToFetch,
+        new Set(['Log_Penerbitan_Surat', 'Monitoring_5_Tahap']),
+        true
+      ).catch(() => ({ sheets: {} as Record<string, any[]> }));
+
+      const jurusanCatalog = (precheckSheets['Master_Jurusan'] || []).map((j: any) => ({
+        id: pickField(j, 'ID', 'id'),
+        kode: pickField(j, 'Kode_Jurusan', 'Kode', 'kode', 'kodeJurusan'),
+        nama: pickField(j, 'Nama_Jurusan', 'Nama', 'nama', 'namaJurusan'),
+        namaKakomli: '',
+        kontakWA: '',
+        kuotaSiswa: 0,
+        totalTerdaftar: 0,
+      }));
+      const studentPolicy = resolveMonitoringStagePolicy(
+        stageControl,
+        String(payload.jurusan || ''),
+        jurusanCatalog
+      );
+
+      if (!studentPolicy.enabledStages.includes(stageNum)) {
+        return res.status(403).json({
+          success: false,
+          code: 'STAGE_DISABLED_FOR_JURUSAN',
+          message: `${stageStr} tidak termasuk tahapan monitoring aktif untuk jurusan ${studentPolicy.jurusanCode || String(payload.jurusan || 'ini')}.`,
+        });
+      }
+
+      if (!studentPolicy.unlockedStages.includes(stageNum)) {
         return res.status(403).json({
           success: false,
           code: 'STAGE_GLOBALLY_LOCKED',
@@ -413,16 +454,6 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
             : `${stageStr} sedang dikunci sementara oleh SuperAdmin. Riwayat yang sudah tersimpan hanya dapat dilihat (Read-Only).`,
         });
       }
-
-      const sheetsToFetch =
-        stageControl.requireIssuedLetter !== false
-          ? ['Log_Penerbitan_Surat', 'Monitoring_5_Tahap']
-          : ['Monitoring_5_Tahap'];
-      const { sheets: precheckSheets } = await fetchBatchSheetsViaGas(
-        sheetsToFetch,
-        new Set(sheetsToFetch),
-        true
-      ).catch(() => ({ sheets: {} as Record<string, any[]> }));
 
       if (stageControl.requireIssuedLetter !== false) {
         const { issuedStages } = resolveIssuedStagesForDudi(
@@ -441,7 +472,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
 
       const monRes = { rows: precheckSheets['Monitoring_5_Tahap'] || [] };
 
-      if (stageControl.requireSequential && stageNum >= 2) {
+      const prevEnabledStage = getPreviousEnabledStage(studentPolicy.enabledStages, stageNum);
+      if (studentPolicy.requireSequential && prevEnabledStage !== null) {
         const summary = buildStudentMonitoringSummary(
           {
             nis: cleanNis,
@@ -452,8 +484,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
           monRes.rows,
           []
         );
-        if (!summary.completedStages.includes(stageNum - 1)) {
-          const prevStageLabel = getStageValueByNumber(stageNum - 1);
+        if (!summary.completedStages.includes(prevEnabledStage)) {
+          const prevStageLabel = getStageValueByNumber(prevEnabledStage);
           return res.status(400).json({
             success: false,
             code: 'STAGE_LOCKED',
@@ -607,8 +639,8 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         fotoBuktiUrl: '',
         Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? 'Ya' : 'Belum',
         nilaiDudiTerkumpul: nilaiMuncul && avgScore > 0,
-        Blangko_Sertifikat_Bawa: stageNum >= 5 ? 'Ya' : 'Belum',
-        blangkoSertifikatBawa: stageNum >= 5,
+        Blangko_Sertifikat_Bawa: stageNum >= studentPolicy.gradeStage ? 'Ya' : 'Belum',
+        blangkoSertifikatBawa: stageNum >= studentPolicy.gradeStage,
         Status_Tahap: 'Terlaksana',
         statusTahap: 'Terlaksana',
       };

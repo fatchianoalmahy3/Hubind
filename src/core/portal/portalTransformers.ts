@@ -1,7 +1,8 @@
-import type { MonitoringStageControl } from '../types/schema';
+import type { Jurusan, MonitoringStageControl } from '../types/schema';
 import {
   buildStudentMonitoringSummary,
   pickRecommendedStageForControl,
+  resolveMonitoringStagePolicy,
 } from '../utils/monitoringHelpers';
 import { stripNisSymbols } from '../utils/nisHelpers';
 import { normalizeStr, pickField } from '../utils/rowFieldHelpers';
@@ -313,6 +314,7 @@ export function buildDudiStudentsWithSummary(params: {
   siswaRows: any[];
   monitoringRows: any[];
   nilaiRows: any[];
+  jurusanRows?: any[];
   stageControl: MonitoringStageControl;
   issuedStages?: number[];
 }) {
@@ -327,9 +329,20 @@ export function buildDudiStudentsWithSummary(params: {
     siswaRows,
     monitoringRows,
     nilaiRows,
+    jurusanRows = [],
     stageControl,
     issuedStages,
   } = params;
+
+  const jurusanCatalog: Jurusan[] = jurusanRows.map((j: any) => ({
+    id: pickField(j, 'ID', 'id'),
+    kode: pickField(j, 'Kode_Jurusan', 'Kode', 'kode', 'kodeJurusan'),
+    nama: pickField(j, 'Nama_Jurusan', 'Nama', 'nama', 'namaJurusan'),
+    namaKakomli: pickField(j, 'Nama_Kakomli', 'namaKakomli'),
+    kontakWA: pickField(j, 'Kontak_WA', 'kontakWA'),
+    kuotaSiswa: Number(j.Kuota_Siswa ?? j.kuotaSiswa ?? 0),
+    totalTerdaftar: Number(j.Total_Terdaftar ?? j.totalTerdaftar ?? 0),
+  }));
 
   const siswaByNis = new Map<string, any>();
   for (const s of siswaRows) {
@@ -460,14 +473,18 @@ export function buildDudiStudentsWithSummary(params: {
 
   return Array.from(studentsMap.values()).map((stu) => {
     const summary = buildStudentMonitoringSummary(stu, monitoringRows, nilaiRows);
+    const stagePolicy = resolveMonitoringStagePolicy(stageControl, stu.jurusan, jurusanCatalog);
     return {
       ...stu,
       ...summary,
+      stagePolicy,
       recommendedStage: pickRecommendedStageForControl(
         summary.completedStages,
         stageControl,
         issuedStages,
-        summary.stageLogs
+        summary.stageLogs,
+        stu.jurusan,
+        jurusanCatalog
       ),
     };
   });

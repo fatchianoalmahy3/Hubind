@@ -224,6 +224,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               studentsError={m.studentsError}
               selectedStudentIndex={m.selectedStudentIndex}
               activeStudent={m.activeStudent}
+              studentPolicy={m.activeStudentPolicy}
               activeStageNum={m.activeStageNum}
               stageControl={m.stageControl}
               issuedStages={m.issuedStages}

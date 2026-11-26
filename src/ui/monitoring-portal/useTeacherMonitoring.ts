@@ -13,10 +13,13 @@ import {
   EMPTY_KONDISI_BENGKEL,
   formatRangePair,
   getPredikatFromScore,
+  getPreviousEnabledStage,
   getStageValueByNumber,
   isStageFullyVerified,
   parseRangePair,
   pickRecommendedStageForControl,
+  resolveMonitoringStagePolicy,
+  type ResolvedMonitoringStagePolicy,
 } from '../../core/utils/monitoringHelpers';
 import { getTodayWibIsoDate } from '../../core/utils/dateHelpers';
 import {
@@ -535,7 +538,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           Array.isArray(stu.completedStages) ? stu.completedStages : [],
           effectiveControl,
           effectiveIssuedStages,
-          stu.stageLogs
+          stu.stageLogs,
+          stu.jurusan
         );
         initStages[stuKey] = recStage;
 
@@ -683,8 +687,11 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       }
       const normalizedStudents = students.map((stu: any, idx: number) => {
         const stuKey = getStudentKey(stu, idx);
+        const stuPolicy =
+          stu.stagePolicy || resolveMonitoringStagePolicy(effectiveControl, stu.jurusan);
         return {
           ...stu,
+          stagePolicy: stuPolicy,
           recommendedStage: initStages[stuKey] ?? stu.recommendedStage ?? 1,
         };
       });
@@ -867,16 +874,25 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
   const activeStudent = dudiStudents[selectedStudentIndex] || null;
   const activeStudentKey = activeStudent ? getStudentKey(activeStudent, selectedStudentIndex) : '';
+  const activeStudentPolicy: ResolvedMonitoringStagePolicy = useMemo(
+    () =>
+      activeStudent?.stagePolicy ||
+      resolveMonitoringStagePolicy(stageControl, activeStudent?.jurusan),
+    [activeStudent, stageControl]
+  );
   const activeStageNum = activeStudent
     ? stageByStudent[activeStudentKey] ||
       pickRecommendedStageForControl(
         Array.isArray(activeStudent.completedStages) ? activeStudent.completedStages : [],
         stageControl,
         issuedStages,
-        activeStudent.stageLogs
+        activeStudent.stageLogs,
+        activeStudent.jurusan
       )
     : 1;
-  const isStageGlobalUnlocked = stageControl.unlockedStages.includes(activeStageNum);
+  const isStageEnabledForStudent = activeStudentPolicy.enabledStages.includes(activeStageNum);
+  const isStageGlobalUnlocked =
+    isStageEnabledForStudent && activeStudentPolicy.unlockedStages.includes(activeStageNum);
   const isStageLetterIssued =
     stageControl.requireIssuedLetter === false || issuedStages.includes(activeStageNum);
   const isStageCompleted = isStageCompletedInData(activeStageNum, activeStudent);
@@ -937,10 +953,14 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     });
   };
 
+  const prevEnabledStageForCopy = getPreviousEnabledStage(
+    activeStudentPolicy.enabledStages,
+    activeStageNum
+  );
   const prevStageWorkshop =
-    activeStageNum > 1 ? workshopDraftsByStage[activeStageNum - 1] : undefined;
+    prevEnabledStageForCopy !== null ? workshopDraftsByStage[prevEnabledStageForCopy] : undefined;
   const canCopyWorkshopFromPrevStage =
-    !isStageReadOnly && activeStageNum > 1 && hasFilledWorkshopData(prevStageWorkshop);
+    !isStageReadOnly && prevEnabledStageForCopy !== null && hasFilledWorkshopData(prevStageWorkshop);
 
   const copyWorkshopFromPrevStage = () => {
     if (!canCopyWorkshopFromPrevStage || !prevStageWorkshop) return;
@@ -1026,7 +1046,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
   const setStudentStage = (stageNum: number) => {
     if (!activeStudentKey) return;
-    const isGlobalUnlocked = stageControl.unlockedStages.includes(stageNum);
+    if (!activeStudentPolicy.enabledStages.includes(stageNum)) {
+      reportValidationError(
+        `${getStageValueByNumber(stageNum)} tidak termasuk tahapan aktif untuk jurusan siswa ini.`
+      );
+      return;
+    }
+    const isGlobalUnlocked = activeStudentPolicy.unlockedStages.includes(stageNum);
     const isLetterIssued =
       stageControl.requireIssuedLetter === false || issuedStages.includes(stageNum);
     const isCompleted = isStageCompletedInData(stageNum, activeStudent);
@@ -1047,14 +1073,15 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
+    const prevEnabledStage = getPreviousEnabledStage(activeStudentPolicy.enabledStages, stageNum);
     if (
       isGlobalUnlocked &&
       isLetterIssued &&
       stageControl.requireSequential &&
-      stageNum > 1 &&
-      !(activeStudent?.completedStages || []).includes(stageNum - 1)
+      prevEnabledStage !== null &&
+      !(activeStudent?.completedStages || []).includes(prevEnabledStage)
     ) {
-      const prevLabel = getStageValueByNumber(stageNum - 1);
+      const prevLabel = getStageValueByNumber(prevEnabledStage);
       reportValidationError(
         `Tahap ${stageNum} masih terkunci. Harap isi dan simpan ${prevLabel} terlebih dahulu.`
       );
@@ -1119,7 +1146,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
   const alreadyHasGrade = Boolean(activeStudent?.hasSubmittedGrades);
   const isEditingGrade = Boolean(activeStudentKey && editingGradeByStudent[activeStudentKey]);
-  const canInputGradeThisStage = !alreadyHasGrade && activeStageNum >= 5;
+  const canInputGradeThisStage = !alreadyHasGrade && activeStageNum >= activeStudentPolicy.gradeStage;
   const showGradeInputs = canInputGradeThisStage && activeDraft.nilaiPklMuncul === true;
 
   const activeGradeEditDraft: GradeScoresDraft = (activeStudentKey &&
@@ -1417,7 +1444,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
               nextCompleted,
               stageControl,
               issuedStages,
-              nextStageLogs
+              nextStageLogs,
+              stu.jurusan
             );
 
             return {
@@ -1442,9 +1470,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         if (onSuccess) onSuccess();
 
         const firstRes = res.results?.[0];
-        const canContinueStage2 =
-          stageControl.unlockedStages.includes(2) &&
-          (stageControl.requireIssuedLetter === false || issuedStages.includes(2));
+        const firstStudentPolicy =
+          dudiStudents[0]?.stagePolicy ||
+          resolveMonitoringStagePolicy(stageControl, dudiStudents[0]?.jurusan);
+        const nextStageAfterDelivery = firstStudentPolicy.enabledStages.find((n: number) => n > 1) ?? 2;
+        const canContinueNextStage =
+          firstStudentPolicy.unlockedStages.includes(nextStageAfterDelivery) &&
+          (stageControl.requireIssuedLetter === false || issuedStages.includes(nextStageAfterDelivery));
 
         setSaveReceipt({
           idMonitoring: firstRes?.idMonitoring || `MON-${Date.now()}`,
@@ -1472,8 +1504,10 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           verifiedInSpreadsheet: res.verifiedInSpreadsheet !== false,
           sheetRowNumber: res.sheetRowNumber,
           savedAt: res.savedAt || new Date().toISOString(),
-          nextStudentIndex: canContinueStage2 ? 0 : undefined,
-          nextStudentName: canContinueStage2 ? 'Lanjut ke Tahap 2 (Monitoring 1)' : undefined,
+          nextStudentIndex: canContinueNextStage ? 0 : undefined,
+          nextStudentName: canContinueNextStage
+            ? `Lanjut ke ${getStageValueByNumber(nextStageAfterDelivery)}`
+            : undefined,
         });
       } else {
         reportValidationError(res.message || 'Gagal menyimpan validasi pengantaran ke Cloud Server.');
@@ -1493,6 +1527,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     }
     setFormError('');
 
+    if (!isStageEnabledForStudent) {
+      reportValidationError(
+        `${getStageValueByNumber(activeStageNum)} tidak termasuk tahapan monitoring aktif untuk jurusan siswa ini.`
+      );
+      return;
+    }
+
     if (!isStageGlobalUnlocked) {
       reportValidationError(
         stageControl.lockedReason
@@ -1509,12 +1550,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
+    const prevEnabledStage = getPreviousEnabledStage(activeStudentPolicy.enabledStages, activeStageNum);
     if (
       stageControl.requireSequential &&
-      activeStageNum > 1 &&
-      !(activeStudent.completedStages || []).includes(activeStageNum - 1)
+      prevEnabledStage !== null &&
+      !(activeStudent.completedStages || []).includes(prevEnabledStage)
     ) {
-      const prevLabel = getStageValueByNumber(activeStageNum - 1);
+      const prevLabel = getStageValueByNumber(prevEnabledStage);
       reportValidationError(
         `Tahap ${activeStageNum} masih terkunci. Harap isi dan simpan ${prevLabel} terlebih dahulu.`
       );
@@ -1534,17 +1576,6 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         'Data Pemimpin, PIC, dan No. Telp DUDI harus dilengkapi dan dikonfirmasi ejaannya terlebih dahulu.'
       );
       setDudiPopupOpen(true);
-      return;
-    }
-
-    if (
-      activeStageNum === 1 &&
-      (!dudiHariMulai || !dudiHariSelesai || !dudiJamMulai || !dudiJamSelesai)
-    ) {
-      setShowDudiContactEditor(true);
-      reportValidationError(
-        'Jadwal Hari Kerja & Jam Kerja DUDI masih kosong. Harap lengkapi 1x pada bagian Data DUDI di atas sebelum menyimpan Tahap 1.'
-      );
       return;
     }
 
@@ -1585,9 +1616,9 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
-    if (activeStageNum === 5 && !alreadyHasGrade && activeDraft.nilaiPklMuncul === null) {
+    if (activeStageNum === activeStudentPolicy.gradeStage && !alreadyHasGrade && activeDraft.nilaiPklMuncul === null) {
       reportValidationError(
-        'Pada Monitoring ke-4, silakan pilih terlebih dahulu apakah nilai PKL sudah muncul ("Ya, Sudah Muncul" atau "Belum Muncul").'
+        `Pada ${getStageValueByNumber(activeStageNum)}, silakan pilih terlebih dahulu apakah nilai PKL sudah muncul ("Ya, Sudah Muncul" atau "Belum Muncul").`
       );
       return;
     }
@@ -1727,7 +1758,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
               nextCompleted,
               stageControl,
               issuedStages,
-              nextStageLogs
+              nextStageLogs,
+              stu.jurusan
             );
 
             return {
@@ -1822,7 +1854,10 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       if (isDeliveryBatch) {
         const nextStages: Record<string, number> = {};
         dudiStudents.forEach((stu, idx) => {
-          nextStages[getStudentKey(stu, idx)] = 2;
+          const stuPol =
+            stu?.stagePolicy || resolveMonitoringStagePolicy(stageControl, stu?.jurusan);
+          nextStages[getStudentKey(stu, idx)] =
+            stuPol.enabledStages.find((n: number) => n > 1) ?? 2;
         });
         setStageByStudent((prev) => ({ ...prev, ...nextStages }));
         setSelectedStudentIndex(0);
@@ -1989,6 +2024,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     setPopupError,
     savingPopupContact,
     activeStudent,
+    activeStudentPolicy,
     activeStageNum,
     isStageReadOnly,
     isCompletedReadOnly,

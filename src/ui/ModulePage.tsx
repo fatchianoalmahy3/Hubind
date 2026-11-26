@@ -5,13 +5,18 @@ import { ModuleMetadata } from '../core/types/metadata';
 import { BaseRepository } from '../core/BaseRepository';
 import { useDataGrid } from '../hooks/useDataGrid';
 import { Guru, Jurusan, Siswa, UserRole } from '../core/types/schema';
-import { isModuleReadOnlyForRole } from '../core/moduleRegistry';
+import {
+  getModuleEntry,
+  getRepositoryForModule,
+  isModuleReadOnlyForRole,
+} from '../core/moduleRegistry';
 import {
   matchAnyJurusanItem,
   matchJurusanItem,
   resolveKakomliJurusans,
 } from '../core/utils/jurusanHelpers';
 import { stripNisSymbols } from '../core/utils/nisHelpers';
+import { DudiService } from '../services/DudiService';
 import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
 import { SertifikatService } from '../services/SertifikatService';
@@ -24,7 +29,12 @@ import { DynamicDataGrid } from './DynamicDataGrid';
 import { DynamicFormModal } from './DynamicFormModal';
 import { DynamicFilterModal } from './DynamicFilterModal';
 import { BulkActionModal } from './BulkActionModal';
-import { ImportExcelModal } from './ImportExcelModal';
+import {
+  BatchWorkbookSheetPayload,
+  ImportCommitOptions,
+  ImportCommitResult,
+  ImportExcelModal,
+} from './ImportExcelModal';
 import { ImageCropperModal } from './ImageCropperModal';
 import { AppleConfirmModal } from './AppleConfirmModal';
 import { MonitoringRecapModal } from './MonitoringRecapModal';
@@ -33,7 +43,9 @@ import { ModuleActionModal } from './module-page/ModuleActionModal';
 import { PerizinanWaModal } from './module-page/PerizinanWaModal';
 import {
   deduplicateImportRows,
-  exportSelectedRowsToCsv,
+  exportRowsToXlsx,
+  partitionImportRowsForUpsert,
+  resolveImportRowRelations,
 } from './module-page/moduleImportExport';
 import {
   applyModulePreSubmitTransforms,
@@ -392,12 +404,100 @@ export function ModulePage<T extends { id: string }>({
 
   const handleExportSelected = () => {
     const selectedRows = filteredData.filter((d) => selectedIds.includes(d.id));
-    exportSelectedRowsToCsv({
-      selectedRows,
+    void exportRowsToXlsx({
+      rows: selectedRows,
       fields: metadata.fields,
       moduleId: metadata.id,
       moduleTitle: metadata.title,
+      tableName: metadata.tableName,
     });
+  };
+
+  const handleExportAllXlsx = () => {
+    if (filteredData.length === 0) return;
+    void exportRowsToXlsx({
+      rows: filteredData,
+      fields: metadata.fields,
+      moduleId: metadata.id,
+      moduleTitle: metadata.title,
+      tableName: metadata.tableName,
+    });
+  };
+
+  const executeSmartModuleImport = async (
+    targetModuleId: string,
+    targetTableName: string,
+    targetRepo: BaseRepository<any>,
+    rawRows: Array<Record<string, any>>,
+    opts: ImportCommitOptions,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<ImportCommitResult> => {
+    const guruSvc = GuruService.getInstance();
+    const jurSvc = JurusanService.getInstance();
+    const dudiSvc = DudiService.getInstance();
+
+    let [jurList, currentGuruList, currentDudiList, existingTargetRows] = await Promise.all([
+      jurSvc.getAll().catch(() => []),
+      guruSvc.getAll().catch(() => []),
+      dudiSvc.getAll().catch(() => []),
+      targetRepo.getAll().catch(() => []),
+    ]);
+
+    let rel = resolveImportRowRelations({
+      moduleId: targetModuleId,
+      rows: rawRows,
+      jurusanList: jurList,
+      guruList: currentGuruList,
+      dudiList: currentDudiList,
+    });
+
+    let createdGuru = 0;
+    if (opts.autoCreateMissingGuru && rel.missingGuruNames.length > 0) {
+      const newGuruPayloads = rel.missingGuruNames.map((nama) => ({
+        nama,
+        peranUtama: targetModuleId === 'jurusan' ? ('Kakomli' as const) : ('Guru Pendamping' as const),
+      }));
+      createdGuru = await guruSvc.importRows(newGuruPayloads);
+      currentGuruList = await guruSvc.getAll().catch(() => currentGuruList);
+      rel = resolveImportRowRelations({
+        moduleId: targetModuleId,
+        rows: rawRows,
+        jurusanList: jurList,
+        guruList: currentGuruList,
+        dudiList: currentDudiList,
+      });
+    }
+
+    const { rowsToCreate, patchesToUpdate, skipped } = partitionImportRowsForUpsert({
+      moduleId: targetModuleId,
+      tableName: targetTableName,
+      newRows: rel.resolvedRows,
+      existingAll: existingTargetRows,
+      upsertExisting: opts.upsertExisting,
+    });
+
+    const totalWork = rowsToCreate.length + patchesToUpdate.length;
+    let doneCount = 0;
+    let created = 0;
+    let updated = 0;
+
+    if (rowsToCreate.length > 0) {
+      created = await targetRepo.importRows(rowsToCreate, {
+        onProgress: (done) => {
+          doneCount = done;
+          onProgress?.(doneCount, totalWork || rowsToCreate.length);
+        },
+      });
+      doneCount = created;
+    }
+
+    if (patchesToUpdate.length > 0) {
+      updated = await targetRepo.bulkUpdateMany(patchesToUpdate);
+      doneCount += updated;
+      onProgress?.(doneCount, totalWork || patchesToUpdate.length);
+    }
+
+    return { created, updated, skipped, createdGuru };
   };
 
   const activeFilterCount = Object.keys(filter).length;
@@ -496,6 +596,7 @@ export function ModulePage<T extends { id: string }>({
         onSyncSpreadsheet={() => syncWithSpreadsheet(metadata.tableName)}
         syncing={syncing}
         onOpenImportModal={() => setIsImportModalOpen(true)}
+        onExportAllXlsx={filteredData.length > 0 ? handleExportAllXlsx : undefined}
         onOpenAddModal={handleOpenAddModal}
         onOpenDocsModal={
           onOpenDocsForStudent
@@ -662,6 +763,8 @@ export function ModulePage<T extends { id: string }>({
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         fields={metadata.fields}
+        moduleId={metadata.id}
+        tableName={metadata.tableName}
         moduleTitle={metadata.title}
         onImport={async (newRows, onProgress) => {
           const existingAll = await repository.getAll().catch(() => data);
@@ -677,6 +780,97 @@ export function ModulePage<T extends { id: string }>({
             .syncAfterMutation(metadata.id, 'import')
             .catch(() => {});
           return count;
+        }}
+        onImportWithOptions={async (newRows, options, onProgress) => {
+          const res = await executeSmartModuleImport(
+            metadata.id,
+            metadata.tableName,
+            repository,
+            newRows,
+            options,
+            onProgress
+          );
+          if (res.created > 0 || res.updated > 0) {
+            setPage(1);
+            const parts: string[] = [];
+            if (res.created > 0) parts.push(`${res.created} baru`);
+            if (res.updated > 0) parts.push(`${res.updated} diperbarui`);
+            if (res.createdGuru && res.createdGuru > 0) {
+              parts.push(`${res.createdGuru} guru baru didaftarkan`);
+            }
+            if (res.skipped > 0) parts.push(`${res.skipped} dilewati`);
+            ToastManager.getInstance().show(
+              `Import ${metadata.title} Berhasil`,
+              'success',
+              parts.join(' · ')
+            );
+            void RelationSyncService.getInstance()
+              .syncAfterMutation(metadata.id, 'import')
+              .catch(() => {});
+            refresh();
+          }
+          return res;
+        }}
+        onBatchImportWorkbook={async (
+          sheets: BatchWorkbookSheetPayload[],
+          options: ImportCommitOptions,
+          onProgress
+        ) => {
+          let totalCreated = 0;
+          let totalUpdated = 0;
+          let totalSkipped = 0;
+          let createdGuru = 0;
+          const processedSheets: string[] = [];
+          const totalRowsAll = sheets.reduce((sum, s) => sum + s.rows.length, 0);
+          let processedSoFar = 0;
+
+          for (const sheetPayload of sheets) {
+            const targetRepo = getRepositoryForModule(sheetPayload.moduleId);
+            const modTableName = getModuleEntry(sheetPayload.moduleId).metadata.tableName;
+            const res = await executeSmartModuleImport(
+              sheetPayload.moduleId,
+              modTableName,
+              targetRepo,
+              sheetPayload.rows,
+              options,
+              (done) => {
+                onProgress?.(
+                  `Mengimpor ${sheetPayload.sheetName}`,
+                  Math.min(processedSoFar + done, totalRowsAll),
+                  totalRowsAll
+                );
+              }
+            );
+            processedSoFar += sheetPayload.rows.length;
+            totalCreated += res.created;
+            totalUpdated += res.updated;
+            totalSkipped += res.skipped;
+            createdGuru += res.createdGuru || 0;
+            processedSheets.push(`${sheetPayload.sheetName} (${res.created + res.updated})`);
+          }
+
+          if (totalCreated > 0 || totalUpdated > 0) {
+            setPage(1);
+            ToastManager.getInstance().show(
+              `Batch Workbook (${sheets.length} Sheet) Selesai`,
+              'success',
+              `${totalCreated} baris baru, ${totalUpdated} diperbarui${
+                createdGuru > 0 ? `, ${createdGuru} guru baru` : ''
+              }${totalSkipped > 0 ? `, ${totalSkipped} dilewati` : ''}.`
+            );
+            void RelationSyncService.getInstance()
+              .syncAfterMutation('all', 'import')
+              .catch(() => {});
+            refresh();
+          }
+
+          return {
+            totalCreated,
+            totalUpdated,
+            totalSkipped,
+            createdGuru,
+            processedSheets,
+          };
         }}
       />
 

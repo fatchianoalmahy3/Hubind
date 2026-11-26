@@ -13,7 +13,16 @@ import {
   Award,
   Loader2,
 } from 'lucide-react';
-import { Jurusan, Monitoring, PenempatanPKL, Sertifikat, Siswa, MONITORING_STAGES } from '../core/types/schema';
+import {
+  DEFAULT_MONITORING_STAGE_CONTROL,
+  Jurusan,
+  Monitoring,
+  MonitoringStageControl,
+  PenempatanPKL,
+  Sertifikat,
+  Siswa,
+  MONITORING_STAGES,
+} from '../core/types/schema';
 import { JurusanService } from '../services/JurusanService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
@@ -23,7 +32,11 @@ import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { ToastManager } from '../core/ToastManager';
 import { formatPhoneDisplay, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
-import { buildStudentMonitoringSummary, getStageValueByNumber } from '../core/utils/monitoringHelpers';
+import {
+  buildStudentMonitoringSummary,
+  getStageValueByNumber,
+  resolveMonitoringStagePolicy,
+} from '../core/utils/monitoringHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
 import { PrintPortal } from './PrintPortal';
 import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
@@ -75,6 +88,9 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
   const [monitoringList, setMonitoringList] = useState<Monitoring[]>([]);
   const [sertifikatList, setSertifikatList] = useState<Sertifikat[]>([]);
+  const [stageControl, setStageControl] = useState<MonitoringStageControl>(() =>
+    GoogleSheetClient.getInstance().getMonitoringStageControl() || DEFAULT_MONITORING_STAGE_CONTROL
+  );
 
   const [selectedJurusanKey, setSelectedJurusanKey] = useState<string>('');
   const [kakomliWaOverride, setKakomliWaOverride] = useState<string>('');
@@ -84,6 +100,9 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
     setLoading(true);
     setError('');
     try {
+      await GoogleSheetClient.getInstance().initFromFirestore().catch(() => {});
+      setStageControl(GoogleSheetClient.getInstance().getMonitoringStageControl());
+
       const jSvc = JurusanService.getInstance();
       const pSvc = SiswaPklService.getInstance();
       const sSvc = SiswaService.getInstance();
@@ -139,6 +158,25 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       null
     );
   }, [jurusanList, selectedJurusanKey]);
+
+  const jurusanPolicy = useMemo(
+    () =>
+      resolveMonitoringStagePolicy(
+        stageControl,
+        selectedJurusan?.kode || selectedJurusan?.nama,
+        jurusanList
+      ),
+    [stageControl, selectedJurusan, jurusanList]
+  );
+
+  const activeStages = useMemo(
+    () => MONITORING_STAGES.filter((st) => jurusanPolicy.enabledStages.includes(st.num)),
+    [jurusanPolicy]
+  );
+
+  const lastEnabledStageNum =
+    jurusanPolicy.enabledStages[jurusanPolicy.enabledStages.length - 1] ?? 8;
+  const lastStageLabel = getStageValueByNumber(lastEnabledStageNum);
 
   // Build student monitoring recap rows mapped to Jurusan
   const recapData = useMemo(() => {
@@ -211,8 +249,9 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       ? allStudentRecaps.filter((r) => matchJurusanCode(r.jurusan, selectedJurusan))
       : allStudentRecaps;
 
+    const enabledSet = new Set(jurusanPolicy.enabledStages);
     const stageCounts: Record<number, number> = {};
-    for (const st of MONITORING_STAGES) {
+    for (const st of activeStages) {
       stageCounts[st.num] = filteredRows.filter((r) =>
         r.completedStages.includes(st.num)
       ).length;
@@ -222,14 +261,20 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
     const totalIzin = filteredRows.reduce((acc, r) => acc + r.izin, 0);
     const totalAlpha = filteredRows.reduce((acc, r) => acc + r.alpha, 0);
     const gradesSubmittedCount = filteredRows.filter((r) => r.hasGrade).length;
-    const finishedAllCount = filteredRows.filter((r) => r.completedStages.includes(8)).length;
+    const finishedAllCount = filteredRows.filter((r) =>
+      jurusanPolicy.enabledStages.every((n) => r.completedStages.includes(n))
+    ).length;
     const uniqueDudiCount = new Set(
       filteredRows.map((r) => r.namaDudi.trim().toLowerCase()).filter(Boolean)
     ).size;
 
     const incompleteRows = filteredRows
-      .filter((r) => !r.completedStages.includes(8))
-      .sort((a, b) => a.completedStages.length - b.completedStages.length);
+      .filter((r) => !jurusanPolicy.enabledStages.every((n) => r.completedStages.includes(n)))
+      .sort(
+        (a, b) =>
+          a.completedStages.filter((n) => enabledSet.has(n)).length -
+          b.completedStages.filter((n) => enabledSet.has(n)).length
+      );
 
     return {
       rows: filteredRows,
@@ -242,7 +287,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       uniqueDudiCount,
       incompleteRows,
     };
-  }, [penempatanList, siswaList, monitoringList, sertifikatList, selectedJurusan]);
+  }, [penempatanList, siswaList, monitoringList, sertifikatList, selectedJurusan, jurusanPolicy, activeStages]);
 
   useEffect(() => {
     setKakomliWaOverride(selectedJurusan?.kontakWA || '');
@@ -254,15 +299,20 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       return;
     }
     const tglLabel = formatIndonesianDate(getTodayWibIsoDate());
-    const stageLines = MONITORING_STAGES.map(
-      (st) => `  • ${st.value}: ${recapData.stageCounts[st.num] || 0}/${recapData.rows.length} siswa`
-    ).join('\n');
+    const stageLines = activeStages
+      .map((st) => `  • ${st.value}: ${recapData.stageCounts[st.num] || 0}/${recapData.rows.length} siswa`)
+      .join('\n');
 
     const topIncomplete = recapData.incompleteRows
       .slice(0, 8)
       .map((r, i) => {
-        const nextNum = Math.min(8, r.highestStage + 1);
-        return `  ${i + 1}. ${r.namaSiswa} (${r.namaDudi}) — Selesai ${r.completedStages.length}/8, lanjut ${getStageValueByNumber(nextNum)}`;
+        const doneCount = r.completedStages.filter((n) =>
+          jurusanPolicy.enabledStages.includes(n)
+        ).length;
+        const nextNum =
+          jurusanPolicy.enabledStages.find((n) => !r.completedStages.includes(n)) ??
+          lastEnabledStageNum;
+        return `  ${i + 1}. ${r.namaSiswa} (${r.namaDudi}) — Selesai ${doneCount}/${jurusanPolicy.totalStages}, lanjut ${getStageValueByNumber(nextNum)}`;
       })
       .join('\n');
 
@@ -276,28 +326,31 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       '',
       `• Total Siswa PKL Aktif: ${recapData.rows.length} siswa (${recapData.uniqueDudiCount} DUDI)`,
       `• Nilai DUDI Terkumpul: ${recapData.gradesSubmittedCount}/${recapData.rows.length} siswa`,
-      `• Selesai 8 Tahap (Penarikan): ${recapData.finishedAllCount}/${recapData.rows.length} siswa`,
+      `• Selesai ${jurusanPolicy.totalStages} Tahap (${lastStageLabel}): ${recapData.finishedAllCount}/${recapData.rows.length} siswa`,
       `• Akumulasi Absensi: Sakit=${recapData.totalSakit} | Izin=${recapData.totalIzin} | Alpha=${recapData.totalAlpha}`,
       '',
-      '*Progres 8 Tahap Monitoring:*',
+      `*Progres ${jurusanPolicy.totalStages} Tahap Monitoring:*`,
       stageLines,
       ...(recapData.incompleteRows.length > 0
         ? [
             '',
-            `*Daftar Belum Selesai Penarikan (${recapData.incompleteRows.length} siswa):*`,
+            `*Daftar Belum Selesai ${lastStageLabel} (${recapData.incompleteRows.length} siswa):*`,
             topIncomplete,
             ...(recapData.incompleteRows.length > 8
               ? [`  ...dan ${recapData.incompleteRows.length - 8} siswa lainnya.`]
               : []),
           ]
-        : ['', 'Seluruh siswa pada jurusan ini telah menyelesaikan seluruh 8 tahap PKL.']),
+        : [
+            '',
+            `Seluruh siswa pada jurusan ini telah menyelesaikan seluruh ${jurusanPolicy.totalStages} tahap PKL.`,
+          ]),
       '',
       'Mohon koordinasinya bersama Guru Pendamping terkait. Terima kasih.',
       'Pokja Hubin SMK PGRI 2 Ponorogo',
     ].join('\n');
 
     setCustomMessage(msg);
-  }, [selectedJurusan, recapData, activeYear]);
+  }, [selectedJurusan, recapData, activeYear, activeStages, jurusanPolicy, lastEnabledStageNum, lastStageLabel]);
 
   if (!isOpen) return null;
 
@@ -340,7 +393,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                 Rekap Monitoring Per Jurusan &amp; Info ke Kakomli
               </h2>
               <p className="text-xs text-slate-500 truncate">
-                Tahun Ajaran {activeYear} · Progres 8 Tahap, Absensi S/I/A &amp; Pengumpulan Nilai
+                Tahun Ajaran {activeYear} · Progres {jurusanPolicy.totalStages} Tahap, Absensi S/I/A &amp; Pengumpulan Nilai
               </p>
             </div>
           </div>
@@ -458,18 +511,20 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                   <div className="text-xl font-bold text-emerald-700 mt-1 tabular-nums">
                     {recapData.gradesSubmittedCount}/{recapData.rows.length}
                   </div>
-                  <div className="text-[11px] text-slate-500">Mon 4+ Terinput</div>
+                  <div className="text-[11px] text-slate-500">
+                    Tahap {getStageValueByNumber(jurusanPolicy.gradeStage)}+
+                  </div>
                 </div>
 
                 <div className="p-3.5 rounded-xl border border-slate-200 bg-white">
                   <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Tuntas 8 Tahap</span>
+                    <span>Tuntas {jurusanPolicy.totalStages} Tahap</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
                   </div>
                   <div className="text-xl font-bold text-slate-900 mt-1 tabular-nums">
                     {recapData.finishedAllCount}/{recapData.rows.length}
                   </div>
-                  <div className="text-[11px] text-slate-500">Sampai Penarikan</div>
+                  <div className="text-[11px] text-slate-500">Sampai {lastStageLabel}</div>
                 </div>
 
                 <div className="p-3.5 rounded-xl border border-slate-200 bg-white">
@@ -481,13 +536,13 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                 </div>
               </div>
 
-              {/* 8-Stage Progress Breakdown */}
+              {/* Dynamic Stage Progress Breakdown */}
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
                 <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Progres Per Tahap Monitoring (8 Tahap)
+                  Progres Per Tahap Monitoring ({jurusanPolicy.totalStages} Tahap)
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {MONITORING_STAGES.map((st) => {
+                  {activeStages.map((st) => {
                     const done = recapData.stageCounts[st.num] || 0;
                     const total = recapData.rows.length;
                     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -521,7 +576,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                     Rincian Siswa Jurusan {selectedJurusan?.kode || ''} ({recapData.rows.length})
                   </span>
                   <span className="text-[11px] text-slate-500 tabular-nums">
-                    Belum Selesai Penarikan: {recapData.incompleteRows.length}
+                    Belum Selesai {lastStageLabel}: {recapData.incompleteRows.length}
                   </span>
                 </div>
                 <div className="max-h-56 overflow-y-auto">
@@ -558,7 +613,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                               </div>
                             </td>
                             <td className="py-2 px-3 text-center font-mono font-semibold text-blue-700 tabular-nums">
-                              {r.completedStages.length}/8
+                              {r.completedStages.filter((n) => jurusanPolicy.enabledStages.includes(n)).length}/{jurusanPolicy.totalStages}
                             </td>
                             <td className="py-2 px-3 text-center font-mono text-slate-700 tabular-nums">
                               {r.sakit}/{r.izin}/{r.alpha}
@@ -715,7 +770,9 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                     <td className="border border-slate-400 p-1.5 font-semibold">{r.namaSiswa}</td>
                     <td className="border border-slate-400 p-1.5">{r.namaDudi}</td>
                     <td className="border border-slate-400 p-1.5">{r.guruPendamping}</td>
-                    <td className="border border-slate-400 p-1.5 text-center font-mono">{r.completedStages.length}/8</td>
+                    <td className="border border-slate-400 p-1.5 text-center font-mono">
+                      {r.completedStages.filter((n) => jurusanPolicy.enabledStages.includes(n)).length}/{jurusanPolicy.totalStages}
+                    </td>
                     <td className="border border-slate-400 p-1.5 text-center font-mono">{r.sakit}/{r.izin}/{r.alpha}</td>
                     <td className="border border-slate-400 p-1.5 text-center font-mono">{r.rataRataNilai ?? '-'}</td>
                   </tr>

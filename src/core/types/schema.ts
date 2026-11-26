@@ -18,11 +18,18 @@ export type MonitoringTahapValue =
   | '5. Penarikan'
   | '6. Penarikan';
 
+export interface JurusanStagePolicy {
+  enabledStages: number[];
+  gradeStage?: number;
+}
+
 export interface MonitoringStageControl {
   requireSequential: boolean;
   unlockedStages: number[];
   lockedReason?: string;
   requireIssuedLetter?: boolean;
+  gradeStage?: number;
+  perJurusan?: Record<string, JurusanStagePolicy>;
 }
 
 export const DEFAULT_MONITORING_STAGE_CONTROL: MonitoringStageControl = {
@@ -30,6 +37,8 @@ export const DEFAULT_MONITORING_STAGE_CONTROL: MonitoringStageControl = {
   unlockedStages: [1, 2, 3, 4, 5, 6, 7, 8],
   lockedReason: '',
   requireIssuedLetter: true,
+  gradeStage: 5,
+  perJurusan: {},
 };
 
 export interface Siswa {
