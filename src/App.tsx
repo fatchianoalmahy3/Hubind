@@ -781,7 +781,7 @@ export default function App() {
         appMode === 'admin' && authReady && currentUser
           ? 'h-screen overflow-hidden'
           : 'min-h-screen'
-      } bg-slate-50/70 flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-600 selection:text-white`}
+      } bg-white flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-600 selection:text-white`}
     >
       <PWAStartupSplash />
       <AppleToastContainer />
@@ -846,7 +846,7 @@ export default function App() {
               onCloseMobile={() => setIsMobileSidebarOpen(false)}
             />
 
-            <main className="flex-1 min-w-0 h-full overflow-y-auto px-4 sm:px-6 py-4 lg:py-5">
+            <main className="flex-1 min-w-0 h-full overflow-y-auto bg-white px-4 sm:px-6 py-4 lg:py-5">
               <div className="max-w-[1440px] mx-auto w-full">
                 {renderActiveModule()}
               </div>

@@ -25,6 +25,9 @@ function attachGlobalInstallListeners() {
   });
 }
 
+// Register early at module evaluation so fast browser beforeinstallprompt events are never missed
+attachGlobalInstallListeners();
+
 function checkIsStandalone(): boolean {
   if (typeof window === 'undefined') return false;
   return (
@@ -44,16 +47,44 @@ function checkIsEmbeddedPreview(): boolean {
   }
 }
 
+function detectDeviceEnvironment() {
+  if (typeof window === 'undefined') {
+    return {
+      isIOS: false,
+      isAndroid: false,
+      isInAppBrowser: false,
+      isMobileOrTablet: false,
+    };
+  }
+  const ua = window.navigator.userAgent || '';
+  const uaLower = ua.toLowerCase();
+  const isIOS =
+    /iphone|ipad|ipod/.test(uaLower) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /android/.test(uaLower);
+  const isInAppBrowser =
+    /whatsapp|fban|fbav|instagram|line\/|telegram|tiktok|bytedance|musical_ly|snapchat|micromessenger/i.test(
+      uaLower
+    ) ||
+    (isAndroid && /; wv\)/i.test(uaLower));
+  const hasTouch = navigator.maxTouchPoints > 0;
+  const mobileViewport = window.innerWidth <= 1024;
+  const isMobileOrTablet =
+    isIOS ||
+    isAndroid ||
+    /mobile|tablet|blackberry|iemobile|opera mini/i.test(uaLower) ||
+    (hasTouch && mobileViewport);
+
+  return { isIOS, isAndroid, isInAppBrowser, isMobileOrTablet };
+}
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
     () => cachedDeferredPrompt
   );
   const [isInstalled, setIsInstalled] = useState(() => checkIsStandalone());
   const [justInstalled, setJustInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-  const [isAndroid, setIsAndroid] = useState(false);
-  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
-  const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
+  const [deviceEnv, setDeviceEnv] = useState(() => detectDeviceEnvironment());
   const [isEmbeddedPreview] = useState(() => checkIsEmbeddedPreview());
 
   useEffect(() => {
@@ -61,30 +92,7 @@ export function usePWAInstall() {
     attachGlobalInstallListeners();
 
     setIsInstalled(checkIsStandalone());
-
-    const ua = window.navigator.userAgent || '';
-    const uaLower = ua.toLowerCase();
-    const isIOSDevice =
-      /iphone|ipad|ipod/.test(uaLower) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isAndroidDevice = /android/.test(uaLower);
-    const inApp =
-      /whatsapp|fban|fbav|instagram|line\/|telegram|tiktok|bytedance|musical_ly|snapchat|micromessenger/i.test(
-        uaLower
-      ) ||
-      (isAndroidDevice && /; wv\)/i.test(uaLower));
-    const hasTouch = navigator.maxTouchPoints > 0;
-    const mobileViewport = window.innerWidth <= 1024;
-    const isMobileDevice =
-      isIOSDevice ||
-      isAndroidDevice ||
-      /mobile|tablet|blackberry|iemobile|opera mini/i.test(uaLower) ||
-      (hasTouch && mobileViewport);
-
-    setIsIOS(isIOSDevice);
-    setIsAndroid(isAndroidDevice);
-    setIsInAppBrowser(inApp);
-    setIsMobileOrTablet(isMobileDevice);
+    setDeviceEnv(detectDeviceEnvironment());
 
     const displayMedia = window.matchMedia('(display-mode: standalone)');
     const handleDisplayChange = () => {
@@ -132,16 +140,17 @@ export function usePWAInstall() {
   };
 
   // Strict mandatory PWA gate applies to mobile/tablet outside standalone & outside preview iframe
-  const requiresMobileInstallGate = isMobileOrTablet && !isInstalled && !isEmbeddedPreview;
+  const requiresMobileInstallGate =
+    deviceEnv.isMobileOrTablet && !isInstalled && !isEmbeddedPreview;
 
   return {
     isInstallable: Boolean(deferredPrompt),
     isInstalled,
     justInstalled,
-    isIOS,
-    isAndroid,
-    isInAppBrowser,
-    isMobileOrTablet,
+    isIOS: deviceEnv.isIOS,
+    isAndroid: deviceEnv.isAndroid,
+    isInAppBrowser: deviceEnv.isInAppBrowser,
+    isMobileOrTablet: deviceEnv.isMobileOrTablet,
     isEmbeddedPreview,
     requiresMobileInstallGate,
     install,
