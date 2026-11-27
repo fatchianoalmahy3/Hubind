@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ToastManager } from '../../core/ToastManager';
 import { PublicPortalClient } from '../../core/PublicPortalClient';
 import { useUnloadGuard } from '../../hooks/useUnloadGuard';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import {
   DEFAULT_MONITORING_STAGE_CONTROL,
   type IssuedStageDetail,
@@ -38,15 +39,14 @@ import type { PendingStageEditConfirm } from './StageEditConfirmModal';
 const PETUGAS_CACHE_KEY = 'hubin_petugas_cache';
 const PETUGAS_DUDI_CACHE_KEY = 'hubin_petugas_dudi_cache';
 const NOTICE_ACK_KEY = 'hubin_petugas_notice_ack';
-const MONITORING_DRAFTS_KEY = 'hubin_monitoring_drafts_v1';
-const WORKSHOP_DRAFTS_KEY = 'hubin_monitoring_workshop_drafts_v1';
-const DELIVERY_DRAFTS_KEY = 'hubin_monitoring_delivery_drafts_v1';
+const LEGACY_LOCAL_KEYS = [
+  'hubin_petugas_cache',
+  'hubin_petugas_dudi_cache',
+  'hubin_monitoring_drafts_v1',
+  'hubin_monitoring_workshop_drafts_v1',
+  'hubin_monitoring_delivery_drafts_v1',
+];
 const PORTAL_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-
-interface DeliveryLocalDraft {
-  ttdByKey: Record<string, string>;
-  catatanPengantaran: string;
-}
 
 interface StoredPetugasDudiCache {
   petugasId: string;
@@ -56,10 +56,18 @@ interface StoredPetugasDudiCache {
   timestamp: number;
 }
 
+function purgeLegacyMonitoringLocalStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    LEGACY_LOCAL_KEYS.forEach((k) => window.localStorage.removeItem(k));
+  } catch {
+    // ignore storage access errors
+  }
+}
+
 function readPortalSessionJson<T>(key: string): T | null {
   try {
-    const rawSession = sessionStorage.getItem(key);
-    const raw = rawSession || localStorage.getItem(key);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
@@ -69,7 +77,6 @@ function readPortalSessionJson<T>(key: string): T | null {
       Date.now() - parsed.timestamp > PORTAL_SESSION_TTL_MS
     ) {
       sessionStorage.removeItem(key);
-      localStorage.removeItem(key);
       return null;
     }
     return parsed as T;
@@ -80,9 +87,7 @@ function readPortalSessionJson<T>(key: string): T | null {
 
 function writePortalSessionJson(key: string, value: unknown): void {
   try {
-    const serialized = JSON.stringify(value);
-    sessionStorage.setItem(key, serialized);
-    localStorage.setItem(key, serialized);
+    sessionStorage.setItem(key, JSON.stringify(value));
   } catch {
     // ignore storage quota errors
   }
@@ -91,44 +96,6 @@ function writePortalSessionJson(key: string, value: unknown): void {
 function removePortalSessionKey(key: string): void {
   try {
     sessionStorage.removeItem(key);
-    localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
-}
-
-function readStoredMap<T>(storageKey: string): Record<string, T> {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeStoredMapItem<T>(storageKey: string, fullKey: string, value: T): void {
-  try {
-    const all = readStoredMap<T>(storageKey);
-    all[fullKey] = value;
-    const keys = Object.keys(all);
-    if (keys.length > 35) {
-      delete all[keys[0]];
-    }
-    localStorage.setItem(storageKey, JSON.stringify(all));
-  } catch {
-    // Ignore storage quota issues
-  }
-}
-
-function removeStoredMapItem(storageKey: string, fullKey: string): void {
-  try {
-    const all = readStoredMap<unknown>(storageKey);
-    if (fullKey in all) {
-      delete all[fullKey];
-      localStorage.setItem(storageKey, JSON.stringify(all));
-    }
   } catch {
     // ignore
   }
@@ -157,6 +124,7 @@ function hasFilledWorkshopData(w?: WorkshopStageDraft | null): boolean {
 }
 
 export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
+  const isOnline = useOnlineStatus();
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   // Step 1: Petugas & PIN verification
@@ -172,7 +140,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   const [verifyingPin, setVerifyingPin] = useState(false);
   const [pinError, setPinError] = useState('');
 
-  // Step 2: Assigned DUDIs from Google Spreadsheet
+  // Step 2: Assigned DUDIs from Cloud Server
   const [assignedDudiList, setAssignedDudiList] = useState<any[]>([]);
   const [loadingDudi, setLoadingDudi] = useState(false);
   const [dudiError, setDudiError] = useState('');
@@ -330,6 +298,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
   useEffect(() => {
     if (isOpen) {
+      purgeLegacyMonitoringLocalStorage();
       setDudiPopupOpen(false);
       setSaveReceipt(null);
       setPendingEditConfirm(null);
@@ -529,8 +498,6 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       const initStages: Record<string, number> = {};
       const initDrafts: Record<string, StudentStageDraft> = {};
       const initWorkshops: Record<number, WorkshopStageDraft> = {};
-      const storedDrafts = readStoredMap<StudentStageDraft>(MONITORING_DRAFTS_KEY);
-      const storedWorkshops = readStoredMap<WorkshopStageDraft>(WORKSHOP_DRAFTS_KEY);
 
       students.forEach((stu: any, idx: number) => {
         const stuKey = getStudentKey(stu, idx);
@@ -595,26 +562,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
             }
           });
         }
-
-        for (let stNum = 1; stNum <= 8; stNum += 1) {
-          const draftKey = `${stuKey}::${stNum}`;
-          const storageKey = `${dudiKey}::${draftKey}`;
-          const localSaved = storedDrafts[storageKey];
-          if (localSaved && !initDrafts[draftKey]) {
-            initDrafts[draftKey] = {
-              ...DEFAULT_DRAFT,
-              ...localSaved,
-            };
-          }
-        }
       });
-
-      for (let stNum = 1; stNum <= 8; stNum += 1) {
-        const localWorkshop = storedWorkshops[`${dudiKey}::stage::${stNum}`];
-        if (localWorkshop && !hasFilledWorkshopData(initWorkshops[stNum])) {
-          initWorkshops[stNum] = normalizeWorkshopDraft(localWorkshop);
-        }
-      }
 
       if (isBackgroundRefresh) {
         setStageByStudent((prev) => ({ ...initStages, ...prev }));
@@ -657,22 +605,17 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           .map(({ key }) => key);
         setDeliverySelectedKeys(pendingDeliveryKeys.length > 0 ? pendingDeliveryKeys : allKeys);
 
-        const localDelivery = readStoredMap<DeliveryLocalDraft>(DELIVERY_DRAFTS_KEY)[dudiKey];
         const initTtdByKey: Record<string, string> = {};
         students.forEach((stu, idx) => {
           const key = getStudentKey(stu, idx);
-          initTtdByKey[key] = String(
-            stu?.stageLogs?.[1]?.ttdSiswa || localDelivery?.ttdByKey?.[key] || ''
-          );
+          initTtdByKey[key] = String(stu?.stageLogs?.[1]?.ttdSiswa || '');
         });
         setDeliveryTtdByKey(initTtdByKey);
 
         const savedStage1NoteLog = students
           .map((stu) => stu?.stageLogs?.[1])
           .find((log) => Boolean(log && log.catatan));
-        setDeliveryCatatan(
-          String(savedStage1NoteLog?.catatan || localDelivery?.catatanPengantaran || '')
-        );
+        setDeliveryCatatan(String(savedStage1NoteLog?.catatan || ''));
         const allStage1Done =
           students.length > 0 &&
           students.every(
@@ -798,6 +741,11 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     const jamRangeStr =
       popupJamMulai && popupJamSelesai ? formatRangePair(popupJamMulai, popupJamSelesai) : '';
 
+    if (!isOnline) {
+      setPopupError('Koneksi internet terputus. Hubungkan internet terlebih dahulu agar data tersimpan di server.');
+      return;
+    }
+
     setSavingPopupContact(true);
     try {
       const res = await PublicPortalClient.saveDudiContactVerification({
@@ -916,13 +864,6 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         ...(prev[activeDraftKey] || DEFAULT_DRAFT),
         ...patch,
       };
-      if (activeDudiKeyRef.current) {
-        writeStoredMapItem(
-          MONITORING_DRAFTS_KEY,
-          `${activeDudiKeyRef.current}::${activeDraftKey}`,
-          nextDraft
-        );
-      }
       return {
         ...prev,
         [activeDraftKey]: nextDraft,
@@ -939,13 +880,6 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         ...base,
         ...patch,
       });
-      if (activeDudiKeyRef.current) {
-        writeStoredMapItem(
-          WORKSHOP_DRAFTS_KEY,
-          `${activeDudiKeyRef.current}::stage::${activeStageNum}`,
-          nextWorkshop
-        );
-      }
       return {
         ...prev,
         [activeStageNum]: nextWorkshop,
@@ -993,28 +927,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   const updateDeliveryStudentTtd = (stuKey: string, nextTtd: string) => {
     if (isStageReadOnly || !stuKey) return;
     setFormError('');
-    setDeliveryTtdByKey((prev) => {
-      const nextMap = { ...prev, [stuKey]: nextTtd };
-      if (activeDudiKeyRef.current) {
-        writeStoredMapItem<DeliveryLocalDraft>(DELIVERY_DRAFTS_KEY, activeDudiKeyRef.current, {
-          ttdByKey: nextMap,
-          catatanPengantaran: deliveryCatatan,
-        });
-      }
-      return nextMap;
-    });
+    setDeliveryTtdByKey((prev) => ({ ...prev, [stuKey]: nextTtd }));
   };
 
   const updateDeliveryCatatan = (nextNote: string) => {
     if (isStageReadOnly) return;
     setFormError('');
     setDeliveryCatatan(nextNote);
-    if (activeDudiKeyRef.current) {
-      writeStoredMapItem<DeliveryLocalDraft>(DELIVERY_DRAFTS_KEY, activeDudiKeyRef.current, {
-        ttdByKey: deliveryTtdByKey,
-        catatanPengantaran: nextNote,
-      });
-    }
   };
 
   const toggleDeliveryStudentKey = (stuKey: string) => {
@@ -1222,6 +1141,12 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       );
       return;
     }
+    if (!isOnline) {
+      reportValidationError(
+        'Koneksi internet terputus. Data nilai belum tersimpan di server. Hubungkan internet lalu kirim ulang.'
+      );
+      return;
+    }
     setSavingGradeEdit(true);
     setFormError('');
     try {
@@ -1349,6 +1274,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
+    if (!isOnline) {
+      reportValidationError(
+        'Koneksi internet terputus. Data pengantaran belum tersimpan di server. Hubungkan internet lalu kirim ulang.'
+      );
+      return;
+    }
+
     const hariKerjaStr = formatRangePair(dudiHariMulai, dudiHariSelesai);
     const jamKerjaStr = formatRangePair(dudiJamMulai, dudiJamSelesai);
     const stageLabel = getStageValueByNumber(1);
@@ -1380,10 +1312,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
         })),
       });
 
-      if (res.success) {
-        if (activeDudiKeyRef.current) {
-          removeStoredMapItem(DELIVERY_DRAFTS_KEY, activeDudiKeyRef.current);
-        }
+      if (res.success && res.verifiedInSpreadsheet !== false) {
 
         const updatedContact = {
           namaPemimpin: res.dudiContact?.namaPemimpin || cleanPemimpin,
@@ -1501,7 +1430,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           dudiPemimpin: updatedContact.namaPemimpin,
           dudiPic: updatedContact.pic,
           dudiKontak: updatedContact.kontak,
-          verifiedInSpreadsheet: res.verifiedInSpreadsheet !== false,
+          verifiedInSpreadsheet: true,
           sheetRowNumber: res.sheetRowNumber,
           savedAt: res.savedAt || new Date().toISOString(),
           nextStudentIndex: canContinueNextStage ? 0 : undefined,
@@ -1641,6 +1570,13 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
     }
     const existingStageLog = activeStudent.stageLogs?.[activeStageNum];
 
+    if (!isOnline) {
+      reportValidationError(
+        'Koneksi internet terputus. Data monitoring belum tersimpan di server. Hubungkan internet lalu tekan Simpan lagi.'
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       const shouldSendDudiContact = activeStageNum === 1 || showDudiContactEditor;
@@ -1691,13 +1627,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
 
       const json = await PublicPortalClient.submitMonitoring(payload);
 
-      if (json.success) {
-        if (activeDudiKeyRef.current && activeDraftKey) {
-          removeStoredMapItem(
-            MONITORING_DRAFTS_KEY,
-            `${activeDudiKeyRef.current}::${activeDraftKey}`
-          );
-        }
+      if (json.success && json.verifiedInSpreadsheet !== false) {
         if (json.dudiContact) {
           const updatedContact = {
             namaPemimpin: json.dudiContact.namaPemimpin || dudiPemimpin.trim(),
@@ -1788,12 +1718,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           if (idx === selectedStudentIndex) return true;
           return Array.isArray(stu.completedStages) && stu.completedStages.includes(activeStageNum);
         });
-        if (allCompletedNow && activeDudiKeyRef.current) {
-          removeStoredMapItem(
-            WORKSHOP_DRAFTS_KEY,
-            `${activeDudiKeyRef.current}::stage::${activeStageNum}`
-          );
-        }
+        void allCompletedNow;
 
         const stageLockKey = getStageEditLockKey(activeStageNum, activeStudentKey);
         if (stageLockKey) {
@@ -1827,7 +1752,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           gradeAvg: shouldSubmitGrades ? rataRataNilai : undefined,
           gradePredikat: shouldSubmitGrades ? predikatNilai : undefined,
           gradeSynced: json.gradeSynced,
-          verifiedInSpreadsheet: json.verifiedInSpreadsheet !== false,
+          verifiedInSpreadsheet: true,
           sheetRowNumber: json.sheetRowNumber,
           savedAt: json.savedAt || new Date().toISOString(),
           nextStudentIndex: nextPendingIdx >= 0 ? nextPendingIdx : undefined,
@@ -1941,6 +1866,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
   };
 
   return {
+    isOnline,
     currentStep,
     setCurrentStep,
     petugasList,

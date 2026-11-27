@@ -58,9 +58,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-            P2
-          </div>
+          <img
+            src="/assets/logo-hubind.png"
+            alt="Logo Hubind SMK PGRI 2 Ponorogo"
+            className="w-8 h-8 rounded-lg object-cover shrink-0 bg-[#0d2645]"
+          />
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm min-w-0">
             <span className="font-semibold text-slate-500 hidden sm:inline whitespace-nowrap shrink-0">
               Hubind Sterida

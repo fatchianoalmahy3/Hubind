@@ -139,23 +139,30 @@ export const PublicPortalClient = {
         () => directSubmitApplication(payload)
       );
 
-      if (result?.success) {
+      const isVerified = Boolean(result?.success) && result?.verifiedInSpreadsheet !== false;
+      if (isVerified) {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
         invalidatePublicTeacherCaches(false);
         ToastManager.getInstance().update(
           toastId,
-          'Tersimpan di Cloud Server!',
+          'Data Tersimpan di Server!',
           'success',
-          `Pengajuan PKL ${payload.nama} (${result.application?.id || ''}) telah tersimpan ke Cloud Server.`
+          `Pengajuan PKL ${payload.nama} (${result.application?.id || ''}) telah terverifikasi tersimpan di server.`
         );
       } else {
         ToastManager.getInstance().update(
           toastId,
           'Gagal Menyimpan Pengajuan',
           'error',
-          result?.message || 'Terjadi kendala saat menyimpan ke Cloud Server.'
+          result?.message || 'Data belum terverifikasi tersimpan di server. Silakan coba lagi.'
         );
+        return {
+          ...result,
+          success: false,
+          message:
+            result?.message || 'Data belum terverifikasi tersimpan di server. Silakan coba lagi.',
+        };
       }
       return result;
     } catch (err: any) {
@@ -438,7 +445,9 @@ export const PublicPortalClient = {
         () => directSubmitMonitoring(payload)
       );
 
-      if (res?.success) {
+      const verifiedFlag: boolean | undefined = res?.verifiedInSpreadsheet;
+      const isVerified = Boolean(res?.success) && verifiedFlag !== false;
+      if (isVerified) {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
         if (res.gradeSynced) {
           GoogleSheetClient.getInstance().invalidateClientSheetCache('data_plotting');
@@ -453,25 +462,32 @@ export const PublicPortalClient = {
               res.monitoring?.Nilai_rata_rata ??
               res.monitoring?.Nilai_Rata_Rata ??
               payload.nilai_rata_rata
-            }) tersinkron ke Rekap Nilai`
+            }) tersinkron`
           : '';
         ToastManager.getInstance().update(
           toastId,
           res.gradeSynced
-            ? 'Monitoring & Nilai Tersimpan!'
-            : 'Data Monitoring Tersimpan di Cloud Server!',
+            ? 'Monitoring & Nilai Tersimpan di Server!'
+            : 'Data Tersimpan di Server!',
           'success',
           `${payload.nama_siswa} · ${payload.tahap_monitoring} (S:${payload.sakit ?? 0} I:${
             payload.izin ?? 0
           } A:${payload.alpha ?? 0})${nilaiSuffix}`
         );
       } else {
+        const failMsg =
+          res?.message || 'Data belum terverifikasi tersimpan di server. Silakan kirim ulang.';
         ToastManager.getInstance().update(
           toastId,
-          'Gagal Menyimpan Monitoring',
+          'Data Belum Tersimpan di Server',
           'error',
-          res?.message || 'Gagal menyimpan ke Cloud Server.'
+          failMsg
         );
+        return {
+          ...res,
+          success: false,
+          message: failMsg,
+        };
       }
 
       return res;
@@ -531,24 +547,33 @@ export const PublicPortalClient = {
         () => directSubmitDeliveryValidation(payload)
       );
 
-      if (res?.success) {
+      const verifiedFlag: boolean | undefined = res?.verifiedInSpreadsheet;
+      const isVerified = Boolean(res?.success) && verifiedFlag !== false;
+      if (isVerified) {
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
         GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
         invalidatePublicTeacherCaches();
         ToastManager.getInstance().update(
           toastId,
-          'Validasi & Pengantaran DUDI Tersimpan!',
+          'Data Pengantaran Tersimpan di Server!',
           'success',
-          `${payload?.nama_dudi || 'DUDI'} · ${res.savedCount || studentCount} siswa tercatat selesai Pengantaran`
+          `${payload?.nama_dudi || 'DUDI'} · ${res.savedCount || studentCount} siswa terverifikasi tersimpan di server`
         );
       } else {
+        const failMsg =
+          res?.message || 'Data pengantaran belum terverifikasi tersimpan di server. Silakan kirim ulang.';
         ToastManager.getInstance().update(
           toastId,
-          'Gagal Menyimpan Pengantaran',
+          'Data Belum Tersimpan di Server',
           'error',
-          res?.message || 'Gagal menyimpan validasi ke Cloud Server.'
+          failMsg
         );
+        return {
+          ...res,
+          success: false,
+          message: failMsg,
+        };
       }
 
       return res;

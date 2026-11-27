@@ -117,16 +117,18 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans text-slate-800 selection:bg-blue-600 selection:text-white overflow-x-hidden">
       {/* 1. Header: Mobile-safe, crisp contrast */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/85 w-full">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto px-3.5 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-3">
           <a
             href="#beranda"
-            className="flex items-center gap-2.5 min-w-0 shrink-0"
+            className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0"
           >
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-extrabold text-sm shadow-xs shrink-0">
-              H
-            </div>
+            <img
+              src="/assets/logo-hubind.png"
+              alt="Logo Hubind SMK PGRI 2 Ponorogo"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-cover shadow-xs shrink-0 bg-[#0d2645]"
+            />
             <div className="leading-tight min-w-0">
-              <span className="block text-sm sm:text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
+              <span className="block text-[13px] sm:text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
                 Hubind Sterida
               </span>
               <span className="hidden sm:block text-[11px] font-medium text-slate-500 whitespace-nowrap">
@@ -147,11 +149,11 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             </a>
           </nav>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {currentUser ? (
               <button
                 onClick={onGoToDashboard}
-                className="min-h-[38px] px-3 sm:px-4 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                className="min-h-[36px] sm:min-h-[38px] px-3 sm:px-4 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
               >
                 <span>Dashboard</span>
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -159,7 +161,7 @@ export const PublicLandingPage: React.FC<PublicLandingPageProps> = ({
             ) : (
               <button
                 onClick={onOpenLogin}
-                className="min-h-[38px] px-3 sm:px-4 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 hover:border-slate-400 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
+                className="min-h-[36px] sm:min-h-[38px] px-2.5 sm:px-4 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 hover:border-slate-400 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
               >
                 <Lock className="w-3.5 h-3.5 text-blue-600" />
                 <span className="hidden sm:inline">Login Pengelola</span>

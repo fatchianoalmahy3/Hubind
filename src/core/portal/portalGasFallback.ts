@@ -558,9 +558,13 @@ export async function directSubmitApplication(payload: any) {
     }
   }
 
+  if (!writeReceipt.verified) {
+    throw new Error('Data pengajuan belum terverifikasi tersimpan di server. Silakan kirim ulang.');
+  }
+
   return {
     success: true,
-    verifiedInSpreadsheet: writeReceipt.verified,
+    verifiedInSpreadsheet: Boolean(writeReceipt.verified) as boolean,
     sheetRowNumber: writeReceipt.sheetRowNumber,
     savedAt: writeReceipt.savedAt,
     message: 'Pengajuan PKL berhasil disimpan dan diverifikasi ke Cloud Server.',
@@ -1043,6 +1047,9 @@ export async function directSubmitMonitoring(payload: any) {
     isUpdate ? 'UPDATE' : 'CREATE',
     persistedMon
   );
+  if (!writeReceipt.verified) {
+    throw new Error('Data monitoring belum terverifikasi tersimpan di server. Silakan kirim ulang.');
+  }
 
   let dudiContactSynced = false;
   if (inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja) {
@@ -1088,7 +1095,7 @@ export async function directSubmitMonitoring(payload: any) {
 
   return {
     success: true,
-    verifiedInSpreadsheet: writeReceipt.verified,
+    verifiedInSpreadsheet: Boolean(writeReceipt.verified) as boolean,
     sheetRowNumber: writeReceipt.sheetRowNumber,
     savedAt: writeReceipt.savedAt,
     gradeSynced,
@@ -1331,9 +1338,13 @@ export async function directSubmitDeliveryValidation(payload: any) {
     });
   }
 
+  if (!lastReceipt.verified) {
+    throw new Error('Data pengantaran belum terverifikasi tersimpan di server. Silakan kirim ulang.');
+  }
+
   return {
     success: true,
-    verifiedInSpreadsheet: lastReceipt.verified,
+    verifiedInSpreadsheet: Boolean(lastReceipt.verified) as boolean,
     sheetRowNumber: lastReceipt.sheetRowNumber,
     savedAt: lastReceipt.savedAt || new Date().toISOString(),
     dudiContactSynced,

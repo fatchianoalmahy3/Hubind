@@ -29,7 +29,10 @@ import {
 } from './core/moduleRegistry';
 
 import { AppleToastContainer } from './ui/AppleToastContainer';
+import { OfflineIndicator } from './ui/OfflineIndicator';
 import { PublicLandingPage } from './ui/PublicLandingPage';
+import { PWAInstallGate } from './ui/PWAInstallGate';
+import { usePWAInstall } from './hooks/usePWAInstall';
 import type { DocumentHubKey } from './ui/DocumentHubPage';
 import { ToastManager } from './core/ToastManager';
 
@@ -197,6 +200,7 @@ export default function App() {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [globalSyncing, setGlobalSyncing] = useState(false);
   const [refreshState, setRefreshState] = useState(0);
+  const { requiresMobileInstallGate } = usePWAInstall();
 
   const googleClient = GoogleSheetClient.getInstance();
   const [configSnapshot, setConfigSnapshot] = useState(() => googleClient.getConfig());
@@ -779,8 +783,18 @@ export default function App() {
       } bg-slate-50/70 flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-600 selection:text-white`}
     >
       <AppleToastContainer />
+      <OfflineIndicator />
 
-      {appMode === 'admin' && !authReady ? (
+      {requiresMobileInstallGate && ((appMode === 'admin' && currentUser) || isLoginModalOpen) ? (
+        <PWAInstallGate
+          targetTitle="Portal Pengelola Hubin"
+          targetDescription="Akses Dashboard Pengelola dari perangkat mobile wajib melalui aplikasi terpasang Hubind PKL di layar utama HP Anda."
+          onBack={() => {
+            setIsLoginModalOpen(false);
+            setAppMode('landing');
+          }}
+        />
+      ) : appMode === 'admin' && !authReady ? (
         <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50 text-slate-600">
           <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
           <span className="text-xs font-semibold">Memulihkan sesi Admin Hubin...</span>

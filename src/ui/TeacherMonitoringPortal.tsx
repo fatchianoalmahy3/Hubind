@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Building2, ChevronRight, X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { PinVerificationStep } from './monitoring-portal/PinVerificationStep';
 import { DudiSelectionStep } from './monitoring-portal/DudiSelectionStep';
 import { MonitoringEntryStep } from './monitoring-portal/MonitoringEntryStep';
@@ -9,6 +9,8 @@ import { MonitoringSaveSuccessModal } from './monitoring-portal/MonitoringSaveSu
 import { StageEditConfirmModal } from './monitoring-portal/StageEditConfirmModal';
 import { useTeacherMonitoring } from './monitoring-portal/useTeacherMonitoring';
 import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
+import { PWAInstallGate } from './PWAInstallGate';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface TeacherMonitoringPortalProps {
   isOpen: boolean;
@@ -21,7 +23,8 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
   onClose,
   onSuccess,
 }) => {
-  const m = useTeacherMonitoring(isOpen, onSuccess);
+  const { requiresMobileInstallGate } = usePWAInstall();
+  const m = useTeacherMonitoring(isOpen && !requiresMobileInstallGate, onSuccess);
   const isSaveLocked = m.submitting || m.savingGradeEdit || m.savingPopupContact;
 
   useEffect(() => {
@@ -41,6 +44,16 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
 
   if (!isOpen) return null;
 
+  if (requiresMobileInstallGate) {
+    return (
+      <PWAInstallGate
+        targetTitle="Portal Petugas Monitoring DUDI"
+        targetDescription="Pasang aplikasi Hubind PKL di HP Anda terlebih dahulu dan buka lewat ikon di layar utama agar tampilan penuh serta stabil saat bertugas di lapangan."
+        onBack={onClose}
+      />
+    );
+  }
+
   const handleSafeClose = () => {
     if (isSaveLocked) return;
     onClose();
@@ -58,16 +71,18 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
         {/* Header */}
         <div className="px-3 sm:px-6 py-2.5 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0 gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
-              <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
+            <img
+              src="/assets/logo-hubind.png"
+              alt="Logo Hubind SMK PGRI 2 Ponorogo"
+              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl object-contain shrink-0"
+            />
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate">
                 <span className="sm:hidden">Portal Monitoring</span>
                 <span className="hidden sm:inline">Portal Monitoring Guru Pembimbing</span>
               </h2>
               <p className="text-[11px] text-slate-500">
-                Langkah {m.currentStep} dari 3 · Tersinkron ke Cloud Server
+                Langkah {m.currentStep} dari 3 · Tersinkron ke Server
               </p>
             </div>
           </div>
@@ -261,6 +276,7 @@ export const TeacherMonitoringPortal: React.FC<TeacherMonitoringPortalProps> = (
               deliveryContactConfirmed={m.deliveryContactConfirmed}
               deliverySelectedKeys={m.deliverySelectedKeys}
               canCopyWorkshopFromPrevStage={m.canCopyWorkshopFromPrevStage}
+              isOnline={m.isOnline}
               onChangeStepToDudiList={m.backToDudiList}
               onSelectStudentIndex={(idx) => {
                 m.setSelectedStudentIndex(idx);

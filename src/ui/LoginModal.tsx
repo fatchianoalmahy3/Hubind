@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  Lock,
   User,
   Eye,
   EyeOff,
@@ -90,9 +89,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         {/* Header Modal */}
         <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <Lock className="w-5 h-5" />
-            </div>
+            <img
+              src="/assets/logo-hubind.png"
+              alt="Logo Hubind SMK PGRI 2 Ponorogo"
+              className="w-10 h-10 rounded-2xl object-cover shadow-xs shrink-0 bg-[#0d2645]"
+            />
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900">
                 Masuk Portal Pengelola

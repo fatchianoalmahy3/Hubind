@@ -713,6 +713,14 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         await Promise.all(postSyncTasks);
       }
 
+      if (!writeReceipt.verified) {
+        return res.status(502).json({
+          success: false,
+          code: 'SERVER_VERIFICATION_FAILED',
+          message: 'Data belum terverifikasi tersimpan di server. Silakan kirim ulang.',
+        });
+      }
+
       res.json({
         success: true,
         verifiedInSpreadsheet: writeReceipt.verified,
@@ -730,7 +738,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
                 ...(inputJamKerja ? { jamKerja: inputJamKerja } : {}),
               }
             : undefined,
-        message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} ke Cloud Server.`,
+        message: `Data ${stageStr} berhasil ${isUpdate ? 'diperbarui' : 'disimpan'} dan terverifikasi di server.`,
         monitoring: sheetRow,
       });
     } catch (err: any) {
@@ -1024,6 +1032,14 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
       ]);
       dudiContactSynced = Boolean(syncedDudiResult);
 
+      if (!lastWriteReceipt.verified) {
+        return res.status(502).json({
+          success: false,
+          code: 'SERVER_VERIFICATION_FAILED',
+          message: 'Data pengantaran belum terverifikasi tersimpan di server. Silakan kirim ulang.',
+        });
+      }
+
       res.json({
         success: true,
         verifiedInSpreadsheet: lastWriteReceipt.verified,
@@ -1039,7 +1055,7 @@ export function registerPublicTeacherMonitoringRoutes(app: Express): void {
         },
         savedCount: results.length,
         results,
-        message: `Validasi petugas DUDI & ${stageStr} berhasil disimpan untuk ${results.length} siswa.`,
+        message: `Validasi petugas DUDI & ${stageStr} tersimpan di server untuk ${results.length} siswa.`,
       });
     } catch (err: any) {
       handlePortalError(res, err);

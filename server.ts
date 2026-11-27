@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from 'express';
+import http from 'http';
 import path from 'path';
 import {
   __dirnameResolved,
@@ -98,19 +99,32 @@ app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) =>
 // Serve frontend with Vite dev middleware when running as standalone Node server (not on Vercel Serverless)
 async function startServer() {
   if (process.env.NODE_ENV !== 'production' && !isServerlessRuntime) {
+    const httpServer = http.createServer(app);
     const vitePkg = 'vite';
     const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkg);
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        ws: { server: httpServer },
+        ...(process.env.DISABLE_HMR === 'true'
+          ? { hmr: false }
+          : { hmr: { server: httpServer } }),
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(__dirnameResolved, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirnameResolved, 'dist', 'index.html'));
+
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`SI-HUBIN Server running at http://0.0.0.0:${PORT}`);
     });
+    return;
   }
+
+  app.use(express.static(path.join(__dirnameResolved, 'dist')));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(__dirnameResolved, 'dist', 'index.html'));
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`SI-HUBIN Server running at http://0.0.0.0:${PORT}`);

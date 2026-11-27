@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { FileText, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useStudentWizard } from './student-wizard/useStudentWizard';
 import { WizardSuccessView } from './student-wizard/WizardSuccessView';
 import { WizardStep1Identity } from './student-wizard/WizardStep1Identity';
@@ -54,9 +54,11 @@ export const StudentApplicationWizard: React.FC<StudentApplicationWizardProps> =
         {/* Header */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
-              <FileText className="w-5 h-5" />
-            </div>
+            <img
+              src="/assets/logo-hubind.png"
+              alt="Logo Hubind SMK PGRI 2 Ponorogo"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl object-cover shadow-xs shrink-0 bg-[#0d2645]"
+            />
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold text-slate-900 truncate">
                 Portal Pengajuan PKL Siswa Mandiri

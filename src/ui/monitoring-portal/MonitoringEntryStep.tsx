@@ -97,6 +97,7 @@ interface MonitoringEntryStepProps {
   deliveryContactConfirmed: boolean;
   deliverySelectedKeys: string[];
   canCopyWorkshopFromPrevStage: boolean;
+  isOnline?: boolean;
   onChangeStepToDudiList: () => void;
   onSelectStudentIndex: (idx: number) => void;
   onSelectStage: (stageNum: number) => void;
@@ -171,6 +172,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
   deliveryContactConfirmed,
   deliverySelectedKeys,
   canCopyWorkshopFromPrevStage,
+  isOnline = true,
   onChangeStepToDudiList,
   onSelectStudentIndex,
   onSelectStage,
@@ -1505,6 +1507,18 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                 </div>
               )}
 
+              {!isOnline && (
+                <div
+                  role="alert"
+                  className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-xs font-semibold text-rose-800"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                  <span>
+                    Koneksi internet terputus. Data belum bisa dikirim agar tidak gagal tersimpan di server. Hubungkan internet terlebih dahulu sebelum menekan Simpan.
+                  </span>
+                </div>
+              )}
+
               {/* Primary Save CTA OR Read-Only Notice */}
               <div className="sticky bottom-0 z-10 -mx-3 -mb-3 sm:static sm:mx-0 sm:mb-0 px-3 py-2.5 sm:p-0 bg-white/95 sm:bg-transparent backdrop-blur-xs sm:backdrop-blur-none border-t border-slate-200 sm:border-t-0 flex justify-end">
                 {isStageReadOnly ? (
@@ -1549,13 +1563,18 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   <button
                     type="button"
                     onClick={onSaveSupervision}
-                    disabled={submitting}
-                    className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                    disabled={submitting || !isOnline}
+                    className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Menyimpan ke Cloud Server...</span>
+                        <span>Menyimpan &amp; Memverifikasi ke Server...</span>
+                      </>
+                    ) : !isOnline ? (
+                      <>
+                        <AlertCircle className="w-4 h-4" />
+                        <span>Offline — Hubungkan Internet untuk Simpan ke Server</span>
                       </>
                     ) : (
                       <>

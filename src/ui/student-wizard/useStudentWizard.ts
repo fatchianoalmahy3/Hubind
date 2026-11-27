@@ -89,98 +89,16 @@ export function useStudentWizard(isOpen: boolean) {
     if (isOpen) {
       void loadDudiList();
       try {
-        const rawDraft = localStorage.getItem(STUDENT_DRAFT_KEY);
-        if (rawDraft && !submissionResult) {
-          const parsed = JSON.parse(rawDraft);
-          if (parsed && parsed.nisInput) {
-            setNisInput(String(parsed.nisInput || ''));
-            if (parsed.studentData) setStudentData(parsed.studentData);
-            if (parsed.identityStatus) setIdentityStatus(parsed.identityStatus);
-            if (parsed.currentStep) setCurrentStep(parsed.currentStep);
-            if (parsed.telepon) setTelepon(String(parsed.telepon));
-            if (parsed.alamatDomisili) setAlamatDomisili(String(parsed.alamatDomisili));
-            if (parsed.namaOrtu) setNamaOrtu(String(parsed.namaOrtu));
-            if (parsed.teleponOrtu) setTeleponOrtu(String(parsed.teleponOrtu));
-            if (parsed.selectedDudiId) setSelectedDudiId(String(parsed.selectedDudiId));
-            if (typeof parsed.isDudiUnregistered === 'boolean') {
-              setIsDudiUnregistered(parsed.isDudiUnregistered);
-            }
-            if (parsed.selectedDudiMeta) setSelectedDudiMeta(parsed.selectedDudiMeta);
-            if (parsed.customDudiName) setCustomDudiName(String(parsed.customDudiName));
-            if (parsed.customDudiAddress) setCustomDudiAddress(String(parsed.customDudiAddress));
-            if (parsed.customDudiField) setCustomDudiField(String(parsed.customDudiField));
-            if (parsed.hariMulai) setHariMulai(String(parsed.hariMulai));
-            if (parsed.hariSelesai) setHariSelesai(String(parsed.hariSelesai));
-            if (parsed.jamMulai) setJamMulai(String(parsed.jamMulai));
-            if (parsed.jamSelesai) setJamSelesai(String(parsed.jamSelesai));
-            if (parsed.linkMaps) setLinkMaps(String(parsed.linkMaps));
-          }
-        }
+        window.localStorage.removeItem(STUDENT_DRAFT_KEY);
       } catch {
-        // Ignore malformed draft
+        // ignore storage access errors
       }
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!isOpen || submissionResult) return;
-    if (!nisInput && !studentData && !telepon && !selectedDudiId) return;
-    try {
-      localStorage.setItem(
-        STUDENT_DRAFT_KEY,
-        JSON.stringify({
-          currentStep,
-          nisInput,
-          studentData,
-          identityStatus,
-          telepon,
-          alamatDomisili,
-          namaOrtu,
-          teleponOrtu,
-          selectedDudiId,
-          isDudiUnregistered,
-          selectedDudiMeta,
-          customDudiName,
-          customDudiAddress,
-          customDudiField,
-          hariMulai,
-          hariSelesai,
-          jamMulai,
-          jamSelesai,
-          linkMaps,
-          updatedAt: Date.now(),
-        })
-      );
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [
-    isOpen,
-    submissionResult,
-    currentStep,
-    nisInput,
-    studentData,
-    identityStatus,
-    telepon,
-    alamatDomisili,
-    namaOrtu,
-    teleponOrtu,
-    selectedDudiId,
-    isDudiUnregistered,
-    selectedDudiMeta,
-    customDudiName,
-    customDudiAddress,
-    customDudiField,
-    hariMulai,
-    hariSelesai,
-    jamMulai,
-    jamSelesai,
-    linkMaps,
-  ]);
-
   const clearDraft = () => {
     try {
-      localStorage.removeItem(STUDENT_DRAFT_KEY);
+      window.localStorage.removeItem(STUDENT_DRAFT_KEY);
     } catch {
       // ignore
     }
