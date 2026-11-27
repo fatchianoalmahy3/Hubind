@@ -103,6 +103,55 @@
   }
 }
 
+@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+  html {
+    background-color: #0d2645;
+  }
+}
+
+@keyframes hubinSplashLogoIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.86) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes hubinSplashTextIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hubinSplashSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.hubin-splash-logo {
+  animation: hubinSplashLogoIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hubin-splash-title {
+  animation: hubinSplashTextIn 520ms cubic-bezier(0.16, 1, 0.3, 1) 130ms both;
+}
+
+.hubin-splash-bar {
+  animation: hubinSplashSweep 1050ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 .hubin-doc-shell {
   display: flex;
   flex-direction: column;

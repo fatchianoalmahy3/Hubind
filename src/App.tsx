@@ -32,6 +32,7 @@ import { AppleToastContainer } from './ui/AppleToastContainer';
 import { OfflineIndicator } from './ui/OfflineIndicator';
 import { PublicLandingPage } from './ui/PublicLandingPage';
 import { PWAInstallGate } from './ui/PWAInstallGate';
+import { PWAStartupSplash } from './ui/PWAStartupSplash';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import type { DocumentHubKey } from './ui/DocumentHubPage';
 import { ToastManager } from './core/ToastManager';
@@ -782,6 +783,7 @@ export default function App() {
           : 'min-h-screen'
       } bg-slate-50/70 flex flex-col font-sans text-slate-800 antialiased selection:bg-blue-600 selection:text-white`}
     >
+      <PWAStartupSplash />
       <AppleToastContainer />
       <OfflineIndicator />
 
