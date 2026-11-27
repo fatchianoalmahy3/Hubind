@@ -938,10 +938,20 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <h5 className="text-xs font-bold text-slate-900">
-                          Daftar Siswa yang Diantar &amp; Tanda Tangan Siswa ({deliverySelectedKeys.length}/{dudiStudents.length} dipilih)
+                          {stageControl.requireStudentSignature === true
+                            ? `Daftar Siswa yang Diantar & Tanda Tangan Siswa (${deliverySelectedKeys.length}/${dudiStudents.length} dipilih)`
+                            : `Daftar Siswa yang Diantar (${deliverySelectedKeys.length}/${dudiStudents.length} dipilih)`}
                         </h5>
                         <p className="text-[11px] text-slate-500">
-                          Centang siswa yang diantar dan minta masing-masing siswa menandatangani langsung di bawah namanya, lalu klik 1× Simpan untuk <b>{selectedDudi.nama}</b>.
+                          {stageControl.requireStudentSignature === true ? (
+                            <>
+                              Centang siswa yang diantar dan minta masing-masing siswa menandatangani langsung di bawah namanya, lalu klik 1× Simpan untuk <b>{selectedDudi.nama}</b>.
+                            </>
+                          ) : (
+                            <>
+                              Centang siswa yang diantar lalu klik 1× Simpan untuk <b>{selectedDudi.nama}</b>.
+                            </>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -992,7 +1002,7 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                               </div>
                             </label>
 
-                            {isChecked && (
+                            {isChecked && stageControl.requireStudentSignature === true && (
                               <SignaturePadInput
                                 value={stuTtd}
                                 studentName={stu.nama}
@@ -1211,13 +1221,15 @@ export const MonitoringEntryStep: React.FC<MonitoringEntryStepProps> = ({
                   })}
                 </div>
 
-                {/* Tanda Tangan Siswa langsung di bawah Absensi */}
-                <SignaturePadInput
-                  value={activeDraft.ttdSiswa}
-                  studentName={activeStudent.nama}
-                  disabled={isStageReadOnly}
-                  onChange={(nextSvg) => onUpdateDraft({ ttdSiswa: nextSvg })}
-                />
+                {/* Tanda Tangan Siswa langsung di bawah Absensi (saat diaktifkan SuperAdmin) */}
+                {stageControl.requireStudentSignature === true && (
+                  <SignaturePadInput
+                    value={activeDraft.ttdSiswa}
+                    studentName={activeStudent.nama}
+                    disabled={isStageReadOnly}
+                    onChange={(nextSvg) => onUpdateDraft({ ttdSiswa: nextSvg })}
+                  />
+                )}
               </div>
 
               {/* ZONA B: Ceklist Format 07.01 Individual Siswa (Buku Laporan & Aktivitas Sikap) */}

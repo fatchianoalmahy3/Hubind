@@ -79,12 +79,17 @@ export function normalizeServerMonitoringStageControl(raw: any): MonitoringStage
       unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
       lockedReason: '',
       requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true,
+      requireStudentSignature: DEFAULT_MONITORING_STAGE_CONTROL.requireStudentSignature ?? false,
       gradeStage: DEFAULT_MONITORING_STAGE_CONTROL.gradeStage ?? 5,
       perJurusan: {},
     };
   }
   const requireSequential = typeof raw.requireSequential === 'boolean' ? raw.requireSequential : true;
   const requireIssuedLetter = typeof raw.requireIssuedLetter === 'boolean' ? raw.requireIssuedLetter : true;
+  const requireStudentSignature =
+    typeof raw.requireStudentSignature === 'boolean'
+      ? raw.requireStudentSignature
+      : DEFAULT_MONITORING_STAGE_CONTROL.requireStudentSignature ?? false;
   const rawList = Array.isArray(raw.unlockedStages)
     ? raw.unlockedStages
     : DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages;
@@ -139,6 +144,7 @@ export function normalizeServerMonitoringStageControl(raw: any): MonitoringStage
     unlockedStages: deduped.slice(0, 8),
     lockedReason: String(raw.lockedReason ?? '').trim().slice(0, 150),
     requireIssuedLetter,
+    requireStudentSignature,
     gradeStage,
     perJurusan,
   };

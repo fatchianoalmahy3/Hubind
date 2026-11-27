@@ -57,6 +57,9 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
   const [requireIssuedLetter, setRequireIssuedLetter] = useState<boolean>(
     DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true
   );
+  const [requireStudentSignature, setRequireStudentSignature] = useState<boolean>(
+    DEFAULT_MONITORING_STAGE_CONTROL.requireStudentSignature ?? false
+  );
   const [unlockedStages, setUnlockedStages] = useState<number[]>(
     DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages
   );
@@ -75,6 +78,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
     const current = GoogleSheetClient.getInstance().getMonitoringStageControl();
     setRequireSequential(current.requireSequential);
     setRequireIssuedLetter(current.requireIssuedLetter ?? true);
+    setRequireStudentSignature(current.requireStudentSignature ?? false);
     setUnlockedStages([...current.unlockedStages]);
     setGradeStage(
       typeof current.gradeStage === 'number' && current.gradeStage >= 2 && current.gradeStage <= 8
@@ -254,6 +258,7 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
       const payload: MonitoringStageControl = {
         requireSequential,
         requireIssuedLetter,
+        requireStudentSignature,
         unlockedStages: [...unlockedStages].sort((a, b) => a - b),
         lockedReason: lockedReason.trim().slice(0, 150),
         gradeStage,
@@ -415,6 +420,35 @@ export const MonitoringStageControlModal: React.FC<MonitoringStageControlModalPr
                 <span
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition ${
                     requireIssuedLetter ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Layer 1B2: Digital Student Signature Switch */}
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <div className="font-bold text-slate-900">
+                  Wajib Tanda Tangan Digital Siswa (TTD)
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  {requireStudentSignature
+                    ? 'Aktif — Kotak tanda tangan siswa tampil pada Tahap 1 (Pengantaran) & Tahap 2–8 (Monitoring) dan wajib ditandatangani.'
+                    : 'Nonaktif (Mode Adaptasi) — Kotak tanda tangan siswa disembunyikan agar petugas fokus membiasakan alur monitoring terlebih dahulu.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={requireStudentSignature}
+                onClick={() => setRequireStudentSignature((v) => !v)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 ${
+                  requireStudentSignature ? 'bg-blue-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition ${
+                    requireStudentSignature ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

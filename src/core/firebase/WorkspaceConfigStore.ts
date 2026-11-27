@@ -128,6 +128,7 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
       unlockedStages: [...DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages],
       lockedReason: '',
       requireIssuedLetter: DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true,
+      requireStudentSignature: DEFAULT_MONITORING_STAGE_CONTROL.requireStudentSignature ?? false,
       gradeStage: DEFAULT_MONITORING_STAGE_CONTROL.gradeStage ?? 5,
       perJurusan: {},
     };
@@ -135,6 +136,10 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
   const obj = raw as Record<string, unknown>;
   const requireSequential = typeof obj.requireSequential === 'boolean' ? obj.requireSequential : true;
   const requireIssuedLetter = typeof obj.requireIssuedLetter === 'boolean' ? obj.requireIssuedLetter : true;
+  const requireStudentSignature =
+    typeof obj.requireStudentSignature === 'boolean'
+      ? obj.requireStudentSignature
+      : DEFAULT_MONITORING_STAGE_CONTROL.requireStudentSignature ?? false;
   const rawList = Array.isArray(obj.unlockedStages)
     ? obj.unlockedStages
     : DEFAULT_MONITORING_STAGE_CONTROL.unlockedStages;
@@ -190,6 +195,7 @@ export function normalizeMonitoringStageControl(raw: unknown): MonitoringStageCo
     unlockedStages: deduped.slice(0, 8),
     lockedReason: sanitizeString(obj.lockedReason ?? '', 150),
     requireIssuedLetter,
+    requireStudentSignature,
     gradeStage,
     perJurusan,
   };

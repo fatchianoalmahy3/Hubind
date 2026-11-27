@@ -37,30 +37,30 @@ export const OfficerComplianceNoticeModal: React.FC<OfficerComplianceNoticeModal
               Pemberitahuan Penting Petugas
             </span>
             <h3 id="compliance-notice-title" className="text-sm font-bold text-slate-900 mt-0.5">
-              Ketentuan Penerbitan Surat Tugas &amp; Pencairan HR
+              Alur Penerbitan Surat Tugas &amp; Pencairan HR
             </h3>
           </div>
         </div>
 
         <div className="p-5 space-y-3.5 text-xs text-slate-700 leading-relaxed">
           <p>
-            Yth. Bapak/Ibu <b className="text-slate-900">{petugasNama || 'Petugas Monitoring'}</b>, sebelum melanjutkan pendampingan DUDI harap diperhatikan ketentuan berikut:
+            Yth. Bapak/Ibu <b className="text-slate-900">{petugasNama || 'Petugas Monitoring'}</b>, terima kasih telah mendampingi siswa PKL di DUDI. Untuk kelancaran administrasi bersama, mohon kesediaannya memperhatikan alur berikut:
           </p>
 
-          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-rose-900">
-            <FileWarning className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-amber-950">
+            <FileWarning className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
             <div className="font-semibold leading-relaxed">
-              Apabila petugas tidak mengisi dan menyimpan{' '}
-              <span className="underline decoration-rose-400">Form Lembar Monitoring</span> secara lengkap sesuai tahap kunjungan:
-              <ul className="list-disc pl-4 mt-1.5 space-y-1 font-bold text-rose-800">
-                <li>Surat Tugas tidak dapat diterbitkan.</li>
-                <li>HR (Honorarium) monitoring tidak dapat dicairkan.</li>
+              Pengisian dan penyimpanan{' '}
+              <span className="underline decoration-amber-400">Form Lembar Monitoring</span> mendukung kelancaran:
+              <ul className="list-disc pl-4 mt-1.5 space-y-1 font-bold text-amber-900">
+                <li>Penerbitan Surat Tugas Pendampingan.</li>
+                <li>Proses pencairan Honorarium (HR) monitoring.</li>
               </ul>
             </div>
           </div>
 
           <p className="text-[11px] text-slate-500">
-            Pastikan seluruh data kehadiran, ceklist buku laporan, aktivitas &amp; kompetensi siswa, kondisi bengkel, serta tanda tangan siswa dilengkapi setiap kali kunjungan monitoring.
+            Mohon bantuannya untuk melengkapi data kehadiran, buku laporan, aktivitas &amp; kompetensi siswa, serta kondisi bengkel pada setiap kunjungan.
           </p>
         </div>
 

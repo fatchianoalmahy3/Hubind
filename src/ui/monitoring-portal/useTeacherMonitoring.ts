@@ -1264,14 +1264,17 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
-    const missingTtdStudent = selectedStudentsWithKey.find(
-      ({ key }) => !deliveryTtdByKey[key] || !deliveryTtdByKey[key].startsWith('svgpath:')
-    );
-    if (missingTtdStudent) {
-      reportValidationError(
-        `Tanda Tangan Siswa (${missingTtdStudent.stu.nama}) wajib diisi sebagai bukti pengantaran.`
+    const requireStudentSignature = stageControl.requireStudentSignature === true;
+    if (requireStudentSignature) {
+      const missingTtdStudent = selectedStudentsWithKey.find(
+        ({ key }) => !deliveryTtdByKey[key] || !deliveryTtdByKey[key].startsWith('svgpath:')
       );
-      return;
+      if (missingTtdStudent) {
+        reportValidationError(
+          `Tanda Tangan Siswa (${missingTtdStudent.stu.nama}) wajib diisi sebagai bukti pengantaran.`
+        );
+        return;
+      }
     }
 
     if (!isOnline) {
@@ -1421,7 +1424,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           izin: 0,
           alpha: 0,
           bukuLaporan: '',
-          ttdSigned: true,
+          ttdSigned: requireStudentSignature,
           isDeliveryBatch: true,
           deliveredStudents: selectedStudentsWithKey.map(({ stu }) => ({
             nama: stu.nama,
@@ -1508,7 +1511,8 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
       return;
     }
 
-    if (!activeDraft.ttdSiswa) {
+    const requireStudentSignature = stageControl.requireStudentSignature === true;
+    if (requireStudentSignature && !activeDraft.ttdSiswa) {
       reportValidationError(
         'Tanda Tangan Siswa di bawah Absensi wajib diisi oleh siswa bersangkutan sebelum menyimpan.'
       );
@@ -1748,7 +1752,7 @@ export function useTeacherMonitoring(isOpen: boolean, onSuccess?: () => void) {
           izin: activeDraft.izin,
           alpha: activeDraft.alpha,
           bukuLaporan: activeDraft.bukuLaporan,
-          ttdSigned: Boolean(activeDraft.ttdSiswa),
+          ttdSigned: requireStudentSignature && Boolean(activeDraft.ttdSiswa),
           gradeAvg: shouldSubmitGrades ? rataRataNilai : undefined,
           gradePredikat: shouldSubmitGrades ? predikatNilai : undefined,
           gradeSynced: json.gradeSynced,

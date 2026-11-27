@@ -33,6 +33,7 @@ import {
   Monitoring,
   MonitoringStageControl,
   PenempatanPKL,
+  PerizinanPKL,
   Sertifikat,
   Siswa,
   UserRole,
@@ -48,7 +49,9 @@ import {
   ResolvedMonitoringStagePolicy,
   StageLogEntry,
   buildMonitoringLookupIndex,
+  buildPerizinanAttendanceIndex,
   buildStudentMonitoringSummary,
+  getPerizinanAttendanceForStudent,
   getStageValueByNumber,
   normalizeMonitoringVerificationStatus,
   resolveMonitoringStagePolicy,
@@ -60,6 +63,7 @@ import { GuruService } from '../services/GuruService';
 import { JurusanService } from '../services/JurusanService';
 import { KelasService } from '../services/KelasService';
 import { MonitoringService } from '../services/MonitoringService';
+import { PerizinanService } from '../services/PerizinanService';
 import { SertifikatService } from '../services/SertifikatService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
@@ -91,6 +95,12 @@ interface StudentMatrixRow {
   highestStage: number;
   hasGrade: boolean;
   rataRataNilai: number | null;
+  sakit: number;
+  izin: number;
+  alpha: number;
+  perizinanSakit: number;
+  perizinanIzin: number;
+  dispensasiDays: number;
 }
 
 interface RecapGroup {
@@ -131,6 +141,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   const [kelasList, setKelasList] = useState<Kelas[]>([]);
   const [guruList, setGuruList] = useState<Guru[]>([]);
   const [monitoringList, setMonitoringList] = useState<Monitoring[]>([]);
+  const [perizinanList, setPerizinanList] = useState<PerizinanPKL[]>([]);
   const [sertifikatList, setSertifikatList] = useState<Sertifikat[]>([]);
   const [stageControl, setStageControl] = useState<MonitoringStageControl>(
     DEFAULT_MONITORING_STAGE_CONTROL
@@ -183,6 +194,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       const kSvc = KelasService.getInstance();
       const gSvc = GuruService.getInstance();
       const mSvc = MonitoringService.getInstance();
+      const iznSvc = PerizinanService.getInstance();
       const cSvc = SertifikatService.getInstance();
 
       if (forceReload) {
@@ -195,13 +207,14 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           kSvc.reloadFromSpreadsheet().catch(() => []),
           gSvc.reloadFromSpreadsheet().catch(() => []),
           mSvc.reloadFromSpreadsheet().catch(() => []),
+          iznSvc.reloadFromSpreadsheet().catch(() => []),
           cSvc.reloadFromSpreadsheet().catch(() => []),
         ]);
       } else {
         await sheetClient.initFromFirestore().catch(() => {});
       }
 
-      const [dRows, pRows, sRows, jRows, kRows, gRows, mRows, cRows] = await Promise.all([
+      const [dRows, pRows, sRows, jRows, kRows, gRows, mRows, iznRows, cRows] = await Promise.all([
         dSvc.getAll(),
         pSvc.getAll(),
         sSvc.getAll(),
@@ -209,6 +222,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         kSvc.getAll().catch(() => [] as Kelas[]),
         gSvc.getAll().catch(() => [] as Guru[]),
         mSvc.getAll(),
+        iznSvc.getAll().catch(() => [] as PerizinanPKL[]),
         cSvc.getAll(),
       ]);
 
@@ -219,6 +233,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
       setKelasList(kRows);
       setGuruList(gRows);
       setMonitoringList(mRows);
+      setPerizinanList(iznRows);
       setSertifikatList(cRows);
       setStageControl(sheetClient.getMonitoringStageControl());
     } catch (err: any) {
@@ -326,6 +341,26 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     }
 
     const monitoringIndex = buildMonitoringLookupIndex(monitoringList, sertifikatList);
+    const perizinanIndex = buildPerizinanAttendanceIndex(perizinanList);
+    const buildAttendanceStats = (nis: string, stageLogs: Record<number, StageLogEntry>) => {
+      let monSakit = 0;
+      let monIzin = 0;
+      let alpha = 0;
+      Object.values(stageLogs).forEach((log) => {
+        monSakit += Number(log.sakit || 0);
+        monIzin += Number(log.izin || 0);
+        alpha += Number(log.alpha || 0);
+      });
+      const izn = getPerizinanAttendanceForStudent(perizinanIndex, nis);
+      return {
+        sakit: monSakit + izn.sakitDays,
+        izin: monIzin + izn.izinDays,
+        alpha,
+        perizinanSakit: izn.sakitDays,
+        perizinanIzin: izn.izinDays,
+        dispensasiDays: izn.dispensasiDays,
+      };
+    };
     const activePlacements = penempatanList.filter((p) =>
       isActivePlacementStatus(p.statusPenempatan)
     );
@@ -409,6 +444,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           ? summary.completedStages[summary.completedStages.length - 1]
           : 0;
 
+      const attendanceStats = buildAttendanceStats(p.nis, summary.stageLogs);
       const studentRow: StudentMatrixRow = {
         placementId: p.idPenempatan || p.id,
         nis: p.nis,
@@ -425,6 +461,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         highestStage,
         hasGrade: summary.hasSubmittedGrades,
         rataRataNilai: summary.submittedGradeSummary?.rataRata ?? null,
+        ...attendanceStats,
       };
 
       let group = dudiMap.get(dudiKey);
@@ -523,6 +560,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           ? summary.completedStages[summary.completedStages.length - 1]
           : 0;
 
+      const attendanceStats = buildAttendanceStats(s.nis, summary.stageLogs);
       pushToKelasGroup({
         placementId: p?.idPenempatan || p?.id || `siswa_${s.id || cleanNis || s.nama}`,
         nis: s.nis,
@@ -539,6 +577,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         highestStage,
         hasGrade: summary.hasSubmittedGrades,
         rataRataNilai: summary.submittedGradeSummary?.rataRata ?? null,
+        ...attendanceStats,
       });
     }
 
@@ -574,6 +613,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           ? summary.completedStages[summary.completedStages.length - 1]
           : 0;
 
+      const attendanceStats = buildAttendanceStats(p.nis, summary.stageLogs);
       pushToKelasGroup({
         placementId: p.idPenempatan || p.id,
         nis: p.nis,
@@ -590,6 +630,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
         highestStage,
         hasGrade: summary.hasSubmittedGrades,
         rataRataNilai: summary.submittedGradeSummary?.rataRata ?? null,
+        ...attendanceStats,
       });
     }
 
@@ -612,6 +653,7 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     kelasList,
     jurusanList,
     monitoringList,
+    perizinanList,
     sertifikatList,
     stageControl,
     matchesActiveJurusanFilter,
@@ -1590,6 +1632,12 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                         </th>
                       );
                     })}
+                    <th
+                      className="py-2.5 px-2.5 text-center min-w-[76px]"
+                      title="Akumulasi Sakit / Izin / Alpha (termasuk Perizinan SO/SD/I; Dispensasi ID tidak dijumlahkan)"
+                    >
+                      S/I/A
+                    </th>
                     <th className="py-2.5 px-2.5 text-center min-w-[64px]">Nilai</th>
                     <th className="py-2.5 px-3 text-right min-w-[155px]">
                       Aksi Tahap {selectedStageNum}
@@ -1651,6 +1699,30 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
                             </td>
                           );
                         })}
+
+                        <td
+                          className="py-2 px-2.5 text-center align-middle font-mono text-slate-700 tabular-nums whitespace-nowrap"
+                          title={
+                            student.perizinanSakit > 0 ||
+                            student.perizinanIzin > 0 ||
+                            student.dispensasiDays > 0
+                              ? `Dari Perizinan: Sakit +${student.perizinanSakit} hr, Izin +${student.perizinanIzin} hr${
+                                  student.dispensasiDays > 0
+                                    ? ` (Dispensasi ${student.dispensasiDays} hr tdk dijumlahkan)`
+                                    : ''
+                                }`
+                              : 'Akumulasi Monitoring + Perizinan (SO/SD/I)'
+                          }
+                        >
+                          <span>
+                            {student.sakit}/{student.izin}/{student.alpha}
+                          </span>
+                          {(student.perizinanSakit > 0 || student.perizinanIzin > 0) && (
+                            <div className="text-[10px] text-blue-600 font-sans font-semibold leading-tight mt-0.5">
+                              +Izin
+                            </div>
+                          )}
+                        </td>
 
                         <td className="py-2 px-2.5 text-center align-middle font-mono font-bold tabular-nums">
                           {student.hasGrade && student.rataRataNilai !== null ? (
@@ -1812,9 +1884,15 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="p-3 rounded-xl border border-slate-200">
-                  <div className="text-[11px] text-slate-500">Absensi (S / I / A)</div>
+                  <div className="text-[11px] text-slate-500">Absensi Tahap Ini (S / I / A)</div>
                   <div className="font-mono font-bold text-slate-900 mt-0.5 tabular-nums">
                     {inspectTarget.log.sakit} / {inspectTarget.log.izin} / {inspectTarget.log.alpha}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1 tabular-nums">
+                    Total Akumulasi: <b>{inspectTarget.student.sakit}/{inspectTarget.student.izin}/{inspectTarget.student.alpha}</b>
+                    {(inspectTarget.student.perizinanSakit > 0 || inspectTarget.student.perizinanIzin > 0)
+                      ? ` (termasuk Izin S+${inspectTarget.student.perizinanSakit}, I+${inspectTarget.student.perizinanIzin})`
+                      : ''}
                   </div>
                 </div>
                 <div className="p-3 rounded-xl border border-slate-200">

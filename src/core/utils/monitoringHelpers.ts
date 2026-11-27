@@ -8,6 +8,7 @@ import {
   type KondisiBengkelCheck,
   type KondisiBengkelRating,
   type MonitoringStageControl,
+  type PerizinanPKL,
 } from '../types/schema';
 import { normalizeToIsoDate } from './dateHelpers';
 import { matchJurusanItem } from './jurusanHelpers';
@@ -885,6 +886,7 @@ export interface ResolvedMonitoringStagePolicy {
   totalStages: number;
   requireSequential: boolean;
   requireIssuedLetter: boolean;
+  requireStudentSignature: boolean;
   lockedReason: string;
 }
 
@@ -933,6 +935,10 @@ export function resolveMonitoringStagePolicy(
     typeof control?.requireIssuedLetter === 'boolean'
       ? control.requireIssuedLetter
       : DEFAULT_MONITORING_STAGE_CONTROL.requireIssuedLetter ?? true;
+  const requireStudentSignature =
+    typeof control?.requireStudentSignature === 'boolean'
+      ? control.requireStudentSignature
+      : DEFAULT_MONITORING_STAGE_CONTROL.requireStudentSignature ?? false;
   const lockedReason = String(control?.lockedReason ?? '').trim();
   const rawGlobalGrade = Number(control?.gradeStage);
   const globalGradeStage =
@@ -1015,6 +1021,7 @@ export function resolveMonitoringStagePolicy(
     totalStages: enabledStages.length,
     requireSequential,
     requireIssuedLetter,
+    requireStudentSignature,
     lockedReason,
   };
 }
@@ -1076,3 +1083,120 @@ export function pickRecommendedStageForControl(
   const nextAfterMax = uncompleted.find((num) => num > maxCompleted);
   return nextAfterMax ?? uncompleted[0];
 }
+
+export interface PerizinanAttendanceSummary {
+  sakitDays: number;
+  izinDays: number;
+  dispensasiDays: number;
+  recordCount: number;
+}
+
+const EMPTY_PERIZINAN_SUMMARY: PerizinanAttendanceSummary = {
+  sakitDays: 0,
+  izinDays: 0,
+  dispensasiDays: 0,
+  recordCount: 0,
+};
+
+export function computePerizinanDays(
+  row: Partial<
+    Pick<PerizinanPKL, 'tanggalMulaiIzin' | 'tanggalSelesaiIzin' | 'rentangTanggal'>
+  >
+): number {
+  const startIso = normalizeToIsoDate(row.tanggalMulaiIzin);
+  const endIso = normalizeToIsoDate(row.tanggalSelesaiIzin);
+
+  if (startIso && endIso) {
+    const [sy, sm, sd] = startIso.split('-').map(Number);
+    const [ey, em, ed] = endIso.split('-').map(Number);
+    const diffDays = Math.round(
+      (Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000
+    );
+    return diffDays > 0 ? diffDays + 1 : 1;
+  }
+
+  if (startIso || endIso) {
+    return 1;
+  }
+
+  const rangeText = String(row.rentangTanggal || '');
+  const daysMatch = rangeText.match(/\((\d+)\s*hari\)/i);
+  if (daysMatch) {
+    const parsed = Number(daysMatch[1]);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  return 1;
+}
+
+/**
+ * Aggregates Data_Perizinan_PKL per student NIS without modifying any Google Sheet structure.
+ * Mapping policy:
+ * - SO (Sakit Ortu) & SD (Surat Dokter) -> sakitDays
+ * - I (Izin) -> izinDays
+ * - ID (Izin Dispensasi) -> dispensasiDays (NOT added to izinDays)
+ */
+export function buildPerizinanAttendanceIndex(
+  perizinanList: PerizinanPKL[]
+): Map<string, PerizinanAttendanceSummary> {
+  const index = new Map<string, PerizinanAttendanceSummary>();
+  if (!Array.isArray(perizinanList) || perizinanList.length === 0) return index;
+
+  for (const row of perizinanList) {
+    if (!row) continue;
+    const rawNis = String(row.nis || '').trim();
+    const cleanNis = stripNisSymbols(rawNis);
+    if (!cleanNis && !rawNis) continue;
+
+    const statusLower = String(row.statusIzinOrtu || '').trim().toLowerCase();
+    const days = computePerizinanDays(row);
+
+    const isDispensasi =
+      statusLower.includes('dispensasi') || statusLower.includes('(id)') || statusLower === 'id';
+    const isSakit =
+      !isDispensasi &&
+      (statusLower.includes('sakit') ||
+        statusLower.includes('dokter') ||
+        statusLower.includes('(so)') ||
+        statusLower.includes('(sd)') ||
+        statusLower === 'so' ||
+        statusLower === 'sd');
+    const isIzin =
+      !isDispensasi &&
+      !isSakit &&
+      (statusLower.includes('izin') || statusLower.includes('(i)') || statusLower === 'i');
+
+    const keys = Array.from(new Set([cleanNis, rawNis].filter(Boolean)));
+    const primaryKey = cleanNis || rawNis;
+
+    const target = index.get(primaryKey) || { ...EMPTY_PERIZINAN_SUMMARY };
+    target.recordCount += 1;
+    if (isDispensasi) {
+      target.dispensasiDays += days;
+    } else if (isSakit) {
+      target.sakitDays += days;
+    } else if (isIzin) {
+      target.izinDays += days;
+    }
+
+    for (const k of keys) {
+      index.set(k, target);
+    }
+  }
+
+  return index;
+}
+
+export function getPerizinanAttendanceForStudent(
+  index: Map<string, PerizinanAttendanceSummary>,
+  nis: string
+): PerizinanAttendanceSummary {
+  const rawNis = String(nis || '').trim();
+  const cleanNis = stripNisSymbols(rawNis);
+  return (
+    (cleanNis ? index.get(cleanNis) : undefined) ||
+    (rawNis ? index.get(rawNis) : undefined) ||
+    EMPTY_PERIZINAN_SUMMARY
+  );
+}
+

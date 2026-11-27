@@ -17,23 +17,27 @@ import {
   DEFAULT_MONITORING_STAGE_CONTROL,
   Jurusan,
   Monitoring,
+  MONITORING_STAGES,
   MonitoringStageControl,
   PenempatanPKL,
+  PerizinanPKL,
   Sertifikat,
   Siswa,
-  MONITORING_STAGES,
 } from '../core/types/schema';
 import { JurusanService } from '../services/JurusanService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
 import { MonitoringService } from '../services/MonitoringService';
 import { SertifikatService } from '../services/SertifikatService';
+import { PerizinanService } from '../services/PerizinanService';
 import { GoogleSheetClient } from '../core/GoogleSheetClient';
 import { ToastManager } from '../core/ToastManager';
 import { formatPhoneDisplay, normalizeWhatsAppNumber } from '../core/utils/autoIdHelpers';
 import { formatIndonesianDate, getTodayWibIsoDate } from '../core/utils/dateHelpers';
 import {
+  buildPerizinanAttendanceIndex,
   buildStudentMonitoringSummary,
+  getPerizinanAttendanceForStudent,
   getStageValueByNumber,
   resolveMonitoringStagePolicy,
 } from '../core/utils/monitoringHelpers';
@@ -60,6 +64,9 @@ interface StudentRecapRow {
   sakit: number;
   izin: number;
   alpha: number;
+  perizinanSakit: number;
+  perizinanIzin: number;
+  dispensasiDays: number;
 }
 
 function matchJurusanCode(rawJurusan: string, jur: Jurusan): boolean {
@@ -87,6 +94,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
   const [penempatanList, setPenempatanList] = useState<PenempatanPKL[]>([]);
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
   const [monitoringList, setMonitoringList] = useState<Monitoring[]>([]);
+  const [perizinanList, setPerizinanList] = useState<PerizinanPKL[]>([]);
   const [sertifikatList, setSertifikatList] = useState<Sertifikat[]>([]);
   const [stageControl, setStageControl] = useState<MonitoringStageControl>(() =>
     GoogleSheetClient.getInstance().getMonitoringStageControl() || DEFAULT_MONITORING_STAGE_CONTROL
@@ -107,6 +115,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       const pSvc = SiswaPklService.getInstance();
       const sSvc = SiswaService.getInstance();
       const mSvc = MonitoringService.getInstance();
+      const iznSvc = PerizinanService.getInstance();
       const cSvc = SertifikatService.getInstance();
 
       if (forceReload) {
@@ -115,15 +124,17 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
           pSvc.reloadFromSpreadsheet(),
           sSvc.reloadFromSpreadsheet(),
           mSvc.reloadFromSpreadsheet(),
+          iznSvc.reloadFromSpreadsheet().catch(() => []),
           cSvc.reloadFromSpreadsheet(),
         ]);
       }
 
-      const [jRows, pRows, sRows, mRows, cRows] = await Promise.all([
+      const [jRows, pRows, sRows, mRows, iznRows, cRows] = await Promise.all([
         jSvc.getAll(),
         pSvc.getAll(),
         sSvc.getAll(),
         mSvc.getAll(),
+        iznSvc.getAll().catch(() => [] as PerizinanPKL[]),
         cSvc.getAll(),
       ]);
 
@@ -131,6 +142,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       setPenempatanList(pRows);
       setSiswaList(sRows);
       setMonitoringList(mRows);
+      setPerizinanList(iznRows);
       setSertifikatList(cRows);
 
       if (jRows.length > 0) {
@@ -187,6 +199,8 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       if (s.nis) siswaByNis.set(s.nis.trim(), s);
     }
 
+    const perizinanIndex = buildPerizinanAttendanceIndex(perizinanList);
+
     const activePlacements = penempatanList.filter(
       (p) => p.statusPenempatan !== 'Dibatalkan'
     );
@@ -195,11 +209,10 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       const cleanNis = stripNisSymbols(p.nis);
       const matchedSiswa =
         (cleanNis && siswaByNis.get(cleanNis)) || siswaByNis.get(String(p.nis || '').trim());
-      const matchedMon = monitoringList.find(
-        (m) =>
-          (cleanNis && stripNisSymbols(m.nis || '') === cleanNis) ||
-          (p.idPenempatan && m.idPenempatan === p.idPenempatan)
-      );
+      const matchedMon =
+        (cleanNis && monitoringList.find((m) => stripNisSymbols(m.nis || '') === cleanNis)) ||
+        (p.idPenempatan && monitoringList.find((m) => m.idPenempatan === p.idPenempatan)) ||
+        undefined;
       const resolvedJurusan = matchedSiswa?.jurusan || matchedMon?.jurusan || '-';
       const resolvedKelas = matchedSiswa?.kelas || '-';
 
@@ -214,14 +227,18 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
         sertifikatList
       );
 
-      let sakit = 0;
-      let izin = 0;
+      let monSakit = 0;
+      let monIzin = 0;
       let alpha = 0;
       Object.values(summary.stageLogs).forEach((log) => {
-        sakit += Number(log.sakit || 0);
-        izin += Number(log.izin || 0);
+        monSakit += Number(log.sakit || 0);
+        monIzin += Number(log.izin || 0);
         alpha += Number(log.alpha || 0);
       });
+
+      const perizinanAtt = getPerizinanAttendanceForStudent(perizinanIndex, p.nis);
+      const sakit = monSakit + perizinanAtt.sakitDays;
+      const izin = monIzin + perizinanAtt.izinDays;
 
       const highestStage =
         summary.completedStages.length > 0
@@ -242,6 +259,9 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
         sakit,
         izin,
         alpha,
+        perizinanSakit: perizinanAtt.sakitDays,
+        perizinanIzin: perizinanAtt.izinDays,
+        dispensasiDays: perizinanAtt.dispensasiDays,
       };
     });
 
@@ -287,7 +307,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       uniqueDudiCount,
       incompleteRows,
     };
-  }, [penempatanList, siswaList, monitoringList, sertifikatList, selectedJurusan, jurusanPolicy, activeStages]);
+  }, [penempatanList, siswaList, monitoringList, perizinanList, sertifikatList, selectedJurusan, jurusanPolicy, activeStages]);
 
   useEffect(() => {
     setKakomliWaOverride(selectedJurusan?.kontakWA || '');
@@ -532,7 +552,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                   <div className="text-base font-bold font-mono text-slate-900 mt-1.5 tabular-nums">
                     {recapData.totalSakit} / {recapData.totalIzin} / {recapData.totalAlpha}
                   </div>
-                  <div className="text-[11px] text-slate-500">Hari Tidak Hadir</div>
+                  <div className="text-[11px] text-slate-500">Termasuk Izin SO/SD/I</div>
                 </div>
               </div>
 
@@ -615,7 +635,18 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                             <td className="py-2 px-3 text-center font-mono font-semibold text-blue-700 tabular-nums">
                               {r.completedStages.filter((n) => jurusanPolicy.enabledStages.includes(n)).length}/{jurusanPolicy.totalStages}
                             </td>
-                            <td className="py-2 px-3 text-center font-mono text-slate-700 tabular-nums">
+                            <td
+                              className="py-2 px-3 text-center font-mono text-slate-700 tabular-nums"
+                              title={
+                                r.perizinanSakit > 0 || r.perizinanIzin > 0 || r.dispensasiDays > 0
+                                  ? `Dari Perizinan: S+${r.perizinanSakit}, I+${r.perizinanIzin}${
+                                      r.dispensasiDays > 0
+                                        ? ` (Dispensasi ${r.dispensasiDays} hr tdk dijumlahkan)`
+                                        : ''
+                                    }`
+                                  : undefined
+                              }
+                            >
                               {r.sakit}/{r.izin}/{r.alpha}
                             </td>
                             <td className="py-2 px-3 text-center font-mono font-bold tabular-nums">

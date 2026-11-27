@@ -28,6 +28,7 @@ export interface MonitoringStageControl {
   unlockedStages: number[];
   lockedReason?: string;
   requireIssuedLetter?: boolean;
+  requireStudentSignature?: boolean;
   gradeStage?: number;
   perJurusan?: Record<string, JurusanStagePolicy>;
 }
@@ -37,6 +38,7 @@ export const DEFAULT_MONITORING_STAGE_CONTROL: MonitoringStageControl = {
   unlockedStages: [1, 2, 3, 4, 5, 6, 7, 8],
   lockedReason: '',
   requireIssuedLetter: true,
+  requireStudentSignature: false,
   gradeStage: 5,
   perJurusan: {},
 };

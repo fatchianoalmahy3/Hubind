@@ -90,10 +90,16 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
                 </span>
               </div>
               <div className="flex justify-between items-center gap-2 pt-0.5">
-                <span className="text-slate-500 shrink-0">Validasi &amp; TTD</span>
+                <span className="text-slate-500 shrink-0">
+                  {receipt.ttdSigned ? 'Validasi & TTD' : 'Status Validasi'}
+                </span>
                 <span className="font-semibold text-emerald-700 inline-flex items-center gap-1 text-right">
                   <ClipboardCheck className="w-3.5 h-3.5 shrink-0" />
-                  <span>Pengantaran Terlaksana · TTD Siswa Sah</span>
+                  <span>
+                    {receipt.ttdSigned
+                      ? 'Pengantaran Terlaksana · TTD Siswa Sah'
+                      : 'Pengantaran Terlaksana'}
+                  </span>
                 </span>
               </div>
             </div>
@@ -124,11 +130,14 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
                 </span>
               </div>
               <div className="flex justify-between items-start gap-2 pb-1.5 border-b border-slate-200/70">
-                <span className="text-slate-500 shrink-0">Format 07.01 &amp; TTD</span>
+                <span className="text-slate-500 shrink-0">
+                  {receipt.ttdSigned ? 'Format 07.01 & TTD' : 'Format 07.01'}
+                </span>
                 <span className="font-semibold text-emerald-700 inline-flex items-center gap-1 text-right">
                   <ClipboardCheck className="w-3.5 h-3.5 shrink-0" />
                   <span>
-                    Laporan {receipt.bukuLaporan || '-'} · {receipt.ttdSigned ? 'TTD Sah' : 'Tanpa TTD'}
+                    Laporan {receipt.bukuLaporan || '-'}
+                    {receipt.ttdSigned ? ' · TTD Sah' : ''}
                   </span>
                 </span>
               </div>
