@@ -8,6 +8,7 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
   tableName: 'Master_Kelas_Walas',
   icon: 'Layers',
   allowedRoles: ['Hubin', 'Pokja'],
+  canonicalizeJurusanCode: true,
   statCards: [
     {
       title: 'Total Rombel Kelas XI',
@@ -45,6 +46,7 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis (KLS-...)',
       helperText: 'Terisi otomatis oleh sistem',
@@ -66,6 +68,7 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari Kompetensi Keahlian',
       helperText: 'Terisi otomatis sesuai Kompetensi Keahlian',
@@ -79,6 +82,7 @@ export const KelasMetadata: ModuleMetadata<Kelas> = {
       isFilterable: true,
       isSortable: true,
       relationSource: 'jurusan',
+      deriveCodeToField: 'idJurusan',
       options: [
         { label: 'Desain Komunikasi Visual', value: 'Desain Komunikasi Visual' },
         { label: 'Rekayasa Perangkat Lunak', value: 'Rekayasa Perangkat Lunak' },

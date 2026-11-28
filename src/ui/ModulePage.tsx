@@ -59,17 +59,6 @@ import {
 } from './module-page/moduleWorkflowRegistry';
 import { useModuleWorkflows } from './module-page/useModuleWorkflows';
 
-const KAKOMLI_JURUSAN_SCOPED_MODULES = new Set([
-  'pengajuan',
-  'perizinan',
-  'siswa_pkl',
-  'monitoring',
-  'sertifikat',
-  'siswa',
-  'kelas',
-  'jurusan',
-]);
-
 interface ModulePageProps<T extends { id: string }> {
   metadata: ModuleMetadata<T>;
   repository: BaseRepository<T>;
@@ -98,8 +87,9 @@ export function ModulePage<T extends { id: string }>({
   onOpenSheetConfig,
   onOpenMonitoringBundle,
 }: ModulePageProps<T>) {
+  const moduleEntry = getModuleEntry(metadata.id);
   const isKakomliScopedModule =
-    userRole === 'Kakomli' && KAKOMLI_JURUSAN_SCOPED_MODULES.has(metadata.id);
+    userRole === 'Kakomli' && Boolean(moduleEntry?.kakomliJurusanScoped);
 
   const [scopeJurusanList, setScopeJurusanList] = useState<Jurusan[]>(() => {
     if (!isKakomliScopedModule) return [];
@@ -755,6 +745,7 @@ export function ModulePage<T extends { id: string }>({
         onClose={() => setIsAddModalOpen(false)}
         title={`Tambah Data ${metadata.title}`}
         fields={metadata.fields}
+        moduleMetadata={metadata}
         existingRows={allExistingRows.length > 0 ? allExistingRows : data}
         moduleId={metadata.id}
         tableName={metadata.tableName}
@@ -771,6 +762,7 @@ export function ModulePage<T extends { id: string }>({
           onClose={() => setEditingRow(null)}
           title={`Edit Data ${metadata.title}`}
           fields={metadata.fields}
+          moduleMetadata={metadata}
           initialData={editingRow}
           existingRows={allExistingRows.length > 0 ? allExistingRows : data}
           moduleId={metadata.id}

@@ -42,6 +42,9 @@ import {
   resolveMonitoringStagePolicy,
 } from '../core/utils/monitoringHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
+import { matchJurusanItem } from '../core/utils/jurusanHelpers';
+import { usePagination } from '../hooks/usePagination';
+import { PaginationBar } from './PaginationBar';
 import { PrintPortal } from './PrintPortal';
 import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
 
@@ -67,19 +70,6 @@ interface StudentRecapRow {
   perizinanSakit: number;
   perizinanIzin: number;
   dispensasiDays: number;
-}
-
-function matchJurusanCode(rawJurusan: string, jur: Jurusan): boolean {
-  const target = String(rawJurusan || '').trim().toLowerCase();
-  if (!target) return false;
-  const kode = String(jur.kode || '').trim().toLowerCase();
-  const nama = String(jur.nama || '').trim().toLowerCase();
-  return (
-    target === kode ||
-    target === nama ||
-    (kode.length >= 2 && (target.startsWith(`${kode} `) || target.includes(`(${kode})`) || target.includes(kode))) ||
-    (nama.length >= 4 && (target.includes(nama) || nama.includes(target)))
-  );
 }
 
 export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
@@ -266,7 +256,7 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
     });
 
     const filteredRows = selectedJurusan
-      ? allStudentRecaps.filter((r) => matchJurusanCode(r.jurusan, selectedJurusan))
+      ? allStudentRecaps.filter((r) => matchJurusanItem(r.jurusan, selectedJurusan))
       : allStudentRecaps;
 
     const enabledSet = new Set(jurusanPolicy.enabledStages);
@@ -312,6 +302,20 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
   useEffect(() => {
     setKakomliWaOverride(selectedJurusan?.kontakWA || '');
   }, [selectedJurusan]);
+
+  const {
+    paginatedItems: paginatedRecapRows,
+    page: recapPage,
+    pageSize: recapPageSize,
+    total: recapTotal,
+    setPage: setRecapPage,
+    setPageSize: setRecapPageSize,
+    resetPage: resetRecapPage,
+  } = usePagination(recapData.rows, { defaultPageSize: 10 });
+
+  useEffect(() => {
+    resetRecapPage();
+  }, [selectedJurusanKey, resetRecapPage]);
 
   useEffect(() => {
     if (!selectedJurusan) {
@@ -599,9 +603,9 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                     Belum Selesai {lastStageLabel}: {recapData.incompleteRows.length}
                   </span>
                 </div>
-                <div className="max-h-56 overflow-y-auto">
+                <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
-                    <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-[11px] text-slate-600">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600">
                       <tr>
                         <th className="py-2 px-3">Siswa &amp; NIS</th>
                         <th className="py-2 px-3">DUDI / Pendamping</th>
@@ -611,14 +615,14 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {recapData.rows.length === 0 ? (
+                      {paginatedRecapRows.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="py-6 text-center text-slate-400">
                             Belum ada siswa aktif terplot untuk jurusan ini.
                           </td>
                         </tr>
                       ) : (
-                        recapData.rows.map((r, idx) => (
+                        paginatedRecapRows.map((r, idx) => (
                           <tr key={`${r.nis}_${idx}`} className="hover:bg-slate-50/70">
                             <td className="py-2 px-3">
                               <div className="font-semibold text-slate-900">{r.namaSiswa}</div>
@@ -662,6 +666,17 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
                     </tbody>
                   </table>
                 </div>
+                {recapTotal > 0 && (
+                  <PaginationBar
+                    page={recapPage}
+                    pageSize={recapPageSize}
+                    total={recapTotal}
+                    onPageChange={setRecapPage}
+                    onPageSizeChange={setRecapPageSize}
+                    itemLabel="siswa"
+                    compact
+                  />
+                )}
               </div>
 
               {/* Editable WA Report Message */}
@@ -760,58 +775,58 @@ export const MonitoringRecapModal: React.FC<MonitoringRecapModalProps> = ({
       {/* Print Portal for clean printed recap sheet */}
       {selectedJurusan && (
         <PrintPortal paperSize="A4">
-          <div className="print-sheet font-serif text-slate-900 leading-relaxed text-xs space-y-4">
-            <div className="border-b-2 border-black pb-2.5 text-center">
-              <div className="text-[11px] font-sans font-bold tracking-widest uppercase">
+          <div className="print-sheet font-serif text-slate-950 leading-[1.35] text-[12pt] space-y-4">
+            <div className="border-b-2 border-black pb-2.5 text-center font-serif">
+              <div className="text-[12pt] font-bold tracking-wide uppercase">
                 SMK PGRI 2 PONOROGO — POKJA HUBUNGAN INDUSTRI
               </div>
-              <div className="text-base font-bold uppercase mt-0.5 font-sans">
+              <div className="text-[13pt] font-bold uppercase mt-0.5">
                 REKAPITULASI MONITORING PKL PER KOMPETENSI KEAHLIAN
               </div>
-              <div className="text-[11px] font-sans text-slate-700">
+              <div className="text-[12pt] text-slate-800">
                 Jurusan: {selectedJurusan.kode} — {selectedJurusan.nama} · Tahun Ajaran {activeYear} · Tanggal Cetak: {formatIndonesianDate(getTodayWibIsoDate())}
               </div>
             </div>
 
-            <div className="font-sans text-xs grid grid-cols-2 gap-2 bg-slate-50 border border-slate-300 p-2.5">
+            <div className="font-serif text-[12pt] grid grid-cols-2 gap-2 bg-slate-50 border border-slate-400 p-2.5">
               <div><b>Kakomli:</b> {selectedJurusan.namaKakomli || '-'}</div>
               <div><b>Total Siswa PKL:</b> {recapData.rows.length} Siswa ({recapData.uniqueDudiCount} DUDI)</div>
               <div><b>Nilai DUDI Terinput:</b> {recapData.gradesSubmittedCount}/{recapData.rows.length} Siswa</div>
               <div><b>Akumulasi S / I / A:</b> {recapData.totalSakit} / {recapData.totalIzin} / {recapData.totalAlpha} Hari</div>
             </div>
 
-            <table className="w-full text-[11px] font-sans border border-slate-400 border-collapse">
+            <table className="w-full text-[12pt] font-serif border border-slate-500 border-collapse">
               <thead className="bg-slate-100">
                 <tr>
-                  <th className="border border-slate-400 p-1.5 w-7 text-center">No</th>
-                  <th className="border border-slate-400 p-1.5 text-left">NIS</th>
-                  <th className="border border-slate-400 p-1.5 text-left">Nama Siswa</th>
-                  <th className="border border-slate-400 p-1.5 text-left">Lokasi DUDI</th>
-                  <th className="border border-slate-400 p-1.5 text-left">Guru Pendamping</th>
-                  <th className="border border-slate-400 p-1.5 text-center">Tahap</th>
-                  <th className="border border-slate-400 p-1.5 text-center">S/I/A</th>
-                  <th className="border border-slate-400 p-1.5 text-center">Nilai</th>
+                  <th className="border border-slate-500 p-1.5 w-7 text-center">No</th>
+                  <th className="border border-slate-500 p-1.5 text-left">NIS</th>
+                  <th className="border border-slate-500 p-1.5 text-left">Nama Siswa</th>
+                  <th className="border border-slate-500 p-1.5 text-left">Lokasi DUDI</th>
+                  <th className="border border-slate-500 p-1.5 text-left">Guru Pendamping</th>
+                  <th className="border border-slate-500 p-1.5 text-center">Tahap</th>
+                  <th className="border border-slate-500 p-1.5 text-center">S/I/A</th>
+                  <th className="border border-slate-500 p-1.5 text-center">Nilai</th>
                 </tr>
               </thead>
               <tbody>
                 {recapData.rows.map((r, i) => (
                   <tr key={`${r.nis}_prt_${i}`}>
-                    <td className="border border-slate-400 p-1.5 text-center">{i + 1}</td>
-                    <td className="border border-slate-400 p-1.5 font-mono">{formatNisVisual(r.nis)}</td>
-                    <td className="border border-slate-400 p-1.5 font-semibold">{r.namaSiswa}</td>
-                    <td className="border border-slate-400 p-1.5">{r.namaDudi}</td>
-                    <td className="border border-slate-400 p-1.5">{r.guruPendamping}</td>
-                    <td className="border border-slate-400 p-1.5 text-center font-mono">
+                    <td className="border border-slate-500 p-1.5 text-center tabular-nums">{i + 1}</td>
+                    <td className="border border-slate-500 p-1.5 tabular-nums whitespace-nowrap">{formatNisVisual(r.nis)}</td>
+                    <td className="border border-slate-500 p-1.5 font-semibold">{r.namaSiswa}</td>
+                    <td className="border border-slate-500 p-1.5">{r.namaDudi}</td>
+                    <td className="border border-slate-500 p-1.5">{r.guruPendamping}</td>
+                    <td className="border border-slate-500 p-1.5 text-center tabular-nums">
                       {r.completedStages.filter((n) => jurusanPolicy.enabledStages.includes(n)).length}/{jurusanPolicy.totalStages}
                     </td>
-                    <td className="border border-slate-400 p-1.5 text-center font-mono">{r.sakit}/{r.izin}/{r.alpha}</td>
-                    <td className="border border-slate-400 p-1.5 text-center font-mono">{r.rataRataNilai ?? '-'}</td>
+                    <td className="border border-slate-500 p-1.5 text-center tabular-nums">{r.sakit}/{r.izin}/{r.alpha}</td>
+                    <td className="border border-slate-500 p-1.5 text-center tabular-nums">{r.rataRataNilai ?? '-'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            <div className="flex justify-between pt-6 font-sans text-xs print-avoid-break">
+            <div className="flex justify-between pt-6 font-serif text-[12pt] print-avoid-break">
               <div className="text-center">
                 <div>Mengetahui,</div>
                 <div className="font-semibold">Ketua Kompetensi Keahlian {selectedJurusan.kode}</div>

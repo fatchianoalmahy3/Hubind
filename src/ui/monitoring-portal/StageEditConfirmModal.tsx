@@ -8,6 +8,7 @@ export interface PendingStageEditConfirm {
   stageLabel: string;
   targetName: string;
   lockKey: string;
+  studentKey?: string;
   savedDate?: string;
 }
 

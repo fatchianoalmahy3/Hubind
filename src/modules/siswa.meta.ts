@@ -8,6 +8,8 @@ export const SiswaMetadata: ModuleMetadata<Siswa> = {
   tableName: 'Master_Siswa_XI',
   icon: 'Users',
   allowedRoles: ['Hubin', 'Pokja'],
+  studentValidationMode: 'master_unique',
+  canonicalizeJurusanCode: true,
   statCards: [
     {
       title: 'Total Master Siswa',
@@ -46,6 +48,7 @@ export const SiswaMetadata: ModuleMetadata<Siswa> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis (SIS-...)',
       helperText: 'Terisi otomatis oleh sistem',
@@ -65,6 +68,7 @@ export const SiswaMetadata: ModuleMetadata<Siswa> = {
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
+      numericFormattedInput: true,
       isFilterable: false,
       isSearchable: true,
       isSortable: true,

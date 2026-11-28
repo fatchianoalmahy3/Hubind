@@ -46,6 +46,7 @@ export const GuruMetadata: ModuleMetadata<Guru> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis (GRU-...)',
       helperText: 'Terisi otomatis dan dikunci oleh sistem',

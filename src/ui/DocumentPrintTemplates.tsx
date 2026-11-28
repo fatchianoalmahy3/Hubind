@@ -306,7 +306,7 @@ export const SuratTugas0708Sheet: React.FC<SuratTugas0708Props> = ({
               <div className="text-[10.5pt]">
                 NB : Surat Tugas harap dikembalikan ke Waka Hubungan Industri selambat-lambatnya 2 minggu setelah surat di terbitkan
               </div>
-              <div className="flex items-end justify-between text-[9.5pt] font-sans text-slate-600 border-t border-slate-300 pt-1">
+              <div className="flex items-end justify-between text-[9.5pt] font-serif text-slate-600 border-t border-slate-300 pt-1">
                 <div>Format : 07 . 08</div>
                 <div className="text-right leading-tight">
                   <div>Halaman 1 dari 1</div>
@@ -414,7 +414,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
       .join('; ');
 
   return (
-    <div className="hubin-doc-flow hubin-monitoring-sheet font-sans text-slate-950 text-[10.5pt] leading-[1.22] space-y-2.5">
+    <div className="hubin-doc-flow hubin-monitoring-sheet font-serif text-slate-950 text-[10pt] leading-[1.22] space-y-2.5">
       <div className="border-b-2 border-slate-900 pb-2 flex items-center gap-3">
         <div className="w-20 h-20 shrink-0 flex items-center justify-center">
           <img
@@ -428,12 +428,12 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
           />
         </div>
         <div className="flex-1 text-center min-w-0 leading-[1.2]">
-          <div className="text-[12.5pt] font-extrabold uppercase tracking-wide">LEMBAR MONITORING</div>
-          <div className="text-[10.5pt] font-bold uppercase mt-0.5">
+          <div className="text-[12pt] font-bold uppercase tracking-wide">LEMBAR MONITORING</div>
+          <div className="text-[10pt] font-bold uppercase mt-0.5">
             TAHAP {tahapNum} ({stageLabel})
           </div>
-          <div className="text-[10.5pt] font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
-          <div className="text-[10.5pt] font-bold uppercase">SMK PGRI 2 PONOROGO</div>
+          <div className="text-[10pt] font-bold uppercase">PRAKERIN TAHUN {activeYear}</div>
+          <div className="text-[10pt] font-bold uppercase">SMK PGRI 2 PONOROGO</div>
         </div>
         <div className="w-20 shrink-0" aria-hidden="true" />
       </div>
@@ -441,7 +441,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
       {/* 1. Identitas Bengkel */}
       <div>
         <div className="font-bold">1. Identitas Bengkel (Dudi)</div>
-        <table className="w-full ml-3 mt-0.5 text-[10.5pt] border-collapse">
+        <table className="w-full ml-3 mt-0.5 text-[10pt] border-collapse">
           <tbody>
             <tr>
               <td className="w-36 py-[1px]">1. Nama Bengkel</td>
@@ -465,7 +465,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
             <tr>
               <td className="py-[1px]">4. No. Telp.</td>
               <td className="py-[1px]">:</td>
-              <td className="py-[1px] font-mono">
+              <td className="py-[1px] tabular-nums">
                 {noTelpBengkel && noTelpBengkel !== '-'
                   ? noTelpBengkel
                   : '....................................................'}
@@ -478,7 +478,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
       {/* 2. Hari / Jam Masuk Kerja */}
       <div>
         <div className="font-bold">2. Hari / Jam Masuk Kerja</div>
-        <table className="w-full ml-3 mt-0.5 text-[10.5pt] border-collapse">
+        <table className="w-full ml-3 mt-0.5 text-[10pt] border-collapse">
           <tbody>
             <tr>
               <td className="w-36 py-[1px]">1. Hari Kerja</td>
@@ -540,13 +540,13 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
                   <tr key={`${stu.nis || 'row'}_${idx}`}>
                     <td className="border border-slate-900 px-1 py-0.5 text-center">{idx + 1}</td>
                     <td className="border border-slate-900 px-1.5 py-0.5 font-semibold">{stu.namaSiswa}</td>
-                    <td className="border border-slate-900 px-1 py-0.5 text-center font-mono">
+                    <td className="border border-slate-900 px-1 py-0.5 text-center tabular-nums">
                       {stu.hasStageLog ? stu.sakit ?? 0 : ''}
                     </td>
-                    <td className="border border-slate-900 px-1 py-0.5 text-center font-mono">
+                    <td className="border border-slate-900 px-1 py-0.5 text-center tabular-nums">
                       {stu.hasStageLog ? stu.izin ?? 0 : ''}
                     </td>
-                    <td className="border border-slate-900 px-1 py-0.5 text-center font-mono">
+                    <td className="border border-slate-900 px-1 py-0.5 text-center tabular-nums">
                       {stu.hasStageLog ? stu.alpha ?? 0 : ''}
                     </td>
                     <td className="border border-slate-900 px-0.5 py-0.5 text-center font-bold">
@@ -677,7 +677,7 @@ export const LembarMonitoring0701Sheet: React.FC<LembarMonitoring0701Props> = ({
 
       {/* Format Footer — mengikuti urutan langsung di bawah Catatan & TTD */}
       <div className="pt-2 print-avoid-break">
-        <div className="flex items-center justify-between text-[9pt] font-sans text-slate-600 border-t border-slate-400 pt-1">
+        <div className="flex items-center justify-between text-[9pt] font-serif text-slate-600 border-t border-slate-400 pt-1">
           <div>Format : 07 . 01</div>
           <div>Revisi : 11/11/2026</div>
         </div>
@@ -702,16 +702,16 @@ export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = 
   namaPembimbingDudi,
 }) => {
   return (
-    <table className="hubin-doc-shell font-sans text-slate-950 text-[12pt] leading-[1.16]">
+    <table className="hubin-doc-shell font-serif text-slate-950 text-[12pt] leading-[1.16]">
       <tbody>
         <tr>
           <td>
             <div className="space-y-1.5">
         <div className="text-center pb-1.5 border-b-2 border-slate-900 leading-tight">
-          <div className="text-[13.5pt] font-extrabold uppercase tracking-wide">
+          <div className="text-[13.5pt] font-bold uppercase tracking-wide">
             LEMBAR PENILAIAN
           </div>
-          <div className="text-[13.5pt] font-extrabold uppercase tracking-wide">
+          <div className="text-[13.5pt] font-bold uppercase tracking-wide">
             PRAKTIK KERJA LAPANGAN
           </div>
         </div>
@@ -881,7 +881,7 @@ export const LembarPenilaianKurmerSheet: React.FC<LembarPenilaianKurmerProps> = 
         <tr>
           <td>
             <div className="pt-1.5">
-              <div className="flex items-end justify-between text-[9.5pt] font-sans text-slate-600 border-t border-slate-400 pt-1">
+              <div className="flex items-end justify-between text-[9.5pt] font-serif text-slate-600 border-t border-slate-400 pt-1">
                 <div>Format : 07 . 09</div>
                 <div className="text-right leading-tight">
                   <div>Halaman 1 dari 1</div>

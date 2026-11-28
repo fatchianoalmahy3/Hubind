@@ -10,6 +10,8 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
   tableName: 'Data_Perizinan_PKL',
   icon: 'FileCheck',
   allowedRoles: ['Hubin', 'Pokja', 'Waka', 'Kepsek'],
+  studentValidationMode: 'required_master',
+  syncPerizinanDateRange: true,
   statCards: [
     {
       title: 'Total Catatan Izin',
@@ -54,6 +56,7 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
+      hiddenInForm: true,
       isSearchable: true,
       isSortable: true,
       disabled: true,
@@ -113,6 +116,7 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari penempatan siswa / Master DUDI',
       helperText: 'Terisi otomatis dari penempatan PKL siswa atau saat memilih DUDI',
@@ -139,6 +143,10 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
       isFormInput: true,
       isFilterable: true,
       isSortable: true,
+      clearDependentsWhenNotEquals: {
+        equals: 'Surat Dokter (SD)',
+        targetFields: ['tanggalSelesaiIzin'],
+      },
       options: [
         {
           label: 'Sakit di izinkan Orangtua (SO)',
@@ -193,22 +201,34 @@ export const PerizinanMetadata: ModuleMetadata<PerizinanPKL> = {
     },
     {
       key: 'tanggalMulaiIzin',
-      label: 'Tanggal Mulai Izin',
+      label: 'Tanggal Izin',
       type: 'date',
       isTableColumn: false,
       isFormInput: true,
       isSortable: true,
       validation: { required: true },
-      helperText: 'Pilih tanggal mulai izin siswa',
+      labelWhen: {
+        field: 'statusIzinOrtu',
+        equals: 'Surat Dokter (SD)',
+        label: 'Mulai Tanggal (Surat Dokter)',
+      },
+      helperText:
+        'Pilih tanggal izin siswa (1 hari; rentang tanggal otomatis muncul jika memilih Surat Dokter)',
+      helperTextWhen: {
+        field: 'statusIzinOrtu',
+        equals: 'Surat Dokter (SD)',
+        helperText: 'Pilih tanggal mulai izin sesuai surat dokter',
+      },
     },
     {
       key: 'tanggalSelesaiIzin',
-      label: 'Tanggal Selesai Izin',
+      label: 'Sampai Tanggal (Surat Dokter)',
       type: 'date',
       isTableColumn: false,
       isFormInput: true,
       isSortable: true,
-      helperText: 'Kosongkan jika hanya 1 hari',
+      visibleWhen: { field: 'statusIzinOrtu', equals: 'Surat Dokter (SD)' },
+      helperText: 'Pilih tanggal berakhir izin sesuai surat dokter',
     },
     {
       key: 'catatanPerizinan',

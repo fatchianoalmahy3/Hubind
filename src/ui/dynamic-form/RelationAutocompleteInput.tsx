@@ -2,7 +2,7 @@ import React, { useDeferredValue, useMemo } from 'react';
 import { FieldConfig } from '../../core/types/metadata';
 import { Dudi, Guru } from '../../core/types/schema';
 import { generateJurusanCode } from '../../core/utils/autoIdHelpers';
-import { formatNisVisual, handleNisKeyDown, processNisInputChange, stripNisSymbols } from '../../core/utils/nisHelpers';
+import { formatNisVisual, stripNisSymbols } from '../../core/utils/nisHelpers';
 import { getCanonicalNisDigits } from '../../core/utils/relationHelpers';
 import { Check, Search, X } from 'lucide-react';
 import { normFormValue, StudentDirectoryEntry } from './useDynamicFormRelations';
@@ -137,9 +137,9 @@ export function RelationAutocompleteInput<T>({
   }, [field.relationSource, masterGuru, deferredQuery]);
 
   if (field.relationSource === 'siswa') {
-    const isNisField = key === 'nis';
-    const nisDigits = isNisField ? stripNisSymbols(val) : '';
-    const displayVal = isNisField ? formatNisVisual(nisDigits, '') : val;
+    const valDigits = stripNisSymbols(val);
+    const hasAlphabetic = /[a-z]/i.test(val);
+    const displayVal = !hasAlphabetic && key === 'nis' && valDigits.length >= 6 ? formatNisVisual(valDigits, val) : val;
     const filtered = filteredStudents;
 
     return (
@@ -148,68 +148,36 @@ export function RelationAutocompleteInput<T>({
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
-            inputMode={isNisField ? 'numeric' : undefined}
+            inputMode="search"
             value={displayVal}
             autoComplete="off"
             onFocus={() => setOpenAutocompleteKey(key)}
             onBlur={() => setTimeout(() => setOpenAutocompleteKey((k) => (k === key ? null : k)), 140)}
-            onKeyDown={(e) => {
-              if (!isNisField) return;
-              handleNisKeyDown(e, nisDigits, (nextDigits, nextPos) => {
-                const inputEl = e.currentTarget;
-                setValue(key, nextDigits);
-                setOpenAutocompleteKey(key);
-                if (nextDigits.length >= 4) {
-                  const exactMatch = studentDirectory.find((s) => stripNisSymbols(s.nis) === nextDigits);
-                  if (exactMatch) applyStudentSelection(exactMatch, { [key]: nextDigits });
-                }
-                if (nextPos !== undefined) {
-                  requestAnimationFrame(() => {
-                    try {
-                      inputEl.setSelectionRange(nextPos, nextPos);
-                    } catch {
-                      // ignore
-                    }
-                  });
-                }
-              });
-            }}
             onChange={(e) => {
-              if (isNisField) {
-                processNisInputChange(e, (nextDigits) => {
-                  setValue(key, nextDigits);
-                  setOpenAutocompleteKey(key);
-                  if (nextDigits.length >= 4) {
-                    const exactMatch = studentDirectory.find((s) => stripNisSymbols(s.nis) === nextDigits);
-                    if (exactMatch) applyStudentSelection(exactMatch, { [key]: nextDigits });
-                  }
-                });
-                return;
-              }
               const next = e.target.value;
               setValue(key, next);
               setOpenAutocompleteKey(key);
               const qTrim = next.trim();
               if (qTrim.length >= 4) {
-                const qDigits = getCanonicalNisDigits(qTrim);
-                const nisExact = studentDirectory.filter(
-                  (s) => qDigits !== '' && getCanonicalNisDigits(s.nis) === qDigits
-                );
+                const qDigits = !/[a-z]/i.test(qTrim) ? getCanonicalNisDigits(qTrim) : '';
+                const nisExact =
+                  qDigits.length >= 6
+                    ? studentDirectory.filter((s) => getCanonicalNisDigits(s.nis) === qDigits)
+                    : [];
                 const nameExact = studentDirectory.filter((s) => normFormValue(s.nama) === normFormValue(qTrim));
-                const exactMatch = nisExact.length === 1 ? nisExact[0] : nameExact.length === 1 ? nameExact[0] : undefined;
+                const exactMatch =
+                  nisExact.length === 1 ? nisExact[0] : nameExact.length === 1 ? nameExact[0] : undefined;
                 if (exactMatch) applyStudentSelection(exactMatch, { [key]: next });
               }
             }}
             placeholder={
               loadingRelations
                 ? 'Memuat daftar siswa...'
-                : isNisField
-                ? 'Ketik angka NIS (cth: 23241/001/001)...'
                 : field.placeholder || 'Ketik nama atau NIS siswa...'
             }
             className={`w-full h-10 pl-8 pr-8 bg-white border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors ${
-              isNisField ? 'font-mono tabular-nums' : ''
-            } ${err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'}`}
+              err ? 'border-rose-400 focus:ring-rose-400/30' : 'border-slate-300'
+            }`}
           />
           {displayVal && (
             <button
@@ -240,7 +208,7 @@ export function RelationAutocompleteInput<T>({
             ) : (
               filtered.map((stu, idx) => {
                 const isCurrent =
-                  (key === 'nis' && nisDigits !== '' && stripNisSymbols(stu.nis) === nisDigits) ||
+                  (key === 'nis' && !hasAlphabetic && valDigits !== '' && stripNisSymbols(stu.nis) === valDigits) ||
                   (key !== 'nis' && normFormValue(stu.nama) === query);
                 const prefDudi = resolvePreferredDudi(stu).dudiTujuan;
                 return (

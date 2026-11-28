@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowRight, CheckCircle2, ClipboardCheck, ShieldCheck } from 'lucide-react';
+import { formatBukuLaporanLabel } from '../../core/utils/monitoringHelpers';
 import { formatNisVisual } from '../../core/utils/nisHelpers';
 import type { MonitoringSaveReceipt } from './types';
 
@@ -52,6 +53,8 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
           >
             {receipt.isDeliveryBatch
               ? 'Validasi & Pengantaran Tersimpan di Server!'
+              : receipt.isMonitoringBatch
+              ? `Monitoring ${receipt.stageLabel} (${(receipt.savedStudents || []).length} Siswa) Tersimpan!`
               : `Monitoring ${receipt.stageLabel} Tersimpan di Server!`}
           </h3>
           <p className="text-[11px] text-slate-600">
@@ -103,6 +106,43 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
                 </span>
               </div>
             </div>
+          ) : receipt.isMonitoringBatch ? (
+            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 space-y-2">
+              <div className="flex justify-between items-start gap-2 pb-1.5 border-b border-slate-200/70">
+                <span className="text-slate-500 shrink-0">DUDI</span>
+                <span className="font-bold text-slate-900 text-right leading-snug">
+                  {receipt.dudiName}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2 pb-1.5 border-b border-slate-200/70">
+                <span className="text-slate-500">Tahap Monitoring</span>
+                <span className="font-bold text-blue-700 text-right">
+                  {receipt.stageLabel} · {(receipt.savedStudents || []).length} Siswa
+                </span>
+              </div>
+              <div className="max-h-44 overflow-y-auto divide-y divide-slate-200/70 rounded-lg bg-white border border-slate-200 px-2.5">
+                {(receipt.savedStudents || []).map((stu, idx) => (
+                  <div key={`${stu.nis}_${idx}`} className="py-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 truncate">{stu.nama}</div>
+                      <div className="text-[10px] text-slate-500 font-mono tabular-nums">
+                        NIS: {formatNisVisual(stu.nis)} · S:{stu.sakit} I:{stu.izin} A:{stu.alpha}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] font-semibold text-emerald-700">
+                        {formatBukuLaporanLabel(stu.bukuLaporan)}
+                      </div>
+                      {stu.gradeAvg !== undefined && stu.gradeAvg > 0 && (
+                        <div className="text-[10px] font-bold text-indigo-700 tabular-nums">
+                          Nilai: {stu.gradeAvg} ({stu.gradePredikat || 'Tercatat'})
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 space-y-2">
               <div className="flex justify-between gap-2 pb-1.5 border-b border-slate-200/70">
@@ -131,12 +171,12 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
               </div>
               <div className="flex justify-between items-start gap-2 pb-1.5 border-b border-slate-200/70">
                 <span className="text-slate-500 shrink-0">
-                  {receipt.ttdSigned ? 'Format 07.01 & TTD' : 'Format 07.01'}
+                  {receipt.ttdSigned ? 'Ceklist & TTD' : 'Ceklist Laporan'}
                 </span>
                 <span className="font-semibold text-emerald-700 inline-flex items-center gap-1 text-right">
                   <ClipboardCheck className="w-3.5 h-3.5 shrink-0" />
                   <span>
-                    Laporan {receipt.bukuLaporan || '-'}
+                    {formatBukuLaporanLabel(receipt.bukuLaporan)}
                     {receipt.ttdSigned ? ' · TTD Sah' : ''}
                   </span>
                 </span>
@@ -153,14 +193,15 @@ export const MonitoringSaveSuccessModal: React.FC<MonitoringSaveSuccessModalProp
           )}
 
           <div className="space-y-2 pt-1">
-            {receipt.nextStudentIndex !== undefined && receipt.nextStudentName && (
+            {((receipt.nextStudentIndex !== undefined && receipt.nextStudentName) ||
+              (receipt.nextStageNum !== undefined && receipt.nextStudentName)) && (
               <button
                 type="button"
                 onClick={onContinueNext}
                 className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-center leading-snug"
               >
                 <span>
-                  {receipt.isDeliveryBatch
+                  {receipt.isDeliveryBatch || receipt.isMonitoringBatch
                     ? receipt.nextStudentName
                     : `Lanjut Siswa Berikutnya: ${receipt.nextStudentName}`}
                 </span>

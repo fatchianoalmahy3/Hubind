@@ -43,6 +43,7 @@ import {
   directSubmitApplication,
   directSubmitDeliveryValidation,
   directSubmitMonitoring,
+  directSubmitMonitoringBatch,
   directUpdateMonitoringGrades,
   directVerifyPetugasPin,
 } from './portal/portalGasFallback';
@@ -495,6 +496,120 @@ export const PublicPortalClient = {
       ToastManager.getInstance().update(
         toastId,
         'Gagal Menyimpan Monitoring',
+        'error',
+        err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
+      );
+      throw err;
+    }
+  },
+
+  async submitMonitoringBatch(payload: any): Promise<{
+    success: boolean;
+    verifiedInSpreadsheet?: boolean;
+    sheetRowNumber?: number;
+    savedAt?: string;
+    savedCount: number;
+    gradeSyncedCount?: number;
+    dudiContactSynced?: boolean;
+    dudiContact?: {
+      namaPemimpin: string;
+      pic: string;
+      kontak: string;
+      hariKerja?: string;
+      jamKerja?: string;
+    };
+    results: Array<{
+      nis: string;
+      namaSiswa: string;
+      idPenempatan: string;
+      idMonitoring: string;
+      tanggal: string;
+      sakit: number;
+      izin: number;
+      alpha: number;
+      bukuLaporan: string;
+      aktivitasDp: string;
+      aktivitasMt: string;
+      aktivitasKrt: string;
+      ttdSiswa: string;
+      catatan: string;
+      status: string;
+      gradeAvg?: number;
+      gradePredikat?: string;
+      gradeSummary?: {
+        monitoringId: string;
+        k3lh: number;
+        softskill: number;
+        teknis: number;
+        alurBisnis: number;
+        rataRata: number;
+        tahapDiinput: string;
+        tanggal: string;
+      };
+    }>;
+    message: string;
+  }> {
+    const studentCount = Array.isArray(payload?.students) ? payload.students.length : 1;
+    const toastId = ToastManager.getInstance().show(
+      'Menyimpan Batch Monitoring ke Cloud Server...',
+      'pending',
+      `Menyimpan ${payload?.tahap_monitoring || 'Monitoring'} untuk ${studentCount} siswa (${payload?.nama_dudi || 'DUDI'})`
+    );
+
+    try {
+      const res = await callPublicEndpoint(
+        () =>
+          safeFetchJson('/api/public/submit-monitoring-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        () => directSubmitMonitoringBatch(payload)
+      );
+
+      const verifiedFlag: boolean | undefined = res?.verifiedInSpreadsheet;
+      const isVerified = Boolean(res?.success) && verifiedFlag !== false;
+      if (isVerified) {
+        GoogleSheetClient.getInstance().invalidateClientSheetCache('Monitoring_5_Tahap');
+        if ((res.gradeSyncedCount ?? 0) > 0) {
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('data_plotting');
+        }
+        if (res.dudiContactSynced) {
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Master_DUDI');
+          GoogleSheetClient.getInstance().invalidateClientSheetCache('Data_Pengajuan_PKL');
+        }
+        invalidatePublicTeacherCaches();
+        const gradeSuffix =
+          (res.gradeSyncedCount ?? 0) > 0
+            ? ` · ${res.gradeSyncedCount} nilai tersinkron`
+            : '';
+        ToastManager.getInstance().update(
+          toastId,
+          'Batch Monitoring Tersimpan di Server!',
+          'success',
+          `${payload?.nama_dudi || 'DUDI'} · ${res.savedCount || studentCount} siswa (${payload?.tahap_monitoring || ''})${gradeSuffix}`
+        );
+      } else {
+        const failMsg =
+          res?.message || 'Data batch belum terverifikasi tersimpan di server. Silakan kirim ulang.';
+        ToastManager.getInstance().update(
+          toastId,
+          'Data Belum Tersimpan di Server',
+          'error',
+          failMsg
+        );
+        return {
+          ...res,
+          success: false,
+          message: failMsg,
+        };
+      }
+
+      return res;
+    } catch (err: any) {
+      ToastManager.getInstance().update(
+        toastId,
+        'Gagal Menyimpan Batch Monitoring',
         'error',
         err?.message || 'Periksa koneksi internet Anda atau hubungi Admin Hubin.'
       );

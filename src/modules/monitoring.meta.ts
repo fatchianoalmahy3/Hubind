@@ -9,6 +9,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
   tableName: 'Monitoring_5_Tahap',
   icon: 'Compass',
   allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
+  studentValidationMode: 'optional_master',
   statCards: [
     {
       title: 'Total Kunjungan Terdata',
@@ -70,6 +71,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari Penempatan PKL',
       helperText: 'Terisi otomatis saat memilih siswa yang sedang PKL',
@@ -80,6 +82,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari Master DUDI',
       helperText: 'Terisi otomatis saat memilih Mitra DUDI',
@@ -147,6 +150,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari Master Guru',
       helperText: 'Terisi otomatis saat memilih Guru Pendamping',
@@ -236,14 +240,14 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isFormInput: true,
       isFilterable: true,
       options: [
-        { label: 'BLM (Belum Selesai)', value: 'BLM', badgeColor: 'bg-amber-100 text-amber-800' },
-        { label: 'SDH (Sudah Dikerjakan)', value: 'SDH', badgeColor: 'bg-emerald-100 text-emerald-800' },
-        { label: 'TDK (Tidak Mengerjakan)', value: 'TDK', badgeColor: 'bg-rose-100 text-rose-800' },
+        { label: 'Belum Selesai', value: 'BLM', badgeColor: 'bg-amber-100 text-amber-800' },
+        { label: 'Sudah Dikerjakan', value: 'SDH', badgeColor: 'bg-emerald-100 text-emerald-800' },
+        { label: 'Tidak Mengerjakan', value: 'TDK', badgeColor: 'bg-rose-100 text-rose-800' },
       ],
     },
     {
       key: 'aktivitasDp',
-      label: 'Disiplin (DP)',
+      label: 'Kedisiplinan',
       type: 'select',
       isTableColumn: true,
       isFormInput: true,
@@ -255,7 +259,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'aktivitasMt',
-      label: 'Motivasi (MT)',
+      label: 'Motivasi',
       type: 'select',
       isTableColumn: true,
       isFormInput: true,
@@ -267,7 +271,7 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
     },
     {
       key: 'aktivitasKrt',
-      label: 'Kreativitas (KRT)',
+      label: 'Kreativitas',
       type: 'select',
       isTableColumn: true,
       isFormInput: true,
@@ -328,6 +332,10 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isTableColumn: true,
       isFormInput: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+      },
     },
     {
       key: 'nilaiSoftskill',
@@ -336,6 +344,10 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isTableColumn: true,
       isFormInput: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+      },
     },
     {
       key: 'nilaiKompetensiTeknis',
@@ -344,6 +356,10 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isTableColumn: true,
       isFormInput: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+      },
     },
     {
       key: 'nilaiAlurBisnis',
@@ -352,6 +368,10 @@ export const MonitoringMetadata: ModuleMetadata<Monitoring> = {
       isTableColumn: true,
       isFormInput: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+      },
     },
     {
       key: 'nilaiRataRata',

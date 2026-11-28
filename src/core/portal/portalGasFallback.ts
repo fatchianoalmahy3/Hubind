@@ -1115,6 +1115,433 @@ export async function directSubmitMonitoring(payload: any) {
   };
 }
 
+export async function directSubmitMonitoringBatch(payload: any) {
+  const targetDudiId = String(payload?.dudi_id || '').trim();
+  const targetDudiNama = String(payload?.nama_dudi || '').trim();
+  const stageStrInput = String(payload?.tahap_monitoring || '').trim();
+  const stageNum = extractStageNumber(stageStrInput);
+  const tglVal = normalizeToIsoDate(payload?.tanggal) || getTodayWibIsoDate();
+  const rawStudents = Array.isArray(payload?.students) ? payload.students : [];
+
+  if (!targetDudiId && !targetDudiNama) {
+    throw new Error('Identitas DUDI wajib disertakan.');
+  }
+  if (stageNum < 2 || stageNum > 8) {
+    throw new Error('Batch monitoring hanya berlaku untuk Tahap 2 sampai Tahap 8.');
+  }
+  const stageStr = stageStrInput || getStageValueByNumber(stageNum);
+
+  const validStudents = rawStudents.filter(
+    (s: any) => s && (String(s.nis || '').trim() || String(s.nama_siswa || '').trim())
+  );
+  if (validStudents.length === 0) {
+    throw new Error('Pilih minimal 1 siswa yang akan disimpan pada tahap ini.');
+  }
+
+  const kompetensiArr = parseKompetensiList(payload?.kompetensi_siswa);
+  if (kompetensiArr.length < 2) {
+    throw new Error('Harap isikan minimal 2 baris Kompetensi yang didapat pada Blok Bengkel DUDI.');
+  }
+  const kompetensiSerialized = serializeKompetensiList(kompetensiArr);
+  const kondisiCheck = parseKondisiBengkel(payload?.kondisi_bengkel);
+  if (
+    !kondisiCheck.volumePekerjaan ||
+    !kondisiCheck.relevansiPekerjaan ||
+    !kondisiCheck.kenyamanan ||
+    !kondisiCheck.kelayakan
+  ) {
+    throw new Error('Harap lengkapi seluruh kondisi & kelayakan bengkel DUDI.');
+  }
+  const kondisiSerialized = serializeKondisiBengkel(kondisiCheck);
+
+  await GoogleSheetClient.getInstance().initFromFirestore().catch(() => {});
+  const stageControl = GoogleSheetClient.getInstance().getMonitoringStageControl();
+  const hasPerJurusan = Boolean(
+    stageControl.perJurusan && Object.keys(stageControl.perJurusan).length > 0
+  );
+  const jurusanRows = hasPerJurusan
+    ? await readSheetDirect('Master_Jurusan').catch(() => [] as any[])
+    : ([] as any[]);
+  const jurusanCatalog: Jurusan[] = jurusanRows.map((j: any) => ({
+    id: pickField(j, 'ID', 'id'),
+    kode: pickField(j, 'Kode_Jurusan', 'Kode', 'kode', 'kodeJurusan'),
+    nama: pickField(j, 'Nama_Jurusan', 'Nama', 'nama', 'namaJurusan'),
+    namaKakomli: '',
+    kontakWA: '',
+    kuotaSiswa: 0,
+    totalTerdaftar: 0,
+  }));
+
+  if (stageControl.requireIssuedLetter !== false) {
+    const logRows = await readSheetDirect('Log_Penerbitan_Surat', true, true).catch(
+      () => [] as any[]
+    );
+    const { issuedStages } = resolveIssuedStagesForDudi(logRows, targetDudiId, targetDudiNama);
+    if (!issuedStages.includes(stageNum)) {
+      throw new Error(
+        `Surat ${stageStr} untuk DUDI "${targetDudiNama || 'ini'}" belum diterbitkan Admin Hubin di Pusat Dokumen.`
+      );
+    }
+  }
+
+  const monRows = await readSheetDirect('Monitoring_5_Tahap', true, true).catch(() => [] as any[]);
+
+  let resolvedDudiId = targetDudiId;
+  if (!resolvedDudiId && targetDudiNama) {
+    const dudiRows = await readSheetDirect('Master_DUDI', true).catch(() => [] as any[]);
+    const targetDudiNorm = normalizeStr(targetDudiNama);
+    const matchedDudi = dudiRows.find(
+      (d: any) => normalizeStr(pickField(d, 'Nama_DUDI', 'namaDudi')) === targetDudiNorm
+    );
+    if (matchedDudi) {
+      resolvedDudiId = pickField(matchedDudi, 'ID', 'id');
+    }
+  }
+
+  const sheetService = GoogleDriveSheetService.getInstance();
+  const results: Array<{
+    nis: string;
+    namaSiswa: string;
+    idPenempatan: string;
+    idMonitoring: string;
+    tanggal: string;
+    sakit: number;
+    izin: number;
+    alpha: number;
+    bukuLaporan: string;
+    aktivitasDp: string;
+    aktivitasMt: string;
+    aktivitasKrt: string;
+    ttdSiswa: string;
+    catatan: string;
+    status: string;
+    gradeAvg?: number;
+    gradePredikat?: string;
+    gradeSummary?: {
+      monitoringId: string;
+      k3lh: number;
+      softskill: number;
+      teknis: number;
+      alurBisnis: number;
+      rataRata: number;
+      tahapDiinput: string;
+      tanggal: string;
+    };
+  }> = [];
+  let lastReceipt: { verified: boolean; sheetRowNumber?: number; savedAt?: string } = {
+    verified: false,
+  };
+  let gradeSyncedCount = 0;
+
+  for (const stu of validStudents) {
+    const cleanNis = stripNisSymbols(stu.nis) || String(stu.nis || '').trim();
+    const namaSiswa = String(stu.nama_siswa || '').trim();
+    const idPenempatan = String(stu.id_penempatan || `PLT-${cleanNis}`).trim();
+    let existingMonId = String(stu.existing_monitoring_id || '').trim();
+
+    const studentPolicy = resolveMonitoringStagePolicy(
+      stageControl,
+      String(stu.jurusan || ''),
+      jurusanCatalog
+    );
+    if (!studentPolicy.enabledStages.includes(stageNum)) {
+      throw new Error(`${stageStr} tidak termasuk tahapan aktif untuk ${namaSiswa || cleanNis}.`);
+    }
+    if (!studentPolicy.unlockedStages.includes(stageNum)) {
+      throw new Error(
+        stageControl.lockedReason
+          ? `${stageStr} sedang dikunci oleh SuperAdmin (${stageControl.lockedReason}).`
+          : `${stageStr} sedang dikunci sementara oleh SuperAdmin.`
+      );
+    }
+
+    const prevEnabledStage = getPreviousEnabledStage(studentPolicy.enabledStages, stageNum);
+    if (studentPolicy.requireSequential && prevEnabledStage !== null) {
+      const summary = buildStudentMonitoringSummary(
+        {
+          nis: cleanNis,
+          nama: namaSiswa,
+          idPenempatan,
+          dudi_name: targetDudiNama,
+        },
+        monRows,
+        []
+      );
+      if (!summary.completedStages.includes(prevEnabledStage)) {
+        const prevStageLabel = getStageValueByNumber(prevEnabledStage);
+        throw new Error(
+          `${stageStr} masih terkunci untuk ${namaSiswa}. Harap selesaikan ${prevStageLabel} terlebih dahulu.`
+        );
+      }
+    }
+
+    const bukuLaporan = String(stu.buku_laporan || '').trim().toUpperCase();
+    if (!['BLM', 'SDH', 'TDK'].includes(bukuLaporan)) {
+      throw new Error(
+        `Harap pilih status Buku Laporan (Belum Selesai, Sudah Dikerjakan, atau Tidak Mengerjakan) untuk ${namaSiswa}.`
+      );
+    }
+
+    const aktivitasDp = String(stu.aktivitas_dp || '').trim();
+    const aktivitasMt = String(stu.aktivitas_mt || '').trim();
+    const aktivitasKrt = String(stu.aktivitas_krt || '').trim();
+    if (!aktivitasDp || !aktivitasMt || !aktivitasKrt) {
+      throw new Error(
+        `Harap lengkapi ceklist Kedisiplinan, Motivasi, dan Kreativitas untuk ${namaSiswa}.`
+      );
+    }
+
+    const ttdSiswaRaw = String(stu.ttd_siswa || '').trim();
+    const safeTtdSiswa = ttdSiswaRaw.startsWith('svgpath:') ? ttdSiswaRaw : '';
+    if (stageControl.requireStudentSignature === true && !safeTtdSiswa) {
+      throw new Error(`Tanda Tangan Siswa wajib diisi untuk ${namaSiswa}.`);
+    }
+
+    const sakit = Math.max(0, Math.round(Number(stu.sakit ?? 0) || 0));
+    const izin = Math.max(0, Math.round(Number(stu.izin ?? 0) || 0));
+    const alpha = Math.max(0, Math.round(Number(stu.alpha ?? 0) || 0));
+    const nilaiMuncul = Boolean(stu.nilai_pkl_muncul);
+
+    let k3lh = 0;
+    let softskill = 0;
+    let teknis = 0;
+    let alurBisnis = 0;
+    let avgScore = 0;
+    if (nilaiMuncul) {
+      k3lh = Math.min(100, Math.max(0, Number(stu.nilai_k3lh ?? 0) || 0));
+      softskill = Math.min(100, Math.max(0, Number(stu.nilai_softskill ?? 0) || 0));
+      teknis = Math.min(100, Math.max(0, Number(stu.nilai_kompetensi_teknis ?? 0) || 0));
+      alurBisnis = Math.min(100, Math.max(0, Number(stu.nilai_alur_bisnis ?? 0) || 0));
+      avgScore = calculateEqualWeightedAverage(k3lh, softskill, teknis, alurBisnis);
+    }
+
+    const cleanUserNote = stripStructuredTagsFromNote(stu.catatan_perkembangan);
+    const f0701Tag = serializeFormat0701Tag({
+      bukuLaporan,
+      dp: aktivitasDp,
+      mt: aktivitasMt,
+      krt: aktivitasKrt,
+      kompetensiList: kompetensiArr,
+      kondisiBengkel: kondisiCheck,
+    });
+    const noteCombined = [cleanUserNote, f0701Tag].filter(Boolean).join(' ').trim();
+
+    const matchedExistingRow = monRows.find((r: any) => {
+      const rMonId = pickField(r, 'ID_Monitoring', 'idMonitoring', 'id');
+      if (existingMonId && rMonId === existingMonId) return true;
+      const rStage = extractStageNumber(pickField(r, 'Tahap', 'tahap'));
+      if (rStage !== stageNum) return false;
+      const rNisDigits = stripNisSymbols(pickField(r, 'NIS', 'nis')) || pickField(r, 'NIS', 'nis');
+      const rPlt = pickField(r, 'ID_Penempatan', 'idPenempatan');
+      return Boolean(
+        (cleanNis && rNisDigits === cleanNis) || (idPenempatan && rPlt === idPenempatan)
+      );
+    });
+    if (matchedExistingRow) {
+      existingMonId =
+        pickField(matchedExistingRow, 'ID_Monitoring', 'idMonitoring', 'id') || existingMonId;
+    }
+
+    const isUpdate = Boolean(existingMonId);
+    const idMonitoring =
+      existingMonId ||
+      `MON-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    const sheetRow: Record<string, any> = {
+      id: idMonitoring,
+      ID_Monitoring: idMonitoring,
+      idMonitoring,
+      ID_Penempatan: idPenempatan,
+      idPenempatan,
+      ID_DUDI: resolvedDudiId,
+      idDudi: resolvedDudiId,
+      DUDI_Tujuan: targetDudiNama,
+      dudiTujuan: targetDudiNama,
+      Alamat_DUDI: String(payload?.alamat_dudi || ''),
+      alamatDudi: String(payload?.alamat_dudi || ''),
+      NIS: cleanNis,
+      nis: cleanNis,
+      Nama_Siswa: namaSiswa,
+      namaSiswa,
+      Jurusan: String(stu.jurusan || ''),
+      jurusan: String(stu.jurusan || ''),
+      ID_Guru_Pendamping: String(payload?.guru_id || ''),
+      idGuruPendamping: String(payload?.guru_id || ''),
+      Guru_Pendamping: String(payload?.guru_pembimbing || ''),
+      guruPendamping: String(payload?.guru_pembimbing || ''),
+      Tahap: stageStr,
+      tahap: stageStr,
+      Tanggal_Kunjungan: tglVal,
+      tanggalKunjungan: tglVal,
+      Sakit: sakit,
+      sakit,
+      Izin: izin,
+      izin,
+      Alpha: alpha,
+      alpha,
+      Nilai_PKL_Muncul: nilaiMuncul ? 'Ya' : 'Belum',
+      nilaiPklMuncul: nilaiMuncul,
+      Nilai_K3LH: nilaiMuncul ? k3lh : '',
+      nilaiK3lh: nilaiMuncul ? k3lh : '',
+      Nilai_Softskills: nilaiMuncul ? softskill : '',
+      Nilai_Softskill: nilaiMuncul ? softskill : '',
+      nilaiSoftskill: nilaiMuncul ? softskill : '',
+      Nilai_Hardskills: nilaiMuncul ? teknis : '',
+      Nilai_Kompetensi_Teknis: nilaiMuncul ? teknis : '',
+      nilaiKompetensiTeknis: nilaiMuncul ? teknis : '',
+      Nilai_Alur_Bisnis_Dunia_Kerja: nilaiMuncul ? alurBisnis : '',
+      Nilai_Alur_Bisnis: nilaiMuncul ? alurBisnis : '',
+      nilaiAlurBisnis: nilaiMuncul ? alurBisnis : '',
+      Nilai_rata_rata: nilaiMuncul ? avgScore : '',
+      Nilai_Rata_Rata: nilaiMuncul ? avgScore : '',
+      nilaiRataRata: nilaiMuncul ? avgScore : '',
+      Catatan_Kunjungan: noteCombined,
+      catatanKunjungan: noteCombined,
+      Buku_Laporan: bukuLaporan,
+      bukuLaporan,
+      Aktivitas_DP: aktivitasDp,
+      aktivitasDp,
+      Aktivitas_MT: aktivitasMt,
+      aktivitasMt,
+      Aktivitas_KRT: aktivitasKrt,
+      aktivitasKrt,
+      Kompetensi_Didapat: kompetensiSerialized,
+      kompetensiDidapat: kompetensiSerialized,
+      Kondisi_Bengkel: kondisiSerialized,
+      kondisiBengkel: kondisiSerialized,
+      TTD_Siswa: safeTtdSiswa,
+      ttdSiswa: safeTtdSiswa,
+      Foto_Bukti_Drive: '',
+      fotoBuktiUrl: '',
+      Nilai_DUDI_Terkumpul: nilaiMuncul && avgScore > 0 ? 'Ya' : 'Belum',
+      nilaiDudiTerkumpul: nilaiMuncul && avgScore > 0,
+      Blangko_Sertifikat_Bawa: stageNum >= studentPolicy.gradeStage ? 'Ya' : 'Belum',
+      blangkoSertifikatBawa: stageNum >= studentPolicy.gradeStage,
+      Status_Tahap: 'Terlaksana',
+      statusTahap: 'Terlaksana',
+    };
+
+    const persistedRow = sheetService.stripFormulaManagedFields(
+      'Monitoring_5_Tahap',
+      matchedExistingRow?._sheetRowNumber
+        ? { ...sheetRow, _sheetRowNumber: matchedExistingRow._sheetRowNumber }
+        : sheetRow
+    );
+    lastReceipt = await writeSheetDirect(
+      'Monitoring_5_Tahap',
+      isUpdate ? 'UPDATE' : 'CREATE',
+      persistedRow
+    );
+
+    if (nilaiMuncul && avgScore > 0) {
+      try {
+        const synced = await upsertNilaiDanSertifikatFallback({
+          cleanNis,
+          idPenempatan,
+          idDudi: resolvedDudiId,
+          namaSiswa,
+          jurusan: String(stu.jurusan || ''),
+          kelas: String(stu.kelas || '-'),
+          namaDudi: targetDudiNama,
+          k3lh,
+          softskill,
+          teknis,
+          alurBisnis,
+          avgScore,
+          tglVal,
+        });
+        if (synced) gradeSyncedCount += 1;
+      } catch {
+        // non-blocking
+      }
+    }
+
+    results.push({
+      nis: cleanNis,
+      namaSiswa,
+      idPenempatan,
+      idMonitoring,
+      tanggal: tglVal,
+      sakit,
+      izin,
+      alpha,
+      bukuLaporan,
+      aktivitasDp,
+      aktivitasMt,
+      aktivitasKrt,
+      ttdSiswa: safeTtdSiswa,
+      catatan: cleanUserNote,
+      status: 'Terlaksana',
+      ...(nilaiMuncul && avgScore > 0
+        ? {
+            gradeAvg: avgScore,
+            gradePredikat: getPredikatFromScore(avgScore),
+            gradeSummary: {
+              monitoringId: idMonitoring,
+              k3lh,
+              softskill,
+              teknis,
+              alurBisnis,
+              rataRata: avgScore,
+              tahapDiinput: stageStr,
+              tanggal: tglVal,
+            },
+          }
+        : {}),
+    });
+  }
+
+  if (!lastReceipt.verified) {
+    throw new Error('Data batch monitoring belum terverifikasi tersimpan di server. Silakan kirim ulang.');
+  }
+
+  let dudiContactSynced = false;
+  const inputPemimpin = String(payload?.nama_pemimpin || '').trim();
+  const inputPic = String(payload?.nama_pic || '').trim();
+  const inputTelpDudi = String(payload?.no_telp_dudi || '').trim();
+  const inputHariKerja = String(payload?.hari_kerja || '').trim();
+  const inputJamKerja = String(payload?.jam_kerja || '').trim();
+  if (inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja) {
+    try {
+      dudiContactSynced = await syncDudiContactFallback({
+        dudiId: resolvedDudiId || targetDudiId,
+        namaDudi: targetDudiNama,
+        alamatDudi: payload?.alamat_dudi,
+        pemimpin: inputPemimpin,
+        pic: inputPic,
+        telp: inputTelpDudi,
+        hariKerja: inputHariKerja || undefined,
+        jamKerja: inputJamKerja || undefined,
+        allowPartialFallback: true,
+      });
+    } catch {
+      // non-blocking
+    }
+  }
+
+  return {
+    success: true,
+    verifiedInSpreadsheet: Boolean(lastReceipt.verified) as boolean,
+    sheetRowNumber: lastReceipt.sheetRowNumber,
+    savedAt: lastReceipt.savedAt || new Date().toISOString(),
+    savedCount: results.length,
+    gradeSyncedCount,
+    dudiContactSynced,
+    dudiContact:
+      inputPemimpin || inputPic || inputTelpDudi || inputHariKerja || inputJamKerja
+        ? {
+            namaPemimpin: inputPemimpin,
+            pic: inputPic,
+            kontak: inputTelpDudi,
+            ...(inputHariKerja ? { hariKerja: inputHariKerja } : {}),
+            ...(inputJamKerja ? { jamKerja: inputJamKerja } : {}),
+          }
+        : undefined,
+    results,
+    message: `Data ${stageStr} berhasil disimpan ke Cloud Server untuk ${results.length} siswa.`,
+  };
+}
+
 export async function directSubmitDeliveryValidation(payload: any) {
   const targetDudiId = String(payload?.dudi_id || '').trim();
   const targetDudiNama = String(payload?.nama_dudi || '').trim();

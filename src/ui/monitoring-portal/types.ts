@@ -122,7 +122,18 @@ export interface MonitoringSaveReceipt {
   bukuLaporan: string;
   ttdSigned: boolean;
   isDeliveryBatch?: boolean;
+  isMonitoringBatch?: boolean;
   deliveredStudents?: Array<{ nama: string; nis: string }>;
+  savedStudents?: Array<{
+    nama: string;
+    nis: string;
+    sakit: number;
+    izin: number;
+    alpha: number;
+    bukuLaporan: string;
+    gradeAvg?: number;
+    gradePredikat?: string;
+  }>;
   dudiPemimpin?: string;
   dudiPic?: string;
   dudiKontak?: string;
@@ -134,5 +145,6 @@ export interface MonitoringSaveReceipt {
   savedAt: string;
   nextStudentIndex?: number;
   nextStudentName?: string;
+  nextStageNum?: number;
 }
 

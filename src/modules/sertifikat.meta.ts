@@ -8,6 +8,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
   tableName: 'data_plotting',
   icon: 'Award',
   allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek'],
+  studentValidationMode: 'required_master',
   statCards: [
     {
       title: 'Total Siswa Siap Terbit',
@@ -45,6 +46,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis (PLT-...)',
       helperText: 'Terisi otomatis dari Data Penempatan atau sistem',
@@ -113,6 +115,7 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari Master DUDI',
       helperText: 'Terisi otomatis saat memilih Mitra DUDI',
@@ -138,6 +141,11 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isFormInput: true,
       isSortable: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+        predikatField: 'predikat',
+      },
     },
     {
       key: 'nilaiSoftskill',
@@ -147,6 +155,11 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isFormInput: true,
       isSortable: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+        predikatField: 'predikat',
+      },
     },
     {
       key: 'nilaiKompetensiTeknis',
@@ -156,6 +169,11 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isFormInput: true,
       isSortable: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+        predikatField: 'predikat',
+      },
     },
     {
       key: 'nilaiAlurBisnis',
@@ -165,6 +183,11 @@ export const SertifikatMetadata: ModuleMetadata<Sertifikat> = {
       isFormInput: true,
       isSortable: true,
       validation: { min: 0, max: 100 },
+      gradeScoreConfig: {
+        siblingKeys: ['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis'],
+        averageField: 'nilaiRataRata',
+        predikatField: 'predikat',
+      },
     },
     {
       key: 'nilaiRataRata',

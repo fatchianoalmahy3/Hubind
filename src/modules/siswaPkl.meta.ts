@@ -8,6 +8,8 @@ export const SiswaPklMetadata: ModuleMetadata<PenempatanPKL> = {
   tableName: 'data_plotting',
   icon: 'Briefcase',
   allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek', 'GuruPendamping'],
+  studentValidationMode: 'required_master',
+  preventDuplicateActivePlacement: true,
   statCards: [
     {
       title: 'Total Siswa Terplot',
@@ -45,6 +47,7 @@ export const SiswaPklMetadata: ModuleMetadata<PenempatanPKL> = {
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
+      hiddenInForm: true,
       isSearchable: true,
       isSortable: true,
       disabled: true,
@@ -87,6 +90,7 @@ export const SiswaPklMetadata: ModuleMetadata<PenempatanPKL> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Terisi otomatis saat memilih DUDI',
     },
@@ -109,6 +113,7 @@ export const SiswaPklMetadata: ModuleMetadata<PenempatanPKL> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Terisi otomatis saat memilih Guru',
     },

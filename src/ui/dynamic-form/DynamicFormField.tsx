@@ -152,45 +152,45 @@ export function DynamicFormField<T>({
   }
 
   const handleFieldChange = (fieldKey: string, nextVal: any) => {
+    const patch: Record<string, any> = { [fieldKey]: nextVal };
+    let hasExtraPatch = false;
+
     if (
-      fieldKey === 'statusIzinOrtu' &&
-      nextVal !== 'Surat Dokter (SD)' &&
-      formFieldKeys.has('tanggalSelesaiIzin') &&
-      values.tanggalSelesaiIzin
+      field.clearDependentsWhenNotEquals &&
+      nextVal !== field.clearDependentsWhenNotEquals.equals
     ) {
-      setMultipleValues({ statusIzinOrtu: nextVal, tanggalSelesaiIzin: '' });
-      return;
+      for (const targetKey of field.clearDependentsWhenNotEquals.targetFields) {
+        if (formFieldKeys.has(targetKey) && values[targetKey]) {
+          patch[targetKey] = '';
+          hasExtraPatch = true;
+        }
+      }
     }
 
-    if (fieldKey === 'nama' && formFieldKeys.has('kode')) {
-      const autoKode = generateJurusanCode(String(nextVal || ''));
-      setMultipleValues({ nama: nextVal, kode: autoKode || values.kode || '' });
-      return;
+    if (field.deriveCodeToField && formFieldKeys.has(field.deriveCodeToField)) {
+      const targetKey = field.deriveCodeToField;
+      const autoCode = generateJurusanCode(String(nextVal || ''));
+      patch[targetKey] = autoCode || (targetKey === 'kode' ? values.kode || '' : '');
+      hasExtraPatch = true;
     }
 
-    if (fieldKey === 'jurusan' && formFieldKeys.has('idJurusan')) {
-      setMultipleValues({ jurusan: nextVal, idJurusan: generateJurusanCode(String(nextVal || '')) || '' });
-      return;
-    }
-
-    const gradeKeys = new Set(['nilaiK3lh', 'nilaiSoftskill', 'nilaiKompetensiTeknis', 'nilaiAlurBisnis']);
-    if (gradeKeys.has(fieldKey) && formFieldKeys.has('nilaiRataRata')) {
-      const mergedGrades: Record<string, any> = {
-        nilaiK3lh: fieldKey === 'nilaiK3lh' ? nextVal : values.nilaiK3lh,
-        nilaiSoftskill: fieldKey === 'nilaiSoftskill' ? nextVal : values.nilaiSoftskill,
-        nilaiKompetensiTeknis:
-          fieldKey === 'nilaiKompetensiTeknis' ? nextVal : values.nilaiKompetensiTeknis,
-        nilaiAlurBisnis: fieldKey === 'nilaiAlurBisnis' ? nextVal : values.nilaiAlurBisnis,
-      };
-      const nums = Object.values(mergedGrades)
+    if (field.gradeScoreConfig && formFieldKeys.has(field.gradeScoreConfig.averageField)) {
+      const { siblingKeys, averageField, predikatField } = field.gradeScoreConfig;
+      const nums = siblingKeys
+        .map((k) => (k === fieldKey ? nextVal : values[k]))
         .filter((v) => v !== '' && v !== null && v !== undefined && !isNaN(Number(v)))
         .map((v) => Math.min(100, Math.max(0, Number(v))));
-      const patch: Record<string, any> = { [fieldKey]: nextVal };
       if (nums.length > 0) {
         const avg = Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10;
-        patch.nilaiRataRata = avg;
-        if (formFieldKeys.has('predikat')) patch.predikat = getPredikatFromScore(avg);
+        patch[averageField] = avg;
+        if (predikatField && formFieldKeys.has(predikatField)) {
+          patch[predikatField] = getPredikatFromScore(avg);
+        }
+        hasExtraPatch = true;
       }
+    }
+
+    if (hasExtraPatch) {
       setMultipleValues(patch);
       return;
     }
@@ -319,7 +319,7 @@ export function DynamicFormField<T>({
 
     case 'text':
     default: {
-      if (key === 'nis') {
+      if (field.numericFormattedInput) {
         const nisDigits = stripNisSymbols(val);
         return (
           <input

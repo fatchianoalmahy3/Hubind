@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   CheckCircle2,
   CheckSquare,
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { Guru, MONITORING_STAGES } from '../../core/types/schema';
 import { getStageValueByNumber } from '../../core/utils/monitoringHelpers';
+import { usePagination } from '../../hooks/usePagination';
+import { PaginationBar } from '../PaginationBar';
 import {
   BatchSuratTugasPage,
   BundlePrintPage,
@@ -144,6 +146,33 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
       ? 1
       : 0) +
     (searchQuery.trim() ? 1 : 0);
+
+  const bundlePagination = usePagination(bundleDudiItems, { defaultPageSize: 10 });
+  const itemPagination = usePagination(filteredItems, { defaultPageSize: 10 });
+
+  useEffect(() => {
+    bundlePagination.resetPage();
+  }, [
+    activeDocKey,
+    bundleStageNum,
+    bundleGuruFilter,
+    jurusanFilter,
+    statusFilter,
+    searchQuery,
+    bundlePagination.resetPage,
+  ]);
+
+  useEffect(() => {
+    itemPagination.resetPage();
+  }, [
+    activeDocKey,
+    guruFilter,
+    jurusanFilter,
+    statusFilter,
+    subFilter,
+    searchQuery,
+    itemPagination.resetPage,
+  ]);
 
   const renderPickerPanelBody = (inModal: boolean) => {
     const outerClass = inModal
@@ -350,7 +379,7 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
                 Tidak ada penempatan DUDI aktif untuk filter ini.
               </div>
             ) : (
-              bundleDudiItems.map((b) => {
+              bundlePagination.paginatedItems.map((b) => {
                 const isChecked = !b.isLocked && Boolean(checkedBundleKeys[b.bundleKey]);
                 const isIssued = Boolean(isTargetIssued?.(b.dudiId, b.namaDudi, bundleStageNum));
                 const sheetCountForDudi =
@@ -412,6 +441,20 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
               })
             )}
           </div>
+
+          {bundleDudiItems.length > 0 && (
+            <PaginationBar
+              compact
+              page={bundlePagination.page}
+              pageSize={bundlePagination.pageSize}
+              total={bundlePagination.total}
+              onPageChange={bundlePagination.setPage}
+              onPageSizeChange={bundlePagination.setPageSize}
+              pageSizeOptions={bundlePagination.pageSizeOptions}
+              itemLabel="DUDI"
+              className="rounded-b-lg shrink-0"
+            />
+          )}
         </div>
       );
     }
@@ -597,7 +640,7 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
               Tidak ada data yang sesuai dengan filter.
             </div>
           ) : (
-            filteredItems.map((item, idx) => {
+            itemPagination.paginatedItems.map((item, idx) => {
               const isChecked = Boolean(checkedItemIds[item.id]);
               const isFocused = !isMultiCheckedMode && activeItem?.id === item.id;
               const targetStageForDoc =
@@ -683,6 +726,20 @@ export const DocumentPickerSidebar: React.FC<DocumentPickerSidebarProps> = (prop
             })
           )}
         </div>
+
+        {filteredItems.length > 0 && (
+          <PaginationBar
+            compact
+            page={itemPagination.page}
+            pageSize={itemPagination.pageSize}
+            total={itemPagination.total}
+            onPageChange={itemPagination.setPage}
+            onPageSizeChange={itemPagination.setPageSize}
+            pageSizeOptions={itemPagination.pageSizeOptions}
+            itemLabel="data"
+            className="rounded-b-lg shrink-0"
+          />
+        )}
       </div>
     );
   };

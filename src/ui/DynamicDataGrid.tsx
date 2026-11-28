@@ -9,10 +9,6 @@ import {
   CheckCircle2,
   XCircle,
   FileText,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Image as ImageIcon,
   MoreVertical,
   Loader2,
@@ -29,6 +25,7 @@ import {
   getWhatsAppHref,
   isPhoneFieldKey,
 } from '../core/utils/autoIdHelpers';
+import { PaginationBar } from './PaginationBar';
 
 export interface CustomRowAction {
   name: string;
@@ -847,79 +844,14 @@ export function DynamicDataGrid<T extends { id: string }>({
       )}
 
       {/* Ergonomic Pagination Bar */}
-      <div className="border-t border-slate-200 px-4 py-3 bg-slate-50/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="font-medium text-slate-500">Tampilkan</span>
-          <select
-            value={pageSize}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            aria-label="Jumlah baris per halaman"
-            className="h-9 bg-white border border-slate-200 rounded-lg px-2.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 cursor-pointer tabular-nums"
-          >
-            <option value={10}>10 baris</option>
-            <option value={25}>25 baris</option>
-            <option value={50}>50 baris</option>
-            <option value={100}>100 baris</option>
-          </select>
-          <span className="text-slate-500 tabular-nums">
-            {total > 0
-              ? `Menampilkan ${(page - 1) * pageSize + 1}–${Math.min(
-                  page * pageSize,
-                  total
-                )} dari ${total} data`
-              : '0 data'}
-          </span>
-        </div>
-
-        {/* Stepper buttons (36x36px) */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => onPageChange(1)}
-            disabled={page <= 1}
-            className="w-9 h-9 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Halaman Pertama"
-            aria-label="Halaman Pertama"
-          >
-            <ChevronsLeft className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onPageChange(page - 1)}
-            disabled={page <= 1}
-            className="w-9 h-9 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Sebelumnya"
-            aria-label="Halaman Sebelumnya"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
-          <span className="h-9 px-3 rounded-lg bg-white border border-slate-200 font-semibold text-xs text-slate-800 inline-flex items-center tabular-nums">
-            Hal {page} / {totalPages}
-          </span>
-
-          <button
-            type="button"
-            onClick={() => onPageChange(page + 1)}
-            disabled={page >= totalPages}
-            className="w-9 h-9 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Berikutnya"
-            aria-label="Halaman Berikutnya"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onPageChange(totalPages)}
-            disabled={page >= totalPages}
-            className="w-9 h-9 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            title="Halaman Terakhir"
-            aria-label="Halaman Terakhir"
-          >
-            <ChevronsRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      <PaginationBar
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        itemLabel="data"
+      />
     </div>
   );
 }

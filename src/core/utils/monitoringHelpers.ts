@@ -218,6 +218,15 @@ function normalizeBukuLaporan(raw: unknown): BukuLaporanStatus | '' {
   return '';
 }
 
+export function formatBukuLaporanLabel(raw: unknown): string {
+  const code = normalizeBukuLaporan(raw);
+  if (code === 'BLM') return 'Belum Selesai';
+  if (code === 'SDH') return 'Sudah Dikerjakan';
+  if (code === 'TDK') return 'Tidak Mengerjakan';
+  const fallback = String(raw ?? '').trim();
+  return fallback || '-';
+}
+
 function normalizeAktivitasRating(raw: unknown): AktivitasSikapRating | '' {
   const low = String(raw ?? '').trim().toLowerCase();
   if (low === 'baik' || low === 'b') return 'Baik';

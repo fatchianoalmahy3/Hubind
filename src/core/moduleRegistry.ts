@@ -51,6 +51,7 @@ export interface ModuleRegistryEntry<T extends { id: string } = any> {
   supportsStudentDocs?: boolean;
   docShortcutModule?: string;
   supportsMonitoringBundle?: boolean;
+  kakomliJurusanScoped?: boolean;
 }
 
 function buildAllowedRoles(meta: ModuleMetadata<any>, extraRoles: string[] = []): string[] {
@@ -69,6 +70,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     getRepository: () => PengajuanService.getInstance(),
     allowedRoles: buildAllowedRoles(PengajuanMetadata, ['Siswa']),
     supportsStudentDocs: true,
+    kakomliJurusanScoped: true,
   },
   {
     id: 'perizinan',
@@ -80,6 +82,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     getRepository: () => PerizinanService.getInstance(),
     allowedRoles: buildAllowedRoles(PerizinanMetadata),
     supportsStudentDocs: true,
+    kakomliJurusanScoped: true,
   },
   {
     id: 'siswa_pkl',
@@ -91,6 +94,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     getRepository: () => SiswaPklService.getInstance(),
     allowedRoles: buildAllowedRoles(SiswaPklMetadata),
     supportsStudentDocs: true,
+    kakomliJurusanScoped: true,
   },
   {
     id: 'monitoring',
@@ -103,6 +107,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     allowedRoles: buildAllowedRoles(MonitoringMetadata),
     supportsStudentDocs: true,
     supportsMonitoringBundle: true,
+    kakomliJurusanScoped: true,
   },
   {
     id: 'sertifikat',
@@ -114,6 +119,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     getRepository: () => SertifikatService.getInstance(),
     allowedRoles: buildAllowedRoles(SertifikatMetadata),
     supportsStudentDocs: true,
+    kakomliJurusanScoped: true,
   },
 
   // Group 2: Master Data
@@ -127,6 +133,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     getRepository: () => SiswaService.getInstance(),
     allowedRoles: buildAllowedRoles(SiswaMetadata),
     supportsStudentDocs: true,
+    kakomliJurusanScoped: true,
   },
   {
     id: 'dudi',
@@ -159,6 +166,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     metadata: JurusanMetadata,
     getRepository: () => JurusanService.getInstance(),
     allowedRoles: buildAllowedRoles(JurusanMetadata),
+    kakomliJurusanScoped: true,
   },
   {
     id: 'kelas',
@@ -169,6 +177,7 @@ export const MODULE_REGISTRY: ModuleRegistryEntry[] = [
     metadata: KelasMetadata,
     getRepository: () => KelasService.getInstance(),
     allowedRoles: buildAllowedRoles(KelasMetadata),
+    kakomliJurusanScoped: true,
   },
 ];
 

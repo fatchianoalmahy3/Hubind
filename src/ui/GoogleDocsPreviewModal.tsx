@@ -545,7 +545,7 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
             </div>
           ) : (
             <div
-              className={`bg-white w-full max-w-[760px] px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-relaxed text-sm ${
+              className={`bg-white w-full max-w-[760px] px-8 pb-8 pt-4 sm:px-10 sm:pb-10 sm:pt-5 rounded-2xl shadow-lg border border-slate-300 font-serif text-slate-900 leading-[1.35] text-[12pt] ${
                 docType === 'nilai' ? 'flex flex-col min-h-[1040px]' : ''
               }`}
             >
@@ -600,7 +600,7 @@ export const GoogleDocsPreviewModal: React.FC<GoogleDocsPreviewModalProps> = ({
           {activeStudentList.map((stu, idx) => (
             <div
               key={stu.id || idx}
-              className="print-sheet font-serif text-slate-900 leading-relaxed text-[13px]"
+              className="print-sheet font-serif text-slate-900 leading-[1.35] text-[12pt]"
             >
               {includeKop && !isOverprintOnly && (
                 <div className="print-avoid-break">

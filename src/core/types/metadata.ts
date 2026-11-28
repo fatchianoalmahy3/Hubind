@@ -30,6 +30,7 @@ export interface FieldConfig<T = any> {
   type: FieldType;
   isTableColumn: boolean;
   isFormInput?: boolean;
+  hiddenInForm?: boolean;
   isFilterable?: boolean;
   isSearchable?: boolean;
   isSortable?: boolean;
@@ -40,6 +41,17 @@ export interface FieldConfig<T = any> {
   defaultValue?: any;
   disabled?: boolean;
   autocomplete?: boolean;
+  numericFormattedInput?: boolean;
+  visibleWhen?: { field: string; equals: any };
+  labelWhen?: { field: string; equals: any; label: string };
+  helperTextWhen?: { field: string; equals: any; helperText: string };
+  clearDependentsWhenNotEquals?: { equals: any; targetFields: string[] };
+  deriveCodeToField?: string;
+  gradeScoreConfig?: {
+    siblingKeys: string[];
+    averageField: string;
+    predikatField?: string;
+  };
   allowedRoles?: string[];
   relationSource?: 'jurusan' | 'kelas' | 'dudi' | 'guru' | 'siswa';
   allowCustomValue?: boolean;
@@ -70,6 +82,10 @@ export interface ModuleMetadata<T = any> {
   tableName: string; // Google Spreadsheet Sheet Name
   icon: string;
   allowedRoles?: string[];
+  studentValidationMode?: 'master_unique' | 'required_master' | 'optional_master';
+  canonicalizeJurusanCode?: boolean;
+  preventDuplicateActivePlacement?: boolean;
+  syncPerizinanDateRange?: boolean;
   statCards: StatCardConfig[];
   fields: FieldConfig<T>[];
   bulkActions?: BulkActionConfig<T>[];

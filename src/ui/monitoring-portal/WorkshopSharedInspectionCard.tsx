@@ -92,7 +92,7 @@ export const WorkshopSharedInspectionCard: React.FC<WorkshopSharedInspectionCard
         kondisiBengkel.kelayakan
     );
 
-  const contextKey = `${dudiNama}::${stageNum}::${studentKey}`;
+  const contextKey = `${dudiNama}::${stageNum}`;
   const prevContextRef = useRef(contextKey);
   const [isExpanded, setIsExpanded] = useState<boolean>(() => !isWorkshopComplete);
 
@@ -127,15 +127,15 @@ export const WorkshopSharedInspectionCard: React.FC<WorkshopSharedInspectionCard
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold text-emerald-800">
             <span className="inline-flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Kompetensi &amp; Bengkel Tahap {stageNum} Lengkap (1x Per DUDI)</span>
+              <span>Kompetensi &amp; Bengkel Tahap {stageNum} Siap · Berlaku {studentCount} Siswa</span>
             </span>
           </div>
           <p className="text-[11px] text-slate-600 leading-snug">
             <span className="tabular-nums font-semibold text-slate-800">{filledKompCount}</span>{' '}
             kompetensi terisi · Kondisi:{' '}
             <span className="font-semibold text-slate-800">
-              Vol {kondisiBengkel.volumePekerjaan} / Rel {kondisiBengkel.relevansiPekerjaan} / Nyaman{' '}
-              {kondisiBengkel.kenyamanan} / Layak {kondisiBengkel.kelayakan}
+              Volume {kondisiBengkel.volumePekerjaan} · Relevansi {kondisiBengkel.relevansiPekerjaan} · Nyaman{' '}
+              {kondisiBengkel.kenyamanan} · Layak {kondisiBengkel.kelayakan}
             </span>
           </p>
         </div>

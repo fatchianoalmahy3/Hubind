@@ -2,23 +2,11 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } fr
 import {
   ArrowLeft,
   Building2,
-  Check,
-  CheckCheck,
-  CheckCircle2,
-  ChevronRight,
-  ClipboardCheck,
-  Clock,
-  Eye,
   GraduationCap,
   Loader2,
-  Lock,
-  MapPin,
   RefreshCw,
   Search,
-  ShieldAlert,
   ShieldCheck,
-  UserCheck,
-  Users,
   X,
 } from 'lucide-react';
 import type { AdminSessionUser } from '../core/auth/LocalAccountAuthService';
@@ -39,24 +27,21 @@ import {
   UserRole,
 } from '../core/types/schema';
 import { ToastManager } from '../core/ToastManager';
-import { formatIndonesianDate } from '../core/utils/dateHelpers';
 import {
   matchAnyJurusanItem,
   matchJurusanItem,
   resolveKakomliJurusans,
 } from '../core/utils/jurusanHelpers';
 import {
-  ResolvedMonitoringStagePolicy,
   StageLogEntry,
   buildMonitoringLookupIndex,
   buildPerizinanAttendanceIndex,
   buildStudentMonitoringSummary,
   getPerizinanAttendanceForStudent,
   getStageValueByNumber,
-  normalizeMonitoringVerificationStatus,
   resolveMonitoringStagePolicy,
 } from '../core/utils/monitoringHelpers';
-import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
+import { stripNisSymbols } from '../core/utils/nisHelpers';
 import { isActivePlacementStatus, normalizeRelationText } from '../core/utils/relationHelpers';
 import { DudiService } from '../services/DudiService';
 import { GuruService } from '../services/GuruService';
@@ -68,60 +53,25 @@ import { SertifikatService } from '../services/SertifikatService';
 import { SiswaPklService } from '../services/SiswaPklService';
 import { SiswaService } from '../services/SiswaService';
 import { AppleConfirmModal } from './AppleConfirmModal';
-import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
+import { TopProgressBar } from './CrudProgressFeedback';
+import { RecapGroupGridView } from './dudi-monitoring-recap/RecapGroupGridView';
+import { RecapMatrixTableView } from './dudi-monitoring-recap/RecapMatrixTableView';
+import { RecapStageInspectModal } from './dudi-monitoring-recap/RecapStageInspectModal';
+import {
+  ConfirmModalState,
+  InspectTarget,
+  RecapGroup,
+  RecapViewMode,
+  StatusFilterType,
+  StudentMatrixRow,
+  VerificationStatus,
+  normalizeVerificationStatus,
+} from './dudi-monitoring-recap/types';
 
 interface DudiMonitoringRecapPageProps {
   userRole: UserRole;
   currentUser: AdminSessionUser | null;
   refreshSignal?: number;
-}
-
-type VerificationStatus = Monitoring['statusTahap'];
-type RecapViewMode = 'DUDI' | 'KELAS';
-
-interface StudentMatrixRow {
-  placementId: string;
-  nis: string;
-  namaSiswa: string;
-  kelas: string;
-  jurusan: string;
-  namaDudi: string;
-  idDudi: string;
-  guruPendamping: string;
-  isPlotted: boolean;
-  stagePolicy: ResolvedMonitoringStagePolicy;
-  stageLogs: Record<number, StageLogEntry>;
-  completedStages: number[];
-  highestStage: number;
-  hasGrade: boolean;
-  rataRataNilai: number | null;
-  sakit: number;
-  izin: number;
-  alpha: number;
-  perizinanSakit: number;
-  perizinanIzin: number;
-  dispensasiDays: number;
-}
-
-interface RecapGroup {
-  key: string;
-  mode: RecapViewMode;
-  title: string;
-  subtitle: string;
-  secondaryLabel: string;
-  jurusanList: string[];
-  students: StudentMatrixRow[];
-  plottedCount: number;
-  unplottedCount: number;
-  totalLogs: number;
-  pendingKakomliCount: number;
-  pendingHubinCount: number;
-  verifiedHubinCount: number;
-  highestStage: number;
-}
-
-function normalizeVerificationStatus(raw?: string): VerificationStatus {
-  return normalizeMonitoringVerificationStatus(raw);
 }
 
 export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = ({
@@ -150,23 +100,11 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
   const [viewMode, setViewMode] = useState<RecapViewMode>('DUDI');
   const [search, setSearch] = useState('');
   const [selectedJurusanKey, setSelectedJurusanKey] = useState<string>('ALL');
-  const [statusFilter, setStatusFilter] = useState<
-    'ALL' | 'PENDING_KAKOMLI' | 'PENDING_HUBIN' | 'ALL_VERIFIED'
-  >('ALL');
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>('ALL');
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
   const [selectedStageNum, setSelectedStageNum] = useState<number>(1);
-  const [inspectTarget, setInspectTarget] = useState<{
-    student: StudentMatrixRow;
-    log: StageLogEntry;
-  } | null>(null);
-  const [confirmModal, setConfirmModal] = useState<{
-    isOpen: boolean;
-    title: string;
-    description: string;
-    confirmText: string;
-    variant: 'primary' | 'success' | 'danger';
-    onConfirm: () => Promise<void>;
-  }>({
+  const [inspectTarget, setInspectTarget] = useState<InspectTarget | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState>({
     isOpen: false,
     title: '',
     description: '',
@@ -927,87 +865,6 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
     });
   };
 
-  const renderStageCellBadge = (
-    student: StudentMatrixRow,
-    stageNum: number,
-    isActiveCol: boolean
-  ) => {
-    const log = student.stageLogs[stageNum];
-    const isStageEnabled = student.stagePolicy.enabledStages.includes(stageNum);
-
-    if (!log || !log.monitoringId) {
-      if (!isStageEnabled) {
-        return (
-          <span
-            className="inline-flex items-center justify-center w-full py-1.5 text-[10px] font-medium text-slate-300 select-none"
-            title={`Tahap ${stageNum}: Tidak aktif untuk jurusan ${student.jurusan}`}
-          >
-            Nonaktif
-          </span>
-        );
-      }
-      return (
-        <span
-          className={`inline-flex items-center justify-center w-full py-1.5 text-xs ${
-            isActiveCol ? 'text-slate-400 font-medium' : 'text-slate-300'
-          }`}
-          title={`Tahap ${stageNum}: Belum diisi guru pembimbing`}
-        >
-          —
-        </span>
-      );
-    }
-
-    const status = normalizeVerificationStatus(log.status);
-    if (status === 'Belum Terlaksana') {
-      return (
-        <span className="inline-flex items-center justify-center w-full py-1.5 text-xs text-slate-300">
-          —
-        </span>
-      );
-    }
-
-    if (status === 'Tervalidasi Hubin') {
-      return (
-        <button
-          type="button"
-          onClick={() => setInspectTarget({ student, log })}
-          title={`Tahap ${stageNum}: Tervalidasi Hubin (${log.tanggal || '-'})`}
-          className="w-full min-h-[34px] px-1.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 inline-flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
-        >
-          <CheckCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <span className="text-[10px] font-bold leading-none">Hubin</span>
-        </button>
-      );
-    }
-
-    if (status === 'Tervalidasi Kakomli') {
-      return (
-        <button
-          type="button"
-          onClick={() => setInspectTarget({ student, log })}
-          title={`Tahap ${stageNum}: Tervalidasi Kakomli (${log.tanggal || '-'})`}
-          className="w-full min-h-[34px] px-1.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 inline-flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
-        >
-          <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-          <span className="text-[10px] font-bold leading-none">Kakomli</span>
-        </button>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        onClick={() => setInspectTarget({ student, log })}
-        title={`Tahap ${stageNum}: Sudah Terlaksana oleh Guru (${log.tanggal || '-'}), menunggu ACC Kakomli`}
-        className="w-full min-h-[34px] px-1.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 inline-flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
-      >
-        <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-        <span className="text-[10px] font-bold leading-none">Terlaksana</span>
-      </button>
-    );
-  };
-
   return (
     <div className="space-y-4">
       {/* Page Header */}
@@ -1210,824 +1067,49 @@ export const DudiMonitoringRecapPage: React.FC<DudiMonitoringRecapPageProps> = (
           <span>Memuat rekap monitoring dari Cloud Server...</span>
         </div>
       ) : !activeGroup ? (
-        /* LEVEL 1: DUDI OR KELAS CARD LIST VIEW */
-        <div className="space-y-4">
-          {/* 4 Summary Metrics */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
-              <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">
-                  {viewMode === 'DUDI' ? 'DUDI Aktif' : 'Rombel Kelas XI'}
-                </span>
-                {viewMode === 'DUDI' ? (
-                  <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
-                ) : (
-                  <GraduationCap className="w-4 h-4 text-blue-600 shrink-0" />
-                )}
-              </div>
-              <div className="text-2xl font-bold text-slate-900 tabular-nums leading-none">
-                {overviewMetrics.totalGroups}
-              </div>
-              <div className="text-[11px] text-slate-500 leading-snug">
-                {viewMode === 'DUDI' ? 'Lokasi penempatan aktif' : 'Rombongan belajar terdaftar'}
-              </div>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
-              <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">
-                  {viewMode === 'DUDI' ? 'Siswa Dimonitoring' : 'Siswa Terdaftar'}
-                </span>
-                <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-              </div>
-              <div className="text-2xl font-bold text-slate-900 tabular-nums leading-none">
-                {overviewMetrics.totalStudents}
-              </div>
-              <div className="text-[11px] text-slate-500 leading-snug">
-                {viewMode === 'DUDI'
-                  ? 'Siswa aktif PKL'
-                  : `${overviewMetrics.plottedStudents} terplot · ${overviewMetrics.totalStudents - overviewMetrics.plottedStudents} belum plot`}
-              </div>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
-              <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">Menunggu Kakomli</span>
-                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-              </div>
-              <div className="text-2xl font-bold text-amber-700 tabular-nums leading-none">
-                {overviewMetrics.pendingKakomli}
-              </div>
-              <div className="text-[11px] text-slate-500 leading-snug">
-                Tahap terlaksana belum diverifikasi
-              </div>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-1.5">
-              <div className="flex items-start justify-between gap-2 text-xs text-slate-500">
-                <span className="leading-snug font-medium">Terverifikasi Kakomli &amp; Hubin</span>
-                <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              </div>
-              <div className="text-2xl font-bold text-emerald-700 tabular-nums leading-none">
-                {overviewMetrics.verifiedHubin}
-              </div>
-              <div className="text-[11px] text-slate-500 leading-snug">
-                {overviewMetrics.pendingHubin} menunggu validasi Hubin/Waka
-              </div>
-            </div>
-          </div>
-
-          {filteredGroups.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-2">
-              {viewMode === 'DUDI' ? (
-                <Building2 className="w-9 h-9 text-slate-300 mx-auto" />
-              ) : (
-                <GraduationCap className="w-9 h-9 text-slate-300 mx-auto" />
-              )}
-              <div className="text-sm font-bold text-slate-800">
-                Belum ada data {viewMode === 'DUDI' ? 'DUDI' : 'Kelas'} yang sesuai
-              </div>
-              <p className="text-xs text-slate-500">
-                Sesuaikan pencarian, pilihan kompetensi keahlian, atau filter status di atas.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredGroups.map((group) => {
-                const needsAttention = isKakomliRole
-                  ? group.pendingKakomliCount > 0
-                  : isStrictHubinWaitingKakomli
-                  ? group.pendingHubinCount > 0
-                  : isSuperAdmin
-                  ? group.pendingKakomliCount > 0 || group.pendingHubinCount > 0
-                  : false;
-
-                return (
-                  <button
-                    key={group.key}
-                    type="button"
-                    onClick={() => handleSelectGroup(group)}
-                    className={`text-left p-4 rounded-xl border bg-white hover:border-blue-400 hover:shadow-sm transition-all flex flex-col justify-between gap-3 cursor-pointer ${
-                      needsAttention ? 'border-indigo-200 ring-1 ring-indigo-100' : 'border-slate-200'
-                    }`}
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                            {group.title}
-                          </h3>
-                          <p className="text-[11px] text-slate-500 mt-0.5 flex items-start gap-1 leading-snug">
-                            {viewMode === 'DUDI' ? (
-                              <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
-                            ) : (
-                              <UserCheck className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
-                            )}
-                            <span>{group.subtitle}</span>
-                          </p>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-800 tabular-nums shrink-0">
-                          {group.students.length} Siswa
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] text-slate-600 flex items-center justify-between gap-2">
-                        <span className="leading-snug truncate">{group.secondaryLabel}</span>
-                        {viewMode === 'KELAS' && (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums shrink-0 ${
-                              group.unplottedCount > 0
-                                ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            }`}
-                          >
-                            Plot {group.plottedCount}/{group.students.length}
-                          </span>
-                        )}
-                      </div>
-
-                      {group.jurusanList.length > 0 && (
-                        <div className="text-[11px] text-slate-500 leading-snug">
-                          Jurusan: {group.jurusanList.join(' · ')}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-2.5 border-t border-slate-100 space-y-2">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums">
-                        <span className="font-semibold text-blue-700">
-                          Menunggu Kakomli: {group.pendingKakomliCount}
-                        </span>
-                        <span className="font-semibold text-indigo-700">
-                          Menunggu Hubin: {group.pendingHubinCount}
-                        </span>
-                        <span className="font-semibold text-emerald-700">
-                          Terverifikasi: {group.verifiedHubinCount}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs font-bold text-blue-700">
-                        <span>Buka Tabel Siswa &amp; Verifikasi</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <RecapGroupGridView
+          viewMode={viewMode}
+          filteredGroups={filteredGroups}
+          overviewMetrics={overviewMetrics}
+          isKakomliRole={isKakomliRole}
+          isStrictHubinWaitingKakomli={isStrictHubinWaitingKakomli}
+          isSuperAdmin={isSuperAdmin}
+          filterResetKey={`${viewMode}::${selectedJurusanKey}::${deferredSearch}::${statusFilter}`}
+          onSelectGroup={handleSelectGroup}
+        />
       ) : (
-        /* LEVEL 2: GROUP DETAIL — MATRIX TABLE & PER-PHASE VERIFICATION */
-        <div className="space-y-4">
-          {/* Active Group Context Banner */}
-          <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="space-y-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900 leading-snug">
-                  {activeGroup.title}
-                </h2>
-                <span className="px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-[11px] font-bold text-blue-800 tabular-nums">
-                  {activeGroup.students.length} Siswa
-                </span>
-                {viewMode === 'KELAS' && activeGroup.unplottedCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 tabular-nums">
-                    {activeGroup.unplottedCount} Belum Terplotting
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                <span>{activeGroup.secondaryLabel}</span>
-                <span className="text-slate-300" aria-hidden="true">·</span>
-                <span>{activeGroup.subtitle}</span>
-              </div>
-            </div>
-
-            {/* Legend */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-600 shrink-0">
-              <span className="inline-flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                <span>Terlaksana (Menunggu Kakomli)</span>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
-                <span>Tervalidasi Kakomli (Menunggu Hubin)</span>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-                <span>Terverifikasi Kakomli &amp; Hubin</span>
-              </span>
-            </div>
-          </div>
-
-          {/* Fase Monitoring Selector + Manual Batch Verify Actions */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="text-xs font-bold text-slate-900">
-                Pilih Fase Monitoring untuk Verifikasi:
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] tabular-nums">
-                <span className="text-slate-500">
-                  Belum diisi: <strong className="text-slate-800">{stageStats.notFilled}</strong>
-                </span>
-                {stageStats.disabledCount > 0 && (
-                  <>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-slate-400">
-                      Nonaktif: <strong>{stageStats.disabledCount}</strong>
-                    </span>
-                  </>
-                )}
-                <span className="text-slate-300">·</span>
-                <span className="text-blue-700 font-semibold">
-                  Menunggu Kakomli: {stageStats.terlaksanaTargets.length}
-                </span>
-                <span className="text-slate-300">·</span>
-                <span className="text-indigo-700 font-semibold">
-                  Menunggu Hubin: {stageStats.kakomliTargets.length}
-                </span>
-                <span className="text-slate-300">·</span>
-                <span className="text-emerald-700 font-semibold">
-                  Lengkap (K+H): {stageStats.hubinTargets.length}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              {MONITORING_STAGES.map((st) => {
-                const isActive = selectedStageNum === st.num;
-                const eligibleStudents = activeGroup.students.filter((s) =>
-                  s.stagePolicy.enabledStages.includes(st.num)
-                );
-                const filledCount = activeGroup.students.filter((s) => {
-                  const l = s.stageLogs[st.num];
-                  return l?.monitoringId && normalizeVerificationStatus(l.status) !== 'Belum Terlaksana';
-                }).length;
-                const allDisabled = eligibleStudents.length === 0 && filledCount === 0;
-
-                return (
-                  <button
-                    key={st.num}
-                    type="button"
-                    onClick={() => setSelectedStageNum(st.num)}
-                    className={`min-h-[38px] px-3 py-1.5 rounded-lg border text-xs font-semibold shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
-                      isActive
-                        ? 'bg-slate-900 border-slate-900 text-white'
-                        : allDisabled
-                        ? 'bg-slate-50/60 border-slate-200/80 text-slate-400 hover:bg-slate-100'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>{st.label}</span>
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-white text-slate-600 border border-slate-200'
-                      }`}
-                    >
-                      {allDisabled
-                        ? 'Nonaktif'
-                        : `${filledCount}/${eligibleStudents.length || activeGroup.students.length}`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Manual Verification Action Strip */}
-            {(canVerifyKakomli || canVerifyHubin) && (
-              <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] text-slate-500">
-                  {isStrictHubinWaitingKakomli &&
-                  stageStats.terlaksanaTargets.length > 0 &&
-                  hubinEligibleTargets.length === 0
-                    ? `${stageStats.terlaksanaTargets.length} siswa pada ${getStageValueByNumber(selectedStageNum)} masih menunggu ACC Kakomli sebelum Validasi Hubin dapat dilakukan.`
-                    : (
-                      <>
-                        Verifikasi berjenjang (Kakomli lalu Hubin) pada{' '}
-                        <strong className="text-slate-700">{getStageValueByNumber(selectedStageNum)}</strong>.
-                      </>
-                    )}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {canVerifyKakomli && stageStats.terlaksanaTargets.length > 0 && (
-                    <button
-                      type="button"
-                      disabled={batchSaving}
-                      onClick={() =>
-                        setConfirmModal({
-                          isOpen: true,
-                          title: `Verifikasi Kakomli (${stageStats.terlaksanaTargets.length} Siswa)?`,
-                          description: `Status tahap ${getStageValueByNumber(
-                            selectedStageNum
-                          )} untuk ${stageStats.terlaksanaTargets.length} siswa berstatus Terlaksana di ${
-                            activeGroup.title
-                          } akan diverifikasi menjadi Tervalidasi Kakomli.`,
-                          confirmText: 'Ya, Verifikasi Kakomli',
-                          variant: 'primary',
-                          onConfirm: async () => {
-                            await handleBatchVerify(
-                              stageStats.terlaksanaTargets,
-                              'Tervalidasi Kakomli'
-                            );
-                          },
-                        })
-                      }
-                      className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        Verifikasi Kakomli Tahap {selectedStageNum} ({stageStats.terlaksanaTargets.length})
-                      </span>
-                    </button>
-                  )}
-
-                  {canVerifyHubin && hubinEligibleTargets.length > 0 && (
-                    <button
-                      type="button"
-                      disabled={batchSaving}
-                      onClick={() =>
-                        setConfirmModal({
-                          isOpen: true,
-                          title: `Verifikasi Hubin (${hubinEligibleTargets.length} Siswa)?`,
-                          description: `Status tahap ${getStageValueByNumber(
-                            selectedStageNum
-                          )} untuk ${hubinEligibleTargets.length} siswa di ${
-                            activeGroup.title
-                          } akan divalidasi menjadi Tervalidasi Hubin.`,
-                          confirmText: 'Ya, Validasi Hubin',
-                          variant: 'success',
-                          onConfirm: async () => {
-                            await handleBatchVerify(hubinEligibleTargets, 'Tervalidasi Hubin');
-                          },
-                        })
-                      }
-                      className="h-9 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                    >
-                      <CheckCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        Verifikasi Hubin Tahap {selectedStageNum} ({hubinEligibleTargets.length})
-                      </span>
-                    </button>
-                  )}
-
-                  {isSuperAdmin && stageStats.terlaksanaTargets.length > 0 && (
-                    <button
-                      type="button"
-                      disabled={batchSaving}
-                      onClick={() =>
-                        setConfirmModal({
-                          isOpen: true,
-                          title: `Bypass Kakomli & Validasi Hubin (${stageStats.terlaksanaTargets.length} Siswa)?`,
-                          description: `SuperAdmin Override: ${stageStats.terlaksanaTargets.length} siswa berstatus Terlaksana pada ${getStageValueByNumber(
-                            selectedStageNum
-                          )} di ${activeGroup.title} akan langsung divalidasi menjadi Tervalidasi Hubin tanpa menunggu ACC Kakomli.`,
-                          confirmText: 'Ya, Bypass ke Hubin',
-                          variant: 'danger',
-                          onConfirm: async () => {
-                            await handleBatchVerify(
-                              stageStats.terlaksanaTargets,
-                              'Tervalidasi Hubin'
-                            );
-                          },
-                        })
-                      }
-                      className="h-9 px-3.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                    >
-                      <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span>
-                        Bypass Kakomli → Hubin ({stageStats.terlaksanaTargets.length})
-                      </span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Matrix Table: Student x Monitoring Phases */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600">
-                    <th className="py-3 px-3.5 sticky left-0 z-10 bg-slate-50 border-r border-slate-200 min-w-[190px] sm:min-w-[235px]">
-                      {viewMode === 'DUDI' ? 'Siswa & Jurusan' : 'Siswa & Lokasi DUDI'}
-                    </th>
-                    {MONITORING_STAGES.map((st) => {
-                      const isActiveCol = st.num === selectedStageNum;
-                      const headerLabel = st.num === 5 ? 'Mon 4' : st.shortLabel;
-                      return (
-                        <th
-                          key={st.num}
-                          onClick={() => setSelectedStageNum(st.num)}
-                          className={`py-2.5 px-2 text-center min-w-[82px] cursor-pointer transition-colors select-none ${
-                            isActiveCol
-                              ? 'bg-blue-50 text-blue-900 border-b-2 border-b-blue-600'
-                              : 'hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="font-mono text-[10px] text-slate-400">Tahap {st.num}</div>
-                          <div className="whitespace-nowrap">{headerLabel}</div>
-                        </th>
-                      );
-                    })}
-                    <th
-                      className="py-2.5 px-2.5 text-center min-w-[76px]"
-                      title="Akumulasi Sakit / Izin / Alpha (termasuk Perizinan SO/SD/I; Dispensasi ID tidak dijumlahkan)"
-                    >
-                      S/I/A
-                    </th>
-                    <th className="py-2.5 px-2.5 text-center min-w-[64px]">Nilai</th>
-                    <th className="py-2.5 px-3 text-right min-w-[155px]">
-                      Aksi Tahap {selectedStageNum}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {activeGroup.students.map((student) => {
-                    const activeLog = student.stageLogs[selectedStageNum];
-                    const activeStatus = activeLog?.monitoringId
-                      ? normalizeVerificationStatus(activeLog.status)
-                      : 'Belum Terlaksana';
-                    const isStageEnabled = student.stagePolicy.enabledStages.includes(selectedStageNum);
-                    const isRowSaving = Boolean(
-                      activeLog?.monitoringId && savingId === activeLog.monitoringId
-                    );
-
-                    return (
-                      <tr key={student.placementId} className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3.5 sticky left-0 z-10 bg-white border-r border-slate-100 align-middle">
-                          <div className="font-bold text-slate-900 leading-snug">
-                            {student.namaSiswa}
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
-                            {formatNisVisual(student.nis)} · {student.kelas}
-                          </div>
-                          {viewMode === 'KELAS' ? (
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              {student.isPlotted ? (
-                                <span className="text-[11px] font-medium text-blue-700 leading-snug">
-                                  {student.namaDudi}
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold">
-                                  Belum Terplotting
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="text-[11px] text-slate-500 mt-0.5">
-                              {student.jurusan}
-                              {student.stagePolicy.isCustomJurusanPolicy
-                                ? ` · ${student.stagePolicy.totalStages} tahap`
-                                : ''}
-                            </div>
-                          )}
-                        </td>
-
-                        {MONITORING_STAGES.map((st) => {
-                          const isActiveCol = st.num === selectedStageNum;
-                          return (
-                            <td
-                              key={st.num}
-                              className={`py-2 px-1.5 text-center align-middle ${
-                                isActiveCol ? 'bg-blue-50/35' : ''
-                              }`}
-                            >
-                              {renderStageCellBadge(student, st.num, isActiveCol)}
-                            </td>
-                          );
-                        })}
-
-                        <td
-                          className="py-2 px-2.5 text-center align-middle font-mono text-slate-700 tabular-nums whitespace-nowrap"
-                          title={
-                            student.perizinanSakit > 0 ||
-                            student.perizinanIzin > 0 ||
-                            student.dispensasiDays > 0
-                              ? `Dari Perizinan: Sakit +${student.perizinanSakit} hr, Izin +${student.perizinanIzin} hr${
-                                  student.dispensasiDays > 0
-                                    ? ` (Dispensasi ${student.dispensasiDays} hr tdk dijumlahkan)`
-                                    : ''
-                                }`
-                              : 'Akumulasi Monitoring + Perizinan (SO/SD/I)'
-                          }
-                        >
-                          <span>
-                            {student.sakit}/{student.izin}/{student.alpha}
-                          </span>
-                          {(student.perizinanSakit > 0 || student.perizinanIzin > 0) && (
-                            <div className="text-[10px] text-blue-600 font-sans font-semibold leading-tight mt-0.5">
-                              +Izin
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-2 px-2.5 text-center align-middle font-mono font-bold tabular-nums">
-                          {student.hasGrade && student.rataRataNilai !== null ? (
-                            <span className="text-emerald-700">{student.rataRataNilai}</span>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
-                        </td>
-
-                        <td className="py-2 px-3 text-right align-middle whitespace-nowrap">
-                          {!activeLog || !activeLog.monitoringId || activeStatus === 'Belum Terlaksana' ? (
-                            <span className="text-[11px] text-slate-400">
-                              {isStageEnabled ? 'Belum ada data' : 'Nonaktif jurusan'}
-                            </span>
-                          ) : (
-                            <div className="inline-flex items-center justify-end gap-1.5">
-                              {canVerifyKakomli && activeStatus === 'Terlaksana' && (
-                                <button
-                                  type="button"
-                                  disabled={isRowSaving || batchSaving}
-                                  onClick={() =>
-                                    handleUpdateSingleVerification(
-                                      student,
-                                      activeLog,
-                                      'Tervalidasi Kakomli'
-                                    )
-                                  }
-                                  className="h-8 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                >
-                                  {isRowSaving ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <ClipboardCheck className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>Verifikasi</span>
-                                </button>
-                              )}
-
-                              {isSuperAdmin && activeStatus === 'Terlaksana' && (
-                                <button
-                                  type="button"
-                                  disabled={isRowSaving || batchSaving}
-                                  onClick={() => confirmSuperAdminBypassSingle(student, activeLog)}
-                                  title="SuperAdmin Bypass: Validasi Hubin tanpa menunggu Kakomli"
-                                  className="h-8 px-2.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                >
-                                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-                                  <span>Bypass</span>
-                                </button>
-                              )}
-
-                              {canVerifyHubin && activeStatus === 'Tervalidasi Kakomli' && (
-                                <button
-                                  type="button"
-                                  disabled={isRowSaving || batchSaving}
-                                  onClick={() =>
-                                    handleUpdateSingleVerification(
-                                      student,
-                                      activeLog,
-                                      'Tervalidasi Hubin'
-                                    )
-                                  }
-                                  className="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                >
-                                  {isRowSaving ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <CheckCheck className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>Validasi Hubin</span>
-                                </button>
-                              )}
-
-                              {isStrictHubinWaitingKakomli && activeStatus === 'Terlaksana' && (
-                                <span
-                                  className="px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold inline-flex items-center gap-1"
-                                  title="Validasi Hubin wajib menunggu persetujuan Kakomli terlebih dahulu"
-                                >
-                                  <Lock className="w-3 h-3 text-amber-600 shrink-0" />
-                                  <span>Menunggu ACC Kakomli</span>
-                                </span>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => setInspectTarget({ student, log: activeLog })}
-                                className="h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                                title="Lihat rincian catatan monitoring"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-slate-500" />
-                                <span>Detail</span>
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <RecapMatrixTableView
+          activeGroup={activeGroup}
+          viewMode={viewMode}
+          selectedStageNum={selectedStageNum}
+          stageStats={stageStats}
+          hubinEligibleTargets={hubinEligibleTargets}
+          canVerifyKakomli={canVerifyKakomli}
+          canVerifyHubin={canVerifyHubin}
+          isSuperAdmin={isSuperAdmin}
+          isStrictHubinWaitingKakomli={isStrictHubinWaitingKakomli}
+          savingId={savingId}
+          batchSaving={batchSaving}
+          onSelectStageNum={setSelectedStageNum}
+          onInspectTarget={setInspectTarget}
+          onUpdateSingleVerification={handleUpdateSingleVerification}
+          onBatchVerify={handleBatchVerify}
+          onConfirmSuperAdminBypassSingle={confirmSuperAdminBypassSingle}
+          onOpenConfirmModal={setConfirmModal}
+        />
       )}
 
-      {/* Detail & Manual Verification Modal */}
-      {inspectTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/55 backdrop-blur-[2px]"
-          onClick={() => savingId !== inspectTarget.log.monitoringId && setInspectTarget(null)}
-        >
-          <div
-            className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                  {inspectTarget.student.namaSiswa}
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  {getStageValueByNumber(inspectTarget.log.stageNum)} · {inspectTarget.student.kelas} ·{' '}
-                  {inspectTarget.student.namaDudi}
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={savingId === inspectTarget.log.monitoringId}
-                onClick={() => setInspectTarget(null)}
-                aria-label="Tutup detail monitoring"
-                className="w-8 h-8 rounded-lg hover:bg-slate-200/70 text-slate-500 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <TopProgressBar
-              active={savingId === inspectTarget.log.monitoringId}
-              label="Menyimpan verifikasi monitoring ke Cloud Server"
-            />
-
-            <div className="p-5 overflow-y-auto space-y-3.5 text-xs">
-              <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/70">
-                <div>
-                  <div className="text-[11px] text-slate-500">Status Verifikasi Tahap Ini</div>
-                  <div className="font-bold text-slate-900 mt-0.5">
-                    {normalizeVerificationStatus(inspectTarget.log.status)}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[11px] text-slate-500">Tanggal Kunjungan</div>
-                  <div className="font-semibold text-slate-800 mt-0.5">
-                    {inspectTarget.log.tanggal
-                      ? formatIndonesianDate(inspectTarget.log.tanggal)
-                      : '-'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="p-3 rounded-xl border border-slate-200">
-                  <div className="text-[11px] text-slate-500">Absensi Tahap Ini (S / I / A)</div>
-                  <div className="font-mono font-bold text-slate-900 mt-0.5 tabular-nums">
-                    {inspectTarget.log.sakit} / {inspectTarget.log.izin} / {inspectTarget.log.alpha}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1 tabular-nums">
-                    Total Akumulasi: <b>{inspectTarget.student.sakit}/{inspectTarget.student.izin}/{inspectTarget.student.alpha}</b>
-                    {(inspectTarget.student.perizinanSakit > 0 || inspectTarget.student.perizinanIzin > 0)
-                      ? ` (termasuk Izin S+${inspectTarget.student.perizinanSakit}, I+${inspectTarget.student.perizinanIzin})`
-                      : ''}
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl border border-slate-200">
-                  <div className="text-[11px] text-slate-500">Buku Laporan</div>
-                  <div className="font-bold text-slate-900 mt-0.5">
-                    {inspectTarget.log.bukuLaporan || '-'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-200 space-y-1">
-                <div className="text-[11px] text-slate-500">Aktivitas &amp; Sikap Siswa</div>
-                <div className="font-semibold text-slate-800">
-                  Disiplin: {inspectTarget.log.aktivitasDp || '-'} · Motivasi:{' '}
-                  {inspectTarget.log.aktivitasMt || '-'} · Kreativitas:{' '}
-                  {inspectTarget.log.aktivitasKrt || '-'}
-                </div>
-              </div>
-
-              {inspectTarget.log.kompetensiList.length > 0 && (
-                <div className="p-3 rounded-xl border border-slate-200 space-y-1">
-                  <div className="text-[11px] text-slate-500">Kompetensi Didapat</div>
-                  <ul className="list-decimal pl-4 space-y-0.5 text-slate-800">
-                    {inspectTarget.log.kompetensiList.map((k, idx) => (
-                      <li key={idx}>{k}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="p-3 rounded-xl border border-slate-200 space-y-1">
-                <div className="text-[11px] text-slate-500">Catatan Kunjungan Guru</div>
-                <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">
-                  {inspectTarget.log.catatan || 'Tidak ada catatan tambahan.'}
-                </p>
-              </div>
-            </div>
-
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                disabled={savingId === inspectTarget.log.monitoringId}
-                onClick={() => setInspectTarget(null)}
-                className="h-9 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Tutup
-              </button>
-
-              {canVerifyKakomli &&
-                normalizeVerificationStatus(inspectTarget.log.status) === 'Terlaksana' && (
-                  <button
-                    type="button"
-                    disabled={savingId === inspectTarget.log.monitoringId}
-                    onClick={() =>
-                      handleUpdateSingleVerification(
-                        inspectTarget.student,
-                        inspectTarget.log,
-                        'Tervalidasi Kakomli'
-                      )
-                    }
-                    className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {savingId === inspectTarget.log.monitoringId ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    )}
-                    <span>
-                      {savingId === inspectTarget.log.monitoringId
-                        ? 'Menyimpan...'
-                        : 'Verifikasi Kakomli'}
-                    </span>
-                  </button>
-                )}
-
-              {isSuperAdmin &&
-                normalizeVerificationStatus(inspectTarget.log.status) === 'Terlaksana' && (
-                  <button
-                    type="button"
-                    disabled={savingId === inspectTarget.log.monitoringId}
-                    onClick={() =>
-                      confirmSuperAdminBypassSingle(inspectTarget.student, inspectTarget.log)
-                    }
-                    className="h-9 px-3.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Bypass Kakomli &amp; Validasi Hubin</span>
-                  </button>
-                )}
-
-              {canVerifyHubin &&
-                normalizeVerificationStatus(inspectTarget.log.status) === 'Tervalidasi Kakomli' && (
-                  <button
-                    type="button"
-                    disabled={savingId === inspectTarget.log.monitoringId}
-                    onClick={() =>
-                      handleUpdateSingleVerification(
-                        inspectTarget.student,
-                        inspectTarget.log,
-                        'Tervalidasi Hubin'
-                      )
-                    }
-                    className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {savingId === inspectTarget.log.monitoringId ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <CheckCheck className="w-3.5 h-3.5" />
-                    )}
-                    <span>
-                      {savingId === inspectTarget.log.monitoringId
-                        ? 'Menyimpan...'
-                        : 'Verifikasi Hubin'}
-                    </span>
-                  </button>
-                )}
-
-              {isStrictHubinWaitingKakomli &&
-                normalizeVerificationStatus(inspectTarget.log.status) === 'Terlaksana' && (
-                  <span className="text-[11px] font-medium text-amber-800 inline-flex items-center gap-1 mr-auto">
-                    <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>Menunggu ACC Kakomli sebelum validasi Hubin.</span>
-                  </span>
-                )}
-            </div>
-
-            <CrudLoadingOverlay
-              visible={savingId === inspectTarget.log.monitoringId}
-              tone="emerald"
-              title="Menyimpan Verifikasi ke Cloud Server..."
-              subtitle="Mohon tunggu sejenak hingga status verifikasi diperbarui."
-            />
-          </div>
-        </div>
-      )}
+      <RecapStageInspectModal
+        inspectTarget={inspectTarget}
+        savingId={savingId}
+        canVerifyKakomli={canVerifyKakomli}
+        canVerifyHubin={canVerifyHubin}
+        isSuperAdmin={isSuperAdmin}
+        isStrictHubinWaitingKakomli={isStrictHubinWaitingKakomli}
+        onClose={() => setInspectTarget(null)}
+        onUpdateSingleVerification={handleUpdateSingleVerification}
+        onConfirmSuperAdminBypassSingle={confirmSuperAdminBypassSingle}
+      />
 
       {/* Confirmation Modal */}
       <AppleConfirmModal

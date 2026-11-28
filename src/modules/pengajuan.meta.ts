@@ -8,6 +8,7 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
   tableName: 'Data_Pengajuan_PKL',
   icon: 'FileText',
   allowedRoles: ['Hubin', 'Pokja', 'Kakomli', 'Waka', 'Kepsek'],
+  studentValidationMode: 'required_master',
   statCards: [
     {
       title: 'Total Pengajuan Masuk',
@@ -45,6 +46,7 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       type: 'text',
       isTableColumn: true,
       isFormInput: true,
+      hiddenInForm: true,
       isSearchable: true,
       isSortable: true,
       disabled: true,
@@ -113,6 +115,7 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis saat memilih Mitra DUDI',
     },
@@ -305,6 +308,7 @@ export const PengajuanMetadata: ModuleMetadata<Pengajuan> = {
       type: 'text',
       isTableColumn: false,
       isFormInput: true,
+      hiddenInForm: true,
       disabled: true,
       placeholder: 'Otomatis dari Mitra DUDI / Master Guru',
     },

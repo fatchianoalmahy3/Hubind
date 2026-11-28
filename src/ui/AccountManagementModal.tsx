@@ -22,7 +22,9 @@ import {
   getStoredAdminSession,
 } from '../core/auth/LocalAccountAuthService';
 import { ToastManager } from '../core/ToastManager';
+import { usePagination } from '../hooks/usePagination';
 import { CrudLoadingOverlay, TopProgressBar } from './CrudProgressFeedback';
+import { PaginationBar } from './PaginationBar';
 
 interface AccountManagementModalProps {
   isOpen: boolean;
@@ -65,6 +67,16 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   const [jabatan, setJabatan] = useState('');
   const [status, setStatus] = useState<'Aktif' | 'Nonaktif'>('Aktif');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const {
+    paginatedItems: paginatedAccounts,
+    page,
+    pageSize,
+    total,
+    pageSizeOptions,
+    setPage,
+    setPageSize,
+  } = usePagination(accounts, { defaultPageSize: 10 });
 
   const loadAccounts = useCallback(async () => {
     if (!isOpen || !currentUser) return;
@@ -414,7 +426,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                           </td>
                         </tr>
                       ) : (
-                        accounts.map((acc) => (
+                        paginatedAccounts.map((acc) => (
                           <tr key={acc.id} className="hover:bg-slate-50/70">
                             <td className="py-2.5 px-3.5 font-mono font-bold text-slate-900">
                               {acc.username}
@@ -496,6 +508,18 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                     </tbody>
                   </table>
                 </div>
+                {accounts.length > 0 && (
+                  <PaginationBar
+                    compact
+                    page={page}
+                    pageSize={pageSize}
+                    total={total}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    pageSizeOptions={pageSizeOptions}
+                    itemLabel="akun"
+                  />
+                )}
               </div>
             </div>
           )}

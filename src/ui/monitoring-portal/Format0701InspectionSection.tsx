@@ -15,22 +15,21 @@ interface Format0701InspectionSectionProps {
 
 const BUKU_LAPORAN_OPTIONS: Array<{
   code: BukuLaporanStatus;
-  title: string;
+  label: string;
   desc: string;
 }> = [
-  { code: 'BLM', title: 'BLM', desc: 'Belum Selesai Mengerjakan' },
-  { code: 'SDH', title: 'SDH', desc: 'Sudah Dikerjakan' },
-  { code: 'TDK', title: 'TDK', desc: 'Tidak Mengerjakan / Tertinggal' },
+  { code: 'BLM', label: 'Belum Selesai', desc: 'Belum Selesai Mengerjakan' },
+  { code: 'SDH', label: 'Sudah Dikerjakan', desc: 'Sudah Dikerjakan Lengkap' },
+  { code: 'TDK', label: 'Tidak Mengerjakan', desc: 'Tidak Mengerjakan / Tertinggal' },
 ];
 
 const SIKAP_ROWS: Array<{
   field: 'aktivitasDp' | 'aktivitasMt' | 'aktivitasKrt';
-  code: string;
   label: string;
 }> = [
-  { field: 'aktivitasDp', code: 'DP', label: 'Kedisiplinan' },
-  { field: 'aktivitasMt', code: 'MT', label: 'Motivasi' },
-  { field: 'aktivitasKrt', code: 'KRT', label: 'Kreativitas' },
+  { field: 'aktivitasDp', label: 'Kedisiplinan' },
+  { field: 'aktivitasMt', label: 'Motivasi' },
+  { field: 'aktivitasKrt', label: 'Kreativitas' },
 ];
 
 const SIKAP_VALUES: AktivitasSikapRating[] = ['Kurang', 'Cukup', 'Baik'];
@@ -52,7 +51,7 @@ export const Format0701InspectionSection: React.FC<Format0701InspectionSectionPr
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5 sm:space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[11px] font-semibold text-slate-600">
           Ceklist Buku Laporan &amp; Sikap Siswa
@@ -64,13 +63,13 @@ export const Format0701InspectionSection: React.FC<Format0701InspectionSectionPr
             className="min-h-[34px] px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
           >
             <Sparkles className="w-3 h-3 shrink-0" />
-            <span>Isi Cepat: SDH &amp; Baik</span>
+            <span>Isi Cepat: Sudah Dikerjakan &amp; Baik</span>
           </button>
         )}
       </div>
 
       {/* Ceklist Buku Laporan */}
-      <div className="p-3 sm:p-4 bg-white border border-slate-200 rounded-xl sm:rounded-2xl space-y-2">
+      <div className="p-2.5 sm:p-4 bg-white border border-slate-200 rounded-xl sm:rounded-2xl space-y-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
           <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
           <span>Ceklist Buku Laporan Siswa *</span>
@@ -84,21 +83,22 @@ export const Format0701InspectionSection: React.FC<Format0701InspectionSectionPr
                 type="button"
                 disabled={disabled}
                 onClick={() => onChangeBukuLaporan(opt.code)}
-                className={`min-h-[42px] px-3 py-2 rounded-xl border text-left transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center sm:items-start gap-2.5 ${
+                className={`min-h-[46px] sm:min-h-[52px] px-3 py-2 rounded-xl border text-left transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center sm:items-start justify-start gap-2.5 ${
                   active
                     ? 'border-blue-600 bg-blue-50 text-blue-950 ring-2 ring-blue-600/20'
                     : 'border-slate-200 bg-slate-50/70 hover:border-slate-300 text-slate-700'
                 }`}
               >
-                {active ? (
-                  <CheckSquare className="w-4 h-4 text-blue-600 shrink-0 sm:mt-0.5" />
-                ) : (
-                  <Square className="w-4 h-4 text-slate-400 shrink-0 sm:mt-0.5" />
-                )}
-                <div className="min-w-0 flex sm:block items-baseline gap-1.5">
-                  <span className="text-xs font-bold shrink-0">{opt.title}</span>
-                  <span className="sm:hidden text-slate-400">·</span>
-                  <span className="text-[11px] sm:text-[10px] text-slate-600 sm:text-slate-500 sm:block leading-tight">
+                <div className="sm:mt-0.5 shrink-0">
+                  {active ? (
+                    <CheckSquare className="w-4 h-4 text-blue-600 shrink-0" />
+                  ) : (
+                    <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <span className="block text-xs font-bold leading-snug">{opt.label}</span>
+                  <span className="hidden sm:block text-[10px] text-slate-500 leading-tight mt-0.5">
                     {opt.desc}
                   </span>
                 </div>
@@ -108,11 +108,11 @@ export const Format0701InspectionSection: React.FC<Format0701InspectionSectionPr
         </div>
       </div>
 
-      {/* Ceklist Aktivitas Siswa (DP, MT, KRT) */}
+      {/* Ceklist Aktivitas & Sikap Siswa */}
       <div className="p-3 sm:p-4 bg-white border border-slate-200 rounded-xl sm:rounded-2xl space-y-2">
         <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
           <UserCheck className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>Ceklist Aktivitas Siswa *</span>
+          <span>Ceklist Aktivitas &amp; Sikap Siswa *</span>
         </div>
         <div className="space-y-2">
           {SIKAP_ROWS.map((row) => {
@@ -122,10 +122,7 @@ export const Format0701InspectionSection: React.FC<Format0701InspectionSectionPr
                 key={row.field}
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 p-2.5 rounded-xl border border-slate-200/80 bg-slate-50/60"
               >
-                <div className="text-xs font-bold text-slate-800">
-                  <span className="inline-block min-w-[34px] text-blue-700">{row.code}</span>
-                  <span>: {row.label}</span>
-                </div>
+                <div className="text-xs font-bold text-slate-800">{row.label}</div>
                 <div className="grid grid-cols-3 gap-1.5 sm:w-[270px]">
                   {SIKAP_VALUES.map((rating) => {
                     const selected = currentVal === rating;

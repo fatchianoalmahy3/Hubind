@@ -279,7 +279,7 @@ export const DocumentBodyRenderer: React.FC<{
                     href={getWhatsAppHref(dudi.kontakPic)!}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-mono text-[11pt] text-emerald-700 hover:underline print:text-slate-950 print:no-underline"
+                    className="font-serif tabular-nums text-[12pt] text-emerald-700 hover:underline print:text-slate-950 print:no-underline"
                   >
                     {formatPhoneDisplay(dudi.kontakPic)}
                   </a>
@@ -357,8 +357,8 @@ export const DocumentBodyRenderer: React.FC<{
           <div className="font-bold uppercase underline text-[13pt] tracking-wide">
             LEMBAR PERMOHONAN REKOMENDASI PRAKERIN
           </div>
-          <div className="text-[11.5pt] font-serif text-slate-700">
-            No. Registrasi: <b className="font-mono text-slate-900">{req.noPengajuan}</b> • TA {activeYear}
+          <div className="text-[12pt] font-serif text-slate-700">
+            No. Registrasi: <b className="font-serif tabular-nums text-slate-900">{req.noPengajuan}</b> • TA {activeYear}
           </div>
         </div>
 
@@ -374,7 +374,7 @@ export const DocumentBodyRenderer: React.FC<{
             </tr>
             <tr className="border-b border-slate-200">
               <td className="py-1 font-bold">NIS</td>
-              <td className="py-1 font-mono text-[11pt]">: {formatNisVisual(resolvedNis)}</td>
+              <td className="py-1 font-serif tabular-nums text-[12pt]">: {formatNisVisual(resolvedNis)}</td>
             </tr>
             <tr className="border-b border-slate-200">
               <td className="py-1 font-bold">Kompetensi Keahlian / Kelas</td>
@@ -391,7 +391,7 @@ export const DocumentBodyRenderer: React.FC<{
             {mapsUrl && (
               <tr className="border-b border-slate-200">
                 <td className="py-1 font-bold">Tautan Google Maps</td>
-                <td className="py-1 font-mono text-[10pt] break-all text-blue-800">: {mapsUrl}</td>
+                <td className="py-1 font-serif text-[10.5pt] break-all text-blue-800">: {mapsUrl}</td>
               </tr>
             )}
           </tbody>
@@ -522,7 +522,7 @@ export const DocumentBodyRenderer: React.FC<{
           Berdasarkan surat balasan kesediaan tempat PKL Tahun Ajaran {activeYear}, bersama ini kami menyerahkan peserta didik SMK PGRI 2 Ponorogo untuk melaksanakan Praktik Kerja Industri terhitung mulai tanggal <b>{formatIndonesianDate(penempatan.tanggalBerangkat)}</b> s.d. <b>{formatIndonesianDate(penempatan.tanggalRencanaTarik)}</b> di bawah pendampingan <b>{penempatan.guruPendamping || '-'}</b>:
         </p>
 
-        <table className="w-full text-[11pt] font-serif border border-slate-400 border-collapse">
+        <table className="w-full text-[12pt] font-serif border border-slate-400 border-collapse">
           <thead className="bg-slate-100">
             <tr>
               <th className="border border-slate-400 px-2 py-1 w-9 text-center">No</th>
@@ -535,9 +535,9 @@ export const DocumentBodyRenderer: React.FC<{
             {(groupPeers.length > 0 ? groupPeers : [penempatan]).map((s, idx) => (
               <tr key={`${s.id || 'peer'}_${idx}`}>
                 <td className="border border-slate-400 px-2 py-1 text-center">{idx + 1}</td>
-                <td className="border border-slate-400 px-2 py-1 font-mono text-[10.5pt]">{formatNisVisual(s.nis)}</td>
+                <td className="border border-slate-400 px-2 py-1 font-serif tabular-nums">{formatNisVisual(s.nis)}</td>
                 <td className="border border-slate-400 px-2 py-1 font-semibold">{s.namaSiswa}</td>
-                <td className="border border-slate-400 px-2 py-1 font-mono text-[10.5pt]">{s.idPenempatan}</td>
+                <td className="border border-slate-400 px-2 py-1 font-serif tabular-nums">{s.idPenempatan}</td>
               </tr>
             ))}
           </tbody>
@@ -597,7 +597,7 @@ export const DocumentBodyRenderer: React.FC<{
         Sehubungan dengan berakhirnya masa pelaksanaan Praktik Kerja Industri (PKL) siswa SMK PGRI 2 Ponorogo Tahun Ajaran {activeYear} (rencana tanggal selesai: <b>{formatIndonesianDate(penempatan.tanggalRencanaTarik, tanggalSurat)}</b>), kami menugaskan <b>{penempatan.guruPendamping || '-'}</b> untuk melakukan penarikan resmi peserta didik berikut:
       </p>
 
-      <table className="w-full text-[11pt] font-serif border border-slate-400 border-collapse">
+      <table className="w-full text-[12pt] font-serif border border-slate-400 border-collapse">
         <thead className="bg-slate-100">
           <tr>
             <th className="border border-slate-400 px-2 py-1 w-9 text-center">No</th>
@@ -610,7 +610,7 @@ export const DocumentBodyRenderer: React.FC<{
           {(groupPeers.length > 0 ? groupPeers : [penempatan]).map((s, idx) => (
             <tr key={`${s.id || 'pull'}_${idx}`}>
               <td className="border border-slate-400 px-2 py-1 text-center">{idx + 1}</td>
-              <td className="border border-slate-400 px-2 py-1 font-mono text-[10.5pt]">{formatNisVisual(s.nis)}</td>
+              <td className="border border-slate-400 px-2 py-1 font-serif tabular-nums">{formatNisVisual(s.nis)}</td>
               <td className="border border-slate-400 px-2 py-1 font-semibold">{s.namaSiswa}</td>
               <td className="border border-slate-400 px-2 py-1">
                 {formatIndonesianDateRange(s.tanggalBerangkat, s.tanggalRencanaTarik)}

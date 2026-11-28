@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { FieldConfig } from '../core/types/metadata';
+import { FieldConfig, ModuleMetadata } from '../core/types/metadata';
+import { getModuleEntry } from '../core/moduleRegistry';
 import { useDynamicForm } from '../hooks/useDynamicForm';
 import { formatPerizinanDateRange, normalizeToIsoDate } from '../core/utils/dateHelpers';
 import { formatNisVisual, stripNisSymbols } from '../core/utils/nisHelpers';
@@ -15,6 +16,7 @@ interface DynamicFormModalProps<T = any> {
   onClose: () => void;
   title: string;
   fields: FieldConfig<T>[];
+  moduleMetadata?: ModuleMetadata<T>;
   initialData?: Partial<T>;
   existingRows?: T[];
   moduleId?: string;
@@ -28,6 +30,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
   onClose,
   title,
   fields,
+  moduleMetadata,
   initialData = {},
   existingRows = [],
   moduleId,
@@ -35,7 +38,16 @@ export function DynamicFormModal<T extends Record<string, any>>({
   onSubmit,
   onOpenImageCropper,
 }: DynamicFormModalProps<T>) {
+  const effectiveMeta = useMemo(
+    () => moduleMetadata || (moduleId ? (getModuleEntry(moduleId)?.metadata as ModuleMetadata<T> | undefined) : undefined),
+    [moduleMetadata, moduleId]
+  );
+
   const formFields = useMemo(() => fields.filter((f) => f.isFormInput !== false), [fields]);
+  const visibleFormFields = useMemo(
+    () => formFields.filter((f) => !f.hiddenInForm),
+    [formFields]
+  );
   const formFieldKeys = useMemo(() => new Set(formFields.map((f) => String(f.key))), [formFields]);
 
   const [manualFields, setManualFields] = useState<Record<string, boolean>>({});
@@ -62,14 +74,15 @@ export function DynamicFormModal<T extends Record<string, any>>({
       const masterDudi = rel?.masterDudi || [];
       const masterGuru = rel?.masterGuru || [];
       const payload: Record<string, any> = { ...(formValues as Record<string, any>) };
+      const studentMode = effectiveMeta?.studentValidationMode;
 
-      if (moduleId === 'siswa' && payload.nis !== undefined) {
+      if (studentMode === 'master_unique' && payload.nis !== undefined) {
         const cleanDigits = getCanonicalNisDigits(payload.nis);
         if (cleanDigits) payload.nis = cleanDigits;
       }
 
       if (
-        ['pengajuan', 'perizinan', 'siswa_pkl', 'monitoring', 'sertifikat'].includes(moduleId || '') &&
+        (studentMode === 'required_master' || studentMode === 'optional_master') &&
         masterSiswa.length > 0
       ) {
         const nisDigits = getCanonicalNisDigits(payload.nis);
@@ -84,7 +97,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
         }
       }
 
-      if (formFieldKeys.has('idJurusan') || moduleId === 'siswa' || moduleId === 'kelas') {
+      if (formFieldKeys.has('idJurusan') || effectiveMeta?.canonicalizeJurusanCode) {
         const rawJur = payload.idJurusan || payload.jurusan;
         if (rawJur) {
           payload.idJurusan = generateJurusanCode(String(rawJur)) || String(rawJur);
@@ -141,7 +154,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
         }
       }
 
-      if (moduleId === 'perizinan') {
+      if (effectiveMeta?.syncPerizinanDateRange) {
         const startIso = normalizeToIsoDate(payload.tanggalMulaiIzin);
         const isSd = payload.statusIzinOrtu === 'Surat Dokter (SD)';
         const endIso = isSd ? normalizeToIsoDate(payload.tanggalSelesaiIzin) : '';
@@ -161,8 +174,9 @@ export function DynamicFormModal<T extends Record<string, any>>({
       const masterSiswa = rel?.masterSiswa || [];
       const loadingRelations = rel?.loadingRelations || false;
       const extraErrors: Record<string, string> = {};
+      const studentMode = effectiveMeta?.studentValidationMode;
 
-      if (moduleId === 'siswa') {
+      if (studentMode === 'master_unique') {
         const nisDigits = getCanonicalNisDigits(formValues.nis);
         if (nisDigits) {
           const duplicate = (existingRows || []).find(
@@ -174,11 +188,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
         }
       }
 
-      const isDependentStudentModule = ['pengajuan', 'perizinan', 'siswa_pkl', 'sertifikat'].includes(
-        moduleId || ''
-      );
-
-      if (isDependentStudentModule) {
+      if (studentMode === 'required_master') {
         if (loadingRelations && masterSiswa.length === 0) {
           extraErrors.nis = 'Sedang memuat Master Siswa, silakan tunggu sebentar.';
         } else if (masterSiswa.length > 0) {
@@ -197,7 +207,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
             extraErrors.namaSiswa = `Nama untuk NIS ${formatNisVisual(matchedMaster.nis)} di Master Siswa adalah "${matchedMaster.nama}". Pilih siswa dari daftar Master Siswa.`;
           }
         }
-      } else if (moduleId === 'monitoring' && masterSiswa.length > 0) {
+      } else if (studentMode === 'optional_master' && masterSiswa.length > 0) {
         const nisDigits = getCanonicalNisDigits(formValues.nis);
         if (nisDigits) {
           const matchedMaster = masterSiswa.find((s) => getCanonicalNisDigits(s.nis) === nisDigits);
@@ -207,7 +217,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
         }
       }
 
-      if (moduleId === 'siswa_pkl' && isActivePlacementStatus(formValues.statusPenempatan)) {
+      if (effectiveMeta?.preventDuplicateActivePlacement && isActivePlacementStatus(formValues.statusPenempatan)) {
         const nisDigits = getCanonicalNisDigits(formValues.nis);
         if (nisDigits) {
           const activeConflict = (existingRows || []).find(
@@ -222,7 +232,7 @@ export function DynamicFormModal<T extends Record<string, any>>({
         }
       }
 
-      if (moduleId === 'perizinan' && formValues.statusIzinOrtu === 'Surat Dokter (SD)') {
+      if (effectiveMeta?.syncPerizinanDateRange && formValues.statusIzinOrtu === 'Surat Dokter (SD)') {
         const startIso = normalizeToIsoDate(formValues.tanggalMulaiIzin);
         const endIso = normalizeToIsoDate(formValues.tanggalSelesaiIzin);
         if (startIso && endIso && endIso < startIso) {
@@ -310,30 +320,21 @@ export function DynamicFormModal<T extends Record<string, any>>({
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {formFields.map((field) => {
+              {visibleFormFields.map((field) => {
                 const key = String(field.key);
-                const isSuratDokter =
-                  moduleId === 'perizinan' && values.statusIzinOrtu === 'Surat Dokter (SD)';
-                if (moduleId === 'perizinan' && key === 'tanggalSelesaiIzin' && !isSuratDokter) {
+                if (field.visibleWhen && values[field.visibleWhen.field] !== field.visibleWhen.equals) {
                   return null;
                 }
 
                 const displayLabel =
-                  moduleId === 'perizinan' && key === 'tanggalMulaiIzin'
-                    ? isSuratDokter
-                      ? 'Mulai Tanggal (Surat Dokter)'
-                      : 'Tanggal Izin'
-                    : moduleId === 'perizinan' && key === 'tanggalSelesaiIzin'
-                    ? 'Sampai Tanggal (Surat Dokter)'
+                  field.labelWhen && values[field.labelWhen.field] === field.labelWhen.equals
+                    ? field.labelWhen.label
                     : field.label;
 
                 const displayHelperText =
-                  moduleId === 'perizinan' && key === 'tanggalMulaiIzin'
-                    ? isSuratDokter
-                      ? 'Pilih tanggal mulai izin sesuai surat dokter'
-                      : 'Pilih tanggal izin siswa (1 hari; rentang tanggal otomatis muncul jika memilih Surat Dokter)'
-                    : moduleId === 'perizinan' && key === 'tanggalSelesaiIzin'
-                    ? 'Pilih tanggal berakhir izin sesuai surat dokter'
+                  field.helperTextWhen &&
+                  values[field.helperTextWhen.field] === field.helperTextWhen.equals
+                    ? field.helperTextWhen.helperText
                     : field.helperText;
 
                 const isFullWidth = field.type === 'textarea' || field.type === 'image';
